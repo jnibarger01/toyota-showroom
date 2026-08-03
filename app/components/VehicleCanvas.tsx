@@ -7,6 +7,7 @@ import * as THREE_WEBGPU from "three/webgpu";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
+import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 
 export type BuildState = {
   paint: string;
@@ -14,6 +15,7 @@ export type BuildState = {
   roofRack: boolean;
   lightBar: boolean;
   sliders: boolean;
+  /** id of the selected entry in `Vehicle3DConfig.wheelVariants`, e.g. "trail". */
   wheels: string;
 };
 
@@ -27,6 +29,7 @@ export type CameraPreset = {
 type Props = {
   build: BuildState;
   cameraPreset: CameraPreset;
+  threeDConfig: Vehicle3DConfig;
 };
 
 type SceneRefs = {
@@ -53,7 +56,7 @@ type RendererLike = {
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-export function VehicleCanvas({ build, cameraPreset }: Props) {
+export function VehicleCanvas({ build, cameraPreset, threeDConfig }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -125,11 +128,11 @@ export function VehicleCanvas({ build, cameraPreset }: Props) {
       grid.position.y = 0.002;
       scene.add(grid);
 
-      const model = await loadVehicleModel();
+      const model = await loadVehicleModel(threeDConfig);
       if (cancelled) return;
       scene.add(model.root);
       refs.current = model;
-      applyBuild(model, build, false);
+      applyBuild(model, build, threeDConfig.wheelVariants, false);
 
       const resize = () => {
         const width = Math.max(host.clientWidth, 1);
@@ -178,8 +181,8 @@ export function VehicleCanvas({ build, cameraPreset }: Props) {
   }, []);
 
   useEffect(() => {
-    if (refs.current) applyBuild(refs.current, build, true);
-  }, [build]);
+    if (refs.current) applyBuild(refs.current, build, threeDConfig.wheelVariants, true);
+  }, [build, threeDConfig.wheelVariants]);
 
   useEffect(() => {
     const camera = cameraRef.current;
@@ -221,7 +224,11 @@ async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu
   return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
 }
 
-async function loadVehicleModel(): Promise<SceneRefs> {
+async function loadVehicleModel(threeDConfig: Vehicle3DConfig): Promise<SceneRefs> {
+  if (!threeDConfig.hasModel || !threeDConfig.modelUrl) {
+    return createProceduralFallback();
+  }
+
   const draco = new DRACOLoader();
   draco.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
   draco.setDecoderConfig({ type: "wasm" });
@@ -230,9 +237,9 @@ async function loadVehicleModel(): Promise<SceneRefs> {
   loader.setDRACOLoader(draco);
 
   try {
-    const gltf = await loader.loadAsync(`${basePath}/models/modsnation_7416_assets_assembled.glb`);
+    const gltf = await loader.loadAsync(`${basePath}${threeDConfig.modelUrl}`);
     const root = gltf.scene;
-    root.name = "ModsNation 7416 assembled 4Runner";
+    root.name = "Vehicle model";
 
     const box = new THREE.Box3().setFromObject(root);
     const center = box.getCenter(new THREE.Vector3());
@@ -249,22 +256,18 @@ async function loadVehicleModel(): Promise<SceneRefs> {
 
       const materials = Array.isArray(object.material) ? object.material : [object.material];
       for (const material of materials) {
-        if (material.name === "body.carmain" && material instanceof THREE.MeshPhysicalMaterial) {
+        if (threeDConfig.paintableMaterialNames.includes(material.name) && material instanceof THREE.MeshPhysicalMaterial) {
           paintMaterials.push(material);
         }
       }
     });
 
-    const wheelMountNames = [
-      "MOUNT_WHEEL_FRONT_LEFT",
-      "MOUNT_WHEEL_FRONT_RIGHT",
-      "MOUNT_WHEEL_REAR_LEFT",
-      "MOUNT_WHEEL_REAR_RIGHT",
-    ];
-    const wheelMounts = wheelMountNames
+    const wheelMounts = threeDConfig.wheelMountNames
       .map((name) => root.getObjectByName(name))
       .filter((mount): mount is THREE.Object3D => Boolean(mount));
 
+    // Deliberately passes [] rather than `wheelMounts`: the source GLB already includes its
+    // own wheels, so accessory wheels are not attached on top of them (see README).
     const accessories = createAccessories(root, []);
     draco.dispose();
 
@@ -330,7 +333,12 @@ function createAccessories(root: THREE.Group, wheelMounts: THREE.Object3D[]) {
   return { roofRack, lightBar, sliders, wheels };
 }
 
-function applyBuild(refs: SceneRefs, build: BuildState, animate: boolean) {
+function applyBuild(
+  refs: SceneRefs,
+  build: BuildState,
+  wheelVariants: Vehicle3DConfig["wheelVariants"],
+  animate: boolean,
+) {
   const target = new THREE.Color(build.paint);
   refs.paintMaterials.forEach((material) => {
     if (animate) {
@@ -357,7 +365,7 @@ function applyBuild(refs: SceneRefs, build: BuildState, animate: boolean) {
 
   const lift = build.lift * 0.045;
   refs.root.position.y = lift;
-  const wheelScale = build.wheels === "Stock" ? 0.9 : build.wheels === "Beadlock" ? 1.08 : 1;
+  const wheelScale = wheelVariants.find((variant) => variant.id === build.wheels)?.scale ?? 1;
   refs.wheels.forEach((wheel) => {
     if (animate) gsap.to(wheel.scale, { x: wheelScale, y: wheelScale, z: wheelScale, duration: 0.35 });
     else wheel.scale.setScalar(wheelScale);
