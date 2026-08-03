@@ -31,10 +31,10 @@ const PAINTS = [
 ];
 
 const CAMERA_PRESETS: CameraPreset[] = [
-  { id: "hero", label: "Hero", position: [7.5, 4.0, 8.5], target: [0, 1.1, 0] },
-  { id: "front", label: "Front", position: [0, 2.2, 10], target: [0, 1.0, 0] },
+  { id: "hero", label: "Hero", position: [7.8, 3.4, -9.6], target: [0, 1.0, -0.25] },
+  { id: "front", label: "Front", position: [0, 2.2, -10], target: [0, 1.0, 0] },
   { id: "side", label: "Side", position: [10, 2.2, 0], target: [0, 1.0, 0] },
-  { id: "rear", label: "Rear", position: [0, 2.2, -10], target: [0, 1.0, 0] }
+  { id: "rear", label: "Rear", position: [0, 2.2, 10], target: [0, 1.0, 0] }
 ];
 
 export function BuilderApp() {
@@ -150,8 +150,8 @@ export function BuilderApp() {
           <VehicleCanvas build={build} cameraPreset={preset} />
 
           <div className="gpu-status">
-            <span><i /> WebGPU active</span>
-            <small>Procedural geometry · no GLB required</small>
+            <span><i /> WebGPU preferred</span>
+            <small>Assembled 4Runner asset · WebGL fallback ready</small>
           </div>
 
           <div className="installed-strip">
