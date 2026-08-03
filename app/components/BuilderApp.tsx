@@ -90,7 +90,7 @@ export function BuilderApp() {
 
         if (cancelled) return;
         setBootstrap({ vehicle, catalog: options, configuration });
-        setPreset(vehicle.threeDConfig.cameraPresets[0] ?? null);
+        setPreset(presetForConfiguration(vehicle, configuration));
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
       }
@@ -118,7 +118,9 @@ export function BuilderApp() {
 
   // Persist any pending batch before the tab goes away, so a refresh cannot lose the last click.
   useEffect(() => {
-    const flush = () => void configurationStore.flush();
+    // `keepalive` lets the PATCH outlive the document; a plain fetch started during unload can be
+    // aborted by the browser, losing a click made inside the debounce window.
+    const flush = () => void configurationStore.flush({ keepalive: true });
     window.addEventListener("pagehide", flush);
     return () => window.removeEventListener("pagehide", flush);
   }, []);
@@ -196,6 +198,20 @@ export function BuilderApp() {
           </button>
         </div>
       </header>
+
+      {/*
+        `loadError` is also set by VehicleCanvas *after* bootstrap — a renderer failure or a GLB
+        that fell back to the simplified model. Rendering it only in the pre-bootstrap branch would
+        leave those failures invisible, which is exactly the silent-degradation this integration is
+        meant to remove.
+      */}
+      {loadError ? (
+        <div className="config-error" role="alert">
+          <AlertTriangle size={15} />
+          <span>{loadError}</span>
+          <button onClick={() => setLoadError(null)}>Dismiss</button>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="config-error" role="alert">
@@ -345,6 +361,28 @@ function SaveIndicator({ status }: { status: string }) {
 
 function startingMsrp(vehicle: Vehicle): number {
   return Math.min(vehicle.pricing.baseMsrp, ...vehicle.grades.map((grade) => grade.msrp));
+}
+
+/**
+ * Resolves the camera a resumed configuration should open with.
+ *
+ * A saved `cameraState` is honoured over the vehicle's first preset, otherwise choosing and saving
+ * a camera angle would appear to work until the next refresh. A stored `presetId` is preferred so
+ * the matching toolbar button reads as selected; a configuration saved from a free orbit falls back
+ * to its raw position and target.
+ */
+export function presetForConfiguration(
+  vehicle: Vehicle,
+  configuration: VehicleConfiguration,
+): CameraPreset | null {
+  const presets = vehicle.threeDConfig.cameraPresets;
+  const saved = configuration.cameraState;
+  if (!saved) return presets[0] ?? null;
+
+  const matching = presets.find((preset) => preset.id === saved.presetId);
+  if (matching) return matching;
+
+  return { id: saved.presetId ?? "saved", label: "Saved", position: saved.position, target: saved.target };
 }
 
 function rememberConfigurationId(configurationId: string): void {

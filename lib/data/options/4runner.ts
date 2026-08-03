@@ -117,6 +117,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   {
     id: "trim-tire-letters-raised-white",
     category: "trim",
+    selectionGroup: "trim-tire-letters",
     label: "Raised White Letters",
     operation: "material-update",
     targetNodes: TIRE_NODES,
@@ -127,6 +128,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   {
     id: "trim-tire-letters-blackwall",
     category: "trim",
+    selectionGroup: "trim-tire-letters",
     label: "Blackwall",
     operation: "material-update",
     targetNodes: TIRE_NODES,
@@ -137,6 +139,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   {
     id: "trim-grille-blackout",
     category: "trim",
+    selectionGroup: "trim-grille",
     label: "Blackout Grille",
     operation: "material-update",
     targetNodes: ["Tun_GRILLE"],
@@ -148,6 +151,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   {
     id: "trim-grille-chrome",
     category: "trim",
+    selectionGroup: "trim-grille",
     label: "Chrome Grille",
     operation: "material-update",
     targetNodes: ["Tun_GRILLE"],

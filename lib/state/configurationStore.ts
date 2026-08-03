@@ -88,7 +88,9 @@ export class ConfigurationStore {
 
     const selections = alreadyOn
       ? withOptionDeselected(current.selections, option)
-      : withOptionSelected(current.selections, option);
+      // The catalog is needed to resolve selection groups: a single-select choice must evict only
+      // the other members of its own group, not everything filed under the category.
+      : withOptionSelected(current.selections, option, this.state.catalog);
     const next: VehicleConfiguration = {
       ...current,
       selections,
@@ -129,7 +131,11 @@ export class ConfigurationStore {
     this.flushTimer = setTimeout(() => void this.flush(), PERSIST_DEBOUNCE_MS);
   }
 
-  async flush(): Promise<void> {
+  /**
+   * `keepalive` is for the `pagehide` path: browsers may abort an ordinary in-flight fetch as the
+   * document unloads, which would drop a click made inside the debounce window.
+   */
+  async flush(options: { keepalive?: boolean } = {}): Promise<void> {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
 
@@ -139,7 +145,7 @@ export class ConfigurationStore {
       return;
     }
 
-    this.flushPromise = this.performFlushLoop();
+    this.flushPromise = this.performFlushLoop(options);
     try {
       await this.flushPromise;
     } finally {
@@ -147,7 +153,7 @@ export class ConfigurationStore {
     }
   }
 
-  private async performFlushLoop(): Promise<void> {
+  private async performFlushLoop(options: { keepalive?: boolean } = {}): Promise<void> {
     do {
       this.flushRequested = false;
       const configuration = this.state.configuration;
@@ -155,14 +161,25 @@ export class ConfigurationStore {
 
       const sentVersion = this.mutationVersion;
       const batched = [...this.batchedOptionIds];
+
+      // Nothing to persist. Skipping the request matters beyond saving a round trip: after a
+      // rollback the local state deliberately equals the server's record, so writing it back would
+      // bump the revision and replace the "error" status with "saved", hiding the failure the user
+      // needs to see. It also stops the `pagehide` flush writing on every ordinary page close.
+      if (batched.length === 0 && this.matchesPersisted(configuration)) return;
+
       this.batchedOptionIds.clear();
 
       try {
-        const saved = await configurationsApi.updateConfiguration(configuration.configurationId, {
-          selections: configuration.selections,
-          cameraState: configuration.cameraState,
-          expectedRevision: this.lastPersisted?.revision,
-        });
+        const saved = await configurationsApi.updateConfiguration(
+          configuration.configurationId,
+          {
+            selections: configuration.selections,
+            cameraState: configuration.cameraState,
+            expectedRevision: this.lastPersisted?.revision,
+          },
+          options,
+        );
         this.lastPersisted = saved;
 
         if (this.mutationVersion === sentVersion) {
@@ -189,6 +206,16 @@ export class ConfigurationStore {
         return;
       }
     } while (this.flushRequested || this.batchedOptionIds.size > 0);
+  }
+
+  /** Whether the local record already matches what the server last confirmed. */
+  private matchesPersisted(configuration: VehicleConfiguration): boolean {
+    const persisted = this.lastPersisted;
+    if (!persisted) return false;
+    return (
+      JSON.stringify(configuration.selections) === JSON.stringify(persisted.selections) &&
+      JSON.stringify(configuration.cameraState ?? null) === JSON.stringify(persisted.cameraState ?? null)
+    );
   }
 
   private async rollback(message: string, batched: string[] = []): Promise<void> {

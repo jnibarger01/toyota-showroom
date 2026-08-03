@@ -196,8 +196,10 @@ the model never invalidates a saved build.
 }
 ```
 
-> `trim` holds two ids here for illustration of the payload shape. As configured, `trim` is
-> single-select and the API would reject that body with 422 — see §5.
+> `trim` legitimately holds two ids: single-select cardinality applies per **selection group**, not
+> per category. `trim-grille-blackout` is in group `trim-grille` and
+> `trim-tire-letters-raised-white` in `trim-tire-letters`, so they coexist — but two grilles would
+> be rejected with 422. See §5.
 
 ### Database
 
@@ -555,7 +557,8 @@ Every non-2xx body matches `ApiErrorBody` (`lib/api/errors.ts`):
 - **Grade** must exist on that vehicle; the error lists the valid ids.
 - **Option ids** must exist in *that vehicle's* catalog, sit in the category they claim, and be
   offered on the grade.
-- **Cardinality** — single-select categories reject arrays longer than one; duplicates rejected.
+- **Cardinality** — enforced per `selectionGroup` (defaulting to the category), so `trim` may hold
+  one grille *and* one tyre-lettering choice but never two grilles; duplicates rejected.
 - **A PATCH re-validates against the stored record**, never the request's own claims. A client
   holding an SR5 configuration cannot unlock a TRD Pro colour by restating its grade. This is
   covered by a test.

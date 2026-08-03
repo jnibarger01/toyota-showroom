@@ -70,7 +70,19 @@ let remoteAvailable: boolean | null = null;
 function indicatesMissingBackend(error: unknown, method: "GET" | "WRITE"): boolean {
   if (!(error instanceof ApiError)) return false;
   if (error.code === "network_error" || error.status === 405 || error.status === 501) return true;
-  return method === "WRITE" && error.status === 404;
+
+  if (error.status === 404) {
+    // A write can only 404 on a host that has no such route.
+    if (method === "WRITE") return true;
+    // A GET is ambiguous: the real API answers a genuinely missing record with the
+    // `{ error: { code: "not_found" } }` envelope, while a static host serves its own HTML 404
+    // page, which fails to parse and surfaces as "request_failed". Distinguishing the two is what
+    // lets a resumed configuration fall through to the local store instead of being recreated —
+    // which would strand the saved build on every refresh of the Pages deployment.
+    return error.code !== "not_found";
+  }
+
+  return false;
 }
 
 async function withFallback<T>(
@@ -120,7 +132,34 @@ export async function listVehicleOptions(vehicleId: string, gradeId?: string): P
   const { data } = await request<{ data: CustomizationOption[] }>(
     catalogUrl(`/vehicles/${encodeURIComponent(vehicleId)}/options`),
   );
-  return gradeId ? data.filter((option) => isOptionAvailableForGrade(option, gradeId)) : data;
+  // Called through a lambda, not passed by reference: `Array.map` supplies the element index as a
+  // second argument, which would land in `base` and prefix every URL with a number.
+  const normalized = data.map((option) => normalizeOptionAssets(option));
+  return gradeId ? normalized.filter((option) => isOptionAvailableForGrade(option, gradeId)) : normalized;
+}
+
+/**
+ * Catalog data stores root-relative asset URLs. Under the GitHub Pages deployment the site is
+ * mounted at a sub-path, so every URL a loader will consume needs the same prefix `lib/api/client.ts`
+ * applies to vehicle media — otherwise a decal texture or replacement GLB is fetched from the domain
+ * root and 404s the moment those options become contract-satisfied.
+ */
+export function normalizeOptionAssets(
+  option: CustomizationOption,
+  base: string = basePath,
+): CustomizationOption {
+  const withBase = (url: string) => (url.startsWith("/") ? `${base}${url}` : url);
+
+  const next: CustomizationOption = { ...option };
+  if (next.assetUrl) next.assetUrl = withBase(next.assetUrl);
+  if (next.thumbnailUrl) next.thumbnailUrl = withBase(next.thumbnailUrl);
+  if (next.materialConfig?.textureUrl) {
+    next.materialConfig = {
+      ...next.materialConfig,
+      textureUrl: withBase(next.materialConfig.textureUrl),
+    };
+  }
+  return next;
 }
 
 export async function createConfiguration(input: CreateConfigurationInput): Promise<VehicleConfiguration> {
@@ -153,13 +192,17 @@ export async function getConfiguration(configurationId: string): Promise<Vehicle
 export async function updateConfiguration(
   configurationId: string,
   input: UpdateConfigurationInput,
+  options: { keepalive?: boolean } = {},
 ): Promise<VehicleConfiguration> {
   return withFallback(
     "WRITE",
     async () => {
       const { data } = await request<{ data: VehicleConfiguration }>(
         apiUrl(`/configurations/${encodeURIComponent(configurationId)}`),
-        { method: "PATCH", body: JSON.stringify(input) },
+        // `keepalive` lets the request outlive the document during `pagehide`; browsers are free
+        // to abort ordinary in-flight fetches as a page unloads, which would silently drop the
+        // user's last click.
+        { method: "PATCH", body: JSON.stringify(input), keepalive: options.keepalive },
       );
       return data;
     },
