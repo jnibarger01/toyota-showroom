@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Camera,
@@ -16,62 +16,89 @@ import {
   Settings2,
   Share2,
   SlidersHorizontal,
-  Sun,
   Truck,
   ZoomIn
 } from "lucide-react";
 import { VehicleCanvas, type BuildState, type CameraPreset } from "./VehicleCanvas";
+import { getVehicle } from "../../lib/api/client";
+import type { Vehicle } from "../../lib/types/vehicle";
 
-const PAINTS = [
-  { name: "Blueprint", value: "#1558d6" },
-  { name: "Midnight Black", value: "#101215" },
-  { name: "Ice Cap", value: "#d8dde2" },
-  { name: "Underground", value: "#4f545a" },
-  { name: "Barcelona Red", value: "#9d1d20" }
-];
+const VEHICLE_SLUG = "4runner";
 
-const CAMERA_PRESETS: CameraPreset[] = [
-  { id: "hero", label: "Hero", position: [7.8, 3.4, -9.6], target: [0, 1.0, -0.25] },
-  { id: "front", label: "Front", position: [0, 2.2, -10], target: [0, 1.0, 0] },
-  { id: "side", label: "Side", position: [10, 2.2, 0], target: [0, 1.0, 0] },
-  { id: "rear", label: "Rear", position: [0, 2.2, 10], target: [0, 1.0, 0] }
-];
-
-export function BuilderApp() {
-  const [build, setBuild] = useState<BuildState>({
-    paint: PAINTS[0].value,
+function defaultBuild(vehicle: Vehicle): BuildState {
+  const wheelVariants = vehicle.threeDConfig.wheelVariants;
+  return {
+    paint: vehicle.exteriorColors[0]?.hex ?? "#1558d6",
     lift: 2,
     roofRack: true,
     lightBar: true,
     sliders: true,
-    wheels: "Trail"
-  });
-  const [preset, setPreset] = useState<CameraPreset>(CAMERA_PRESETS[0]);
+    wheels: wheelVariants.find((v) => v.id === "trail")?.id ?? wheelVariants[0]?.id ?? "stock",
+  };
+}
+
+function startingMsrp(vehicle: Vehicle): number {
+  return Math.min(vehicle.pricing.baseMsrp, ...vehicle.grades.map((g) => g.msrp));
+}
+
+export function BuilderApp() {
+  const [vehicle, setVehicle] = useState<Vehicle | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [build, setBuild] = useState<BuildState | null>(null);
+  const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const installed = useMemo(
-    () => [
+  useEffect(() => {
+    let cancelled = false;
+    getVehicle(VEHICLE_SLUG)
+      .then((data) => {
+        if (cancelled) return;
+        setVehicle(data);
+        setBuild(defaultBuild(data));
+        setPreset(data.threeDConfig.cameraPresets[0] ?? null);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const installed = useMemo(() => {
+    if (!build) return [] as string[];
+    return [
       build.roofRack && "Roof rack",
       build.lightBar && "LED light bar",
       build.sliders && "Rock sliders",
-      build.lift > 0 && `${build.lift}" lift`,
-      `${build.wheels} wheels`
-    ].filter(Boolean) as string[],
-    [build]
-  );
+      build.lift > 0 && `${build.lift}" lift`
+    ].filter(Boolean) as string[];
+  }, [build]);
 
   const reset = () => {
-    setBuild({
-      paint: PAINTS[0].value,
-      lift: 2,
-      roofRack: true,
-      lightBar: true,
-      sliders: true,
-      wheels: "Trail"
-    });
-    setPreset(CAMERA_PRESETS[0]);
+    if (!vehicle) return;
+    setBuild(defaultBuild(vehicle));
+    setPreset(vehicle.threeDConfig.cameraPresets[0] ?? null);
     setSaved(false);
   };
+
+  if (loadError) {
+    return (
+      <main className="builder-shell builder-status">
+        <p>Couldn&rsquo;t load vehicle data: {loadError}</p>
+      </main>
+    );
+  }
+
+  if (!vehicle || !build || !preset) {
+    return (
+      <main className="builder-shell builder-status">
+        <p>Loading {VEHICLE_SLUG}&hellip;</p>
+      </main>
+    );
+  }
+
+  const cameraPresets = vehicle.threeDConfig.cameraPresets;
 
   return (
     <main className="builder-shell">
@@ -79,7 +106,7 @@ export function BuilderApp() {
         <div className="brand">
           <Truck size={24} />
           <div>
-            <strong>4RUNNER</strong>
+            <strong>{vehicle.model.toUpperCase()}</strong>
             <span>WEBGPU BUILDER</span>
           </div>
         </div>
@@ -101,9 +128,9 @@ export function BuilderApp() {
       <section className="workspace">
         <aside className="left-rail">
           <div className="vehicle-title">
-            <span>2024 TOYOTA</span>
-            <h1>4Runner Limited</h1>
-            <p>Private build #7416-inspired setup</p>
+            <span>{vehicle.year} TOYOTA</span>
+            <h1>{vehicle.model}</h1>
+            <p>Starting at ${startingMsrp(vehicle).toLocaleString()}</p>
           </div>
 
           <div className="summary">
@@ -130,7 +157,7 @@ export function BuilderApp() {
           <div className="stage-toolbar">
             <div className="camera-group">
               <Camera size={16} />
-              {CAMERA_PRESETS.map((item) => (
+              {cameraPresets.map((item) => (
                 <button
                   key={item.id}
                   className={preset.id === item.id ? "selected" : ""}
@@ -147,7 +174,7 @@ export function BuilderApp() {
             </div>
           </div>
 
-          <VehicleCanvas build={build} cameraPreset={preset} />
+          <VehicleCanvas build={build} cameraPreset={preset} threeDConfig={vehicle.threeDConfig} />
 
           <div className="gpu-status">
             <span><i /> WebGPU preferred</span>
@@ -174,14 +201,14 @@ export function BuilderApp() {
           <section className="control-section">
             <label>Paint</label>
             <div className="paint-row">
-              {PAINTS.map((paint) => (
+              {vehicle.exteriorColors.map((color) => (
                 <button
-                  key={paint.value}
-                  aria-label={paint.name}
-                  title={paint.name}
-                  className={build.paint === paint.value ? "active" : ""}
-                  style={{ background: paint.value }}
-                  onClick={() => setBuild({ ...build, paint: paint.value })}
+                  key={color.code}
+                  aria-label={color.name}
+                  title={color.name}
+                  className={build.paint === color.hex ? "active" : ""}
+                  style={{ background: color.hex }}
+                  onClick={() => setBuild({ ...build, paint: color.hex })}
                 />
               ))}
             </div>
@@ -221,20 +248,12 @@ export function BuilderApp() {
             onChange={(sliders) => setBuild({ ...build, sliders })}
           />
 
-          <section className="control-section">
-            <label>Wheel style</label>
-            <div className="segmented">
-              {["Stock", "Trail", "Beadlock"].map((wheels) => (
-                <button
-                  key={wheels}
-                  className={build.wheels === wheels ? "active" : ""}
-                  onClick={() => setBuild({ ...build, wheels })}
-                >
-                  {wheels}
-                </button>
-              ))}
-            </div>
-          </section>
+          {/*
+            Wheel style is intentionally not exposed yet: `refs.wheels` is empty in every
+            current render path (real GLB and procedural fallback alike — see
+            VehicleCanvas.tsx), so selecting a variant here would change no visible geometry.
+            Goal 22 (Phase 3) wires this up against real wheel meshes; re-add the control then.
+          */}
 
           <button className="save-build" onClick={() => setSaved(true)}>
             <Save size={16}/> Save build to D1

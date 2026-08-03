@@ -27,7 +27,7 @@ The runtime does not add duplicate replacement wheels. Paint, camera, lift, and 
 
 ```bash
 npm install
-npx next dev -p 3004
+npm run dev -- -p 3004
 ```
 
 Open `http://127.0.0.1:3004/`.
