@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Box,
   Camera,
   Check,
@@ -9,88 +10,157 @@ import {
   Cog,
   Expand,
   Lightbulb,
+  Loader2,
   Mountain,
   PaintBucket,
   RotateCcw,
-  Save,
   Settings2,
   Share2,
   SlidersHorizontal,
   Truck,
-  ZoomIn
+  ZoomIn,
 } from "lucide-react";
-import { VehicleCanvas, type BuildState, type CameraPreset } from "./VehicleCanvas";
+import { VehicleCanvas, type CameraPreset } from "./VehicleCanvas";
+import { CustomizationButton } from "./CustomizationButton";
 import { getVehicle } from "../../lib/api/client";
+import * as configurationsApi from "../../lib/api/configurations";
+import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
 import type { Vehicle } from "../../lib/types/vehicle";
+import {
+  CATEGORY_APPLY_ORDER,
+  type CustomizationCategory,
+  type CustomizationOption,
+  type VehicleConfiguration,
+} from "../../lib/types/customization";
+import type { VehicleSceneController } from "../../lib/three/sceneController";
 
 const VEHICLE_SLUG = "4runner";
+const DEFAULT_GRADE = "trd-pro";
+const STORAGE_KEY = "toyota-showroom:configurationId";
 
-function defaultBuild(vehicle: Vehicle): BuildState {
-  const wheelVariants = vehicle.threeDConfig.wheelVariants;
-  return {
-    paint: vehicle.exteriorColors[0]?.hex ?? "#1558d6",
-    lift: 2,
-    roofRack: true,
-    lightBar: true,
-    sliders: true,
-    wheels: wheelVariants.find((v) => v.id === "trail")?.id ?? wheelVariants[0]?.id ?? "stock",
-  };
-}
+const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
+  paint: "Paint",
+  wheels: "Wheels",
+  hood: "Hood",
+  panel: "Body panels",
+  decal: "Decals & graphics",
+  trim: "Trim",
+  accessory: "Accessories",
+};
 
-function startingMsrp(vehicle: Vehicle): number {
-  return Math.min(vehicle.pricing.baseMsrp, ...vehicle.grades.map((g) => g.msrp));
-}
+/**
+ * Bootstrap data resolved before the scene is touched.
+ *
+ * Holding the vehicle, catalog, and configuration together in one state transition is what removes
+ * the race between the three async sources: the canvas is not rendered at all until all three are
+ * present, so there is no window in which a control exists but the scene cannot honour it.
+ */
+type Bootstrap = {
+  vehicle: Vehicle;
+  catalog: CustomizationOption[];
+  configuration: VehicleConfiguration;
+};
 
 export function BuilderApp() {
-  const [vehicle, setVehicle] = useState<Vehicle | null>(null);
+  const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [build, setBuild] = useState<BuildState | null>(null);
   const [preset, setPreset] = useState<CameraPreset | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [lift, setLift] = useState(2);
+  const controllerRef = useRef<VehicleSceneController | null>(null);
 
+  const { configuration, catalog, status, error } = useConfiguration();
+
+  // ------------------------------------------------------------------ step 1-4
+  // Load vehicle metadata, then the option catalog, then the saved configuration. Nothing here
+  // touches Three.js; the scene is only mutated once the GLB reports its node contract verified.
   useEffect(() => {
     let cancelled = false;
-    getVehicle(VEHICLE_SLUG)
-      .then((data) => {
+
+    void (async () => {
+      try {
+        const vehicle = await getVehicle(VEHICLE_SLUG);
+        const gradeId = vehicle.grades.some((grade) => grade.id === DEFAULT_GRADE)
+          ? DEFAULT_GRADE
+          : (vehicle.grades[0]?.id ?? DEFAULT_GRADE);
+
+        const [options, configuration] = await Promise.all([
+          configurationsApi.listVehicleOptions(VEHICLE_SLUG, gradeId),
+          resumeOrCreateConfiguration(vehicle, gradeId),
+        ]);
+
         if (cancelled) return;
-        setVehicle(data);
-        setBuild(defaultBuild(data));
-        setPreset(data.threeDConfig.cameraPresets[0] ?? null);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setLoadError(error instanceof Error ? error.message : String(error));
-      });
+        setBootstrap({ vehicle, catalog: options, configuration });
+        setPreset(vehicle.threeDConfig.cameraPresets[0] ?? null);
+      } catch (err) {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+
     return () => {
       cancelled = true;
+      configurationStore.reset();
     };
   }, []);
 
-  const installed = useMemo(() => {
-    if (!build) return [] as string[];
-    return [
-      build.roofRack && "Roof rack",
-      build.lightBar && "LED light bar",
-      build.sliders && "Rock sliders",
-      build.lift > 0 && `${build.lift}" lift`
-    ].filter(Boolean) as string[];
-  }, [build]);
+  // ------------------------------------------------------------------ step 5-7
+  // Called by the canvas after the base GLB loads and `verifyNodeContract` runs. Saved selections
+  // are applied here, in deterministic category order, before any control is interactive.
+  const handleSceneReady = useCallback(
+    (controller: VehicleSceneController, applicable: CustomizationOption[]) => {
+      controllerRef.current = controller;
+      if (!bootstrap) return;
+      void configurationStore.attachScene(controller, bootstrap.configuration, applicable);
+    },
+    [bootstrap],
+  );
 
-  const reset = () => {
-    if (!vehicle) return;
-    setBuild(defaultBuild(vehicle));
-    setPreset(vehicle.threeDConfig.cameraPresets[0] ?? null);
-    setSaved(false);
+  const handleSceneError = useCallback((message: string) => setLoadError(message), []);
+
+  // Persist any pending batch before the tab goes away, so a refresh cannot lose the last click.
+  useEffect(() => {
+    const flush = () => void configurationStore.flush();
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, []);
+
+  const grouped = useMemo(
+    () =>
+      CATEGORY_APPLY_ORDER.map((category) => ({
+        category,
+        options: catalog.filter((option) => option.category === category),
+      })).filter((group) => group.options.length > 0),
+    [catalog],
+  );
+
+  const installedCount = useMemo(() => {
+    if (!configuration) return 0;
+    return (configuration.selections.accessory ?? []).length + (configuration.selections.decal ?? []).length;
+  }, [configuration]);
+
+  const reset = async () => {
+    if (!bootstrap) return;
+    const fresh = await configurationsApi.createConfiguration({
+      vehicleId: bootstrap.vehicle.slug,
+      modelYear: bootstrap.vehicle.year,
+      gradeId: bootstrap.configuration.gradeId,
+    });
+    rememberConfigurationId(fresh.configurationId);
+    if (controllerRef.current) {
+      await configurationStore.attachScene(controllerRef.current, fresh, catalog);
+    }
+    setLift(2);
+    setPreset(bootstrap.vehicle.threeDConfig.cameraPresets[0] ?? null);
   };
 
-  if (loadError) {
+  if (loadError && !bootstrap) {
     return (
       <main className="builder-shell builder-status">
-        <p>Couldn&rsquo;t load vehicle data: {loadError}</p>
+        <p>Couldn&rsquo;t load the builder: {loadError}</p>
       </main>
     );
   }
 
-  if (!vehicle || !build || !preset) {
+  if (!bootstrap || !preset) {
     return (
       <main className="builder-shell builder-status">
         <p>Loading {VEHICLE_SLUG}&hellip;</p>
@@ -98,6 +168,7 @@ export function BuilderApp() {
     );
   }
 
+  const { vehicle } = bootstrap;
   const cameraPresets = vehicle.threeDConfig.cameraPresets;
 
   return (
@@ -116,14 +187,23 @@ export function BuilderApp() {
           <button>Garage</button>
         </nav>
         <div className="top-actions">
-          <button className="ghost" onClick={reset}><RotateCcw size={16} /> Reset</button>
-          <button className="ghost" onClick={() => setSaved(true)}>
-            {saved ? <Check size={16} /> : <Save size={16} />}
-            {saved ? "Saved locally" : "Save"}
+          <button className="ghost" onClick={() => void reset()}>
+            <RotateCcw size={16} /> Reset
           </button>
-          <button className="primary"><Share2 size={16} /> Share</button>
+          <SaveIndicator status={status} />
+          <button className="primary">
+            <Share2 size={16} /> Share
+          </button>
         </div>
       </header>
+
+      {error ? (
+        <div className="config-error" role="alert">
+          <AlertTriangle size={15} />
+          <span>{error}</span>
+          <button onClick={() => configurationStore.clearError()}>Dismiss</button>
+        </div>
+      ) : null}
 
       <section className="workspace">
         <aside className="left-rail">
@@ -134,18 +214,27 @@ export function BuilderApp() {
           </div>
 
           <div className="summary">
-            <div><span>Installed</span><strong>{installed.length}</strong></div>
-            <div><span>Lift</span><strong>{build.lift}"</strong></div>
-            <div><span>Renderer</span><strong>WebGPU</strong></div>
+            <div>
+              <span>Installed</span>
+              <strong>{installedCount}</strong>
+            </div>
+            <div>
+              <span>Lift</span>
+              <strong>{lift}&quot;</strong>
+            </div>
+            <div>
+              <span>Revision</span>
+              <strong>{configuration?.revision ?? "—"}</strong>
+            </div>
           </div>
 
           <div className="section-label">Systems</div>
-          <button className="rail-item active"><PaintBucket size={18}/> Exterior</button>
-          <button className="rail-item"><CircleGauge size={18}/> Wheels & Tires</button>
-          <button className="rail-item"><SlidersHorizontal size={18}/> Suspension</button>
-          <button className="rail-item"><Lightbulb size={18}/> Lighting</button>
-          <button className="rail-item"><Cog size={18}/> Performance</button>
-          <button className="rail-item"><Box size={18}/> Accessories</button>
+          <button className="rail-item active"><PaintBucket size={18} /> Exterior</button>
+          <button className="rail-item"><CircleGauge size={18} /> Wheels &amp; Tires</button>
+          <button className="rail-item"><SlidersHorizontal size={18} /> Suspension</button>
+          <button className="rail-item"><Lightbulb size={18} /> Lighting</button>
+          <button className="rail-item"><Cog size={18} /> Performance</button>
+          <button className="rail-item"><Box size={18} /> Accessories</button>
 
           <div className="tech-stack">
             <span>Next.js</span><span>React</span><span>Three.js</span>
@@ -161,124 +250,144 @@ export function BuilderApp() {
                 <button
                   key={item.id}
                   className={preset.id === item.id ? "selected" : ""}
-                  onClick={() => setPreset(item)}
+                  onClick={() => {
+                    setPreset(item);
+                    configurationStore.setCameraState({
+                      presetId: item.id,
+                      position: item.position,
+                      target: item.target,
+                    });
+                  }}
                 >
                   {item.label}
                 </button>
               ))}
             </div>
             <div className="viewport-actions">
-              <button title="Zoom"><ZoomIn size={17}/></button>
-              <button title="Settings"><Settings2 size={17}/></button>
-              <button title="Fullscreen"><Expand size={17}/></button>
+              <button title="Zoom"><ZoomIn size={17} /></button>
+              <button title="Settings"><Settings2 size={17} /></button>
+              <button title="Fullscreen"><Expand size={17} /></button>
             </div>
           </div>
 
-          <VehicleCanvas build={build} cameraPreset={preset} threeDConfig={vehicle.threeDConfig} />
+          <VehicleCanvas
+            threeDConfig={vehicle.threeDConfig}
+            catalog={bootstrap.catalog}
+            cameraPreset={preset}
+            lift={lift}
+            onReady={handleSceneReady}
+            onError={handleSceneError}
+          />
 
           <div className="gpu-status">
             <span><i /> WebGPU preferred</span>
             <small>Assembled 4Runner asset · WebGL fallback ready</small>
-          </div>
-
-          <div className="installed-strip">
-            <div className="strip-title">
-              <strong>Installed parts</strong>
-              <span>{installed.length} active</span>
-            </div>
-            <div className="chips">
-              {installed.map((item) => <span key={item}><Check size={13}/>{item}</span>)}
-            </div>
           </div>
         </section>
 
         <aside className="right-panel">
           <div className="panel-title">
             <div><span>Configuration</span><h2>Exterior</h2></div>
-            <Mountain size={22}/>
+            <Mountain size={22} />
           </div>
 
-          <section className="control-section">
-            <label>Paint</label>
-            <div className="paint-row">
-              {vehicle.exteriorColors.map((color) => (
-                <button
-                  key={color.code}
-                  aria-label={color.name}
-                  title={color.name}
-                  className={build.paint === color.hex ? "active" : ""}
-                  style={{ background: color.hex }}
-                  onClick={() => setBuild({ ...build, paint: color.hex })}
-                />
-              ))}
-            </div>
-          </section>
+          {catalog.length === 0 ? (
+            <p className="panel-empty">Preparing customization options&hellip;</p>
+          ) : null}
+
+          {grouped.map(({ category, options }) => (
+            <section className="control-section" key={category}>
+              <label>{CATEGORY_LABELS[category]}</label>
+              <div className={category === "paint" ? "paint-row" : "chip-row"}>
+                {options.map((option) => (
+                  <CustomizationButton
+                    key={option.id}
+                    option={option}
+                    variant={category === "paint" ? "swatch" : "chip"}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
 
           <section className="control-section">
             <label>Lift height</label>
             <div className="segmented">
-              {[0, 1, 2, 3].map((lift) => (
+              {[0, 1, 2, 3].map((value) => (
                 <button
-                  key={lift}
-                  className={build.lift === lift ? "active" : ""}
-                  onClick={() => setBuild({ ...build, lift })}
+                  key={value}
+                  className={lift === value ? "active" : ""}
+                  onClick={() => setLift(value)}
                 >
-                  {lift}"
+                  {value}&quot;
                 </button>
               ))}
             </div>
           </section>
-
-          <Toggle
-            label="Roof rack"
-            description="Low-profile overland rack"
-            checked={build.roofRack}
-            onChange={(roofRack) => setBuild({ ...build, roofRack })}
-          />
-          <Toggle
-            label="LED light bar"
-            description="Amber forward lighting"
-            checked={build.lightBar}
-            onChange={(lightBar) => setBuild({ ...build, lightBar })}
-          />
-          <Toggle
-            label="Rock sliders"
-            description="Frame-mounted side protection"
-            checked={build.sliders}
-            onChange={(sliders) => setBuild({ ...build, sliders })}
-          />
-
-          {/*
-            Wheel style is intentionally not exposed yet: `refs.wheels` is empty in every
-            current render path (real GLB and procedural fallback alike — see
-            VehicleCanvas.tsx), so selecting a variant here would change no visible geometry.
-            Goal 22 (Phase 3) wires this up against real wheel meshes; re-add the control then.
-          */}
-
-          <button className="save-build" onClick={() => setSaved(true)}>
-            <Save size={16}/> Save build to D1
-          </button>
         </aside>
       </section>
     </main>
   );
 }
 
-function Toggle({
-  label,
-  description,
-  checked,
-  onChange
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button className="toggle-row" onClick={() => onChange(!checked)}>
-      <span><strong>{label}</strong><small>{description}</small></span>
-      <i className={checked ? "on" : ""}><b /></i>
-    </button>
-  );
+function SaveIndicator({ status }: { status: string }) {
+  if (status === "saving") {
+    return <button className="ghost" disabled><Loader2 size={16} className="spin" /> Saving</button>;
+  }
+  if (status === "error") {
+    return <button className="ghost" disabled><AlertTriangle size={16} /> Not saved</button>;
+  }
+  if (status === "saved") {
+    return <button className="ghost" disabled><Check size={16} /> Saved</button>;
+  }
+  return <button className="ghost" disabled><Check size={16} /> Up to date</button>;
+}
+
+function startingMsrp(vehicle: Vehicle): number {
+  return Math.min(vehicle.pricing.baseMsrp, ...vehicle.grades.map((grade) => grade.msrp));
+}
+
+function rememberConfigurationId(configurationId: string): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, configurationId);
+  } catch {
+    // Private browsing or a full quota is not a reason to fail the build session.
+  }
+}
+
+/**
+ * Resumes the configuration this browser last worked on, or creates a fresh one.
+ *
+ * Only the *id* is kept client-side; the configuration itself is re-fetched, so the server stays
+ * authoritative and a build edited elsewhere shows its latest state here. A stored id that no
+ * longer resolves (deleted, or a wiped dev database) falls through to creating a new record rather
+ * than leaving the builder stuck on an error.
+ */
+async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): Promise<VehicleConfiguration> {
+  const storedId = safeReadStoredId();
+
+  if (storedId) {
+    try {
+      const existing = await configurationsApi.getConfiguration(storedId);
+      if (existing.vehicleId === vehicle.slug) return existing;
+    } catch {
+      // Fall through to creating a new configuration.
+    }
+  }
+
+  const created = await configurationsApi.createConfiguration({
+    vehicleId: vehicle.slug,
+    modelYear: vehicle.year,
+    gradeId,
+  });
+  rememberConfigurationId(created.configurationId);
+  return created;
+}
+
+function safeReadStoredId(): string | null {
+  try {
+    return window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
 }

@@ -5,19 +5,12 @@ import gsap from "gsap";
 import * as THREE from "three";
 import * as THREE_WEBGPU from "three/webgpu";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
-
-export type BuildState = {
-  paint: string;
-  lift: number;
-  roofRack: boolean;
-  lightBar: boolean;
-  sliders: boolean;
-  /** id of the selected entry in `Vehicle3DConfig.wheelVariants`, e.g. "trail". */
-  wheels: string;
-};
+import type { CustomizationOption } from "../../lib/types/customization";
+import { VehicleSceneController } from "../../lib/three/sceneController";
+import { getGltfLoader, disposeSubtree } from "../../lib/three/assets";
+import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
+import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 
 export type CameraPreset = {
   id: string;
@@ -27,38 +20,35 @@ export type CameraPreset = {
 };
 
 type Props = {
-  build: BuildState;
-  cameraPreset: CameraPreset;
   threeDConfig: Vehicle3DConfig;
+  /** Full server catalog. Only the options this GLB can satisfy are handed back via `onReady`. */
+  catalog: CustomizationOption[];
+  cameraPreset: CameraPreset;
+  /** Ride-height offset in inches; not a catalog category, so it stays a plain prop. */
+  lift: number;
+  /**
+   * Fired once the model is loaded, cleaned up, and verified. The controller is the caller's
+   * handle for every subsequent scene mutation — the canvas itself never applies an option.
+   */
+  onReady: (controller: VehicleSceneController, applicable: CustomizationOption[]) => void;
+  onError: (message: string) => void;
 };
 
-type SceneRefs = {
-  root: THREE.Group;
-  paintMaterials: THREE.MeshPhysicalMaterial[];
-  roofRack: THREE.Group;
-  lightBar: THREE.Group;
-  sliders: THREE.Group;
-  wheels: THREE.Group[];
-  wheelMounts: THREE.Object3D[];
-};
-
-type RendererLike = {
-  domElement: HTMLCanvasElement;
-  setPixelRatio(value: number): void;
-  setSize(width: number, height: number): void;
-  render(scene: THREE.Scene, camera: THREE.Camera): void;
-  renderAsync?: (scene: THREE.Scene, camera: THREE.Camera) => Promise<void>;
-  dispose(): void;
-  shadowMap: { enabled: boolean };
-  toneMapping: THREE.ToneMapping;
-  toneMappingExposure: number;
-};
-
-export function VehicleCanvas({ build, cameraPreset, threeDConfig }: Props) {
+export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onReady, onError }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
-  const refs = useRef<SceneRefs | null>(null);
+  const rootRef = useRef<THREE.Object3D | null>(null);
+
+  // Latest-value refs: the setup effect must run exactly once (loading a 57 MB GLB again on every
+  // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
+  // rather than listing them as dependencies.
+  const onReadyRef = useRef(onReady);
+  const onErrorRef = useRef(onError);
+  const catalogRef = useRef(catalog);
+  onReadyRef.current = onReady;
+  onErrorRef.current = onError;
+  catalogRef.current = catalog;
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -111,12 +101,7 @@ export function VehicleCanvas({ build, cameraPreset, threeDConfig }: Props) {
 
       const floor = new THREE.Mesh(
         new THREE.PlaneGeometry(50, 50),
-        new THREE.MeshPhysicalMaterial({
-          color: "#080a0d",
-          roughness: 0.36,
-          metalness: 0.12,
-          clearcoat: 0.35,
-        }),
+        new THREE.MeshPhysicalMaterial({ color: "#080a0d", roughness: 0.36, metalness: 0.12, clearcoat: 0.35 }),
       );
       floor.rotation.x = -Math.PI / 2;
       floor.receiveShadow = true;
@@ -126,11 +111,40 @@ export function VehicleCanvas({ build, cameraPreset, threeDConfig }: Props) {
       grid.position.y = 0.002;
       scene.add(grid);
 
-      const model = await loadVehicleModel(threeDConfig);
-      if (cancelled) return;
-      scene.add(model.root);
-      refs.current = model;
-      applyBuild(model, build, threeDConfig.wheelVariants, false);
+      let root: THREE.Object3D;
+      try {
+        root = await loadVehicleRoot(threeDConfig);
+      } catch (error) {
+        console.error("High-detail glTF failed to load; using procedural fallback.", error);
+        onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");
+        root = createProceduralVehicle();
+      }
+      if (cancelled) {
+        disposeSubtree(root);
+        return;
+      }
+
+      prepareVehicleRoot(root, threeDConfig);
+      buildProceduralAccessories(root);
+      scene.add(root);
+      rootRef.current = root;
+
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__dumpVehicleHierarchy = () => logHierarchy(root);
+      }
+
+      // Verify before handing the scene over, so an option whose nodes are absent is dropped from
+      // the catalog rather than rendered as a button that would quietly do nothing.
+      const report = verifyNodeContract(root, catalogRef.current);
+      for (const entry of report.unsatisfied) {
+        console.warn(
+          `[customization] option "${entry.option.id}" is unavailable for this asset.`,
+          { missingNodes: entry.missingNodes, missingMaterials: entry.missingMaterials },
+        );
+      }
+
+      const controller = new VehicleSceneController(root, report.satisfied);
+      onReadyRef.current(controller, report.satisfied);
 
       const resize = () => {
         const width = Math.max(host.clientWidth, 1);
@@ -159,28 +173,30 @@ export function VehicleCanvas({ build, cameraPreset, threeDConfig }: Props) {
         controls.dispose();
         renderer.dispose();
         renderer.domElement.remove();
-        scene.traverse((object) => {
-          if (!(object instanceof THREE.Mesh)) return;
-          object.geometry.dispose();
-          const materials = Array.isArray(object.material) ? object.material : [object.material];
-          materials.forEach((material) => material.dispose());
-        });
+        // The controller owns every material clone and attachment it made; disposing it releases
+        // those before the base scene's own geometry is released below.
+        controller.dispose();
+        floor.geometry.dispose();
+        (floor.material as THREE.Material).dispose();
+        grid.dispose();
+        rootRef.current = null;
       };
     })().catch((error) => {
       console.error("Vehicle scene initialization failed:", error);
-      const host = hostRef.current;
-      if (host) host.dataset.sceneError = String(error);
+      onErrorRef.current(error instanceof Error ? error.message : String(error));
     });
 
     return () => {
       cancelled = true;
       cleanup?.();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time setup; see latest-value refs above.
+  }, [threeDConfig]);
 
   useEffect(() => {
-    if (refs.current) applyBuild(refs.current, build, threeDConfig.wheelVariants, true);
-  }, [build, threeDConfig.wheelVariants]);
+    const root = rootRef.current;
+    if (root) gsap.to(root.position, { y: lift * 0.045, duration: 0.35, ease: "power2.out" });
+  }, [lift]);
 
   useEffect(() => {
     const camera = cameraRef.current;
@@ -206,6 +222,18 @@ export function VehicleCanvas({ build, cameraPreset, threeDConfig }: Props) {
   return <div ref={hostRef} className="vehicle-canvas" />;
 }
 
+type RendererLike = {
+  domElement: HTMLCanvasElement;
+  setPixelRatio(value: number): void;
+  setSize(width: number, height: number): void;
+  render(scene: THREE.Scene, camera: THREE.Camera): void;
+  renderAsync?: (scene: THREE.Scene, camera: THREE.Camera) => Promise<void>;
+  dispose(): void;
+  shadowMap: { enabled: boolean };
+  toneMapping: THREE.ToneMapping;
+  toneMappingExposure: number;
+};
+
 async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu" | "webgl2" }> {
   if (navigator.gpu) {
     try {
@@ -222,237 +250,53 @@ async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu
   return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
 }
 
-async function loadVehicleModel(threeDConfig: Vehicle3DConfig): Promise<SceneRefs> {
-  if (!threeDConfig.hasModel || !threeDConfig.modelUrl) {
-    return createProceduralFallback();
+async function loadVehicleRoot(threeDConfig: Vehicle3DConfig): Promise<THREE.Object3D> {
+  if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
+  const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl);
+  return gltf.scene;
+}
+
+/**
+ * Hides retained donor geometry, then centres and grounds the vehicle using only the nodes the
+ * catalog nominates. Exported for the grounding test.
+ */
+export function prepareVehicleRoot(root: THREE.Object3D, threeDConfig: Vehicle3DConfig): void {
+  root.name = "VEHICLE_ROOT";
+
+  for (const name of threeDConfig.hiddenNodeNames ?? []) {
+    const node = root.getObjectByName(name);
+    if (node) node.visible = false;
+    else console.warn(`[customization] hiddenNodeNames references a missing node: "${name}"`);
   }
 
-  const draco = new DRACOLoader();
-  draco.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.7/");
-  draco.setDecoderConfig({ type: "wasm" });
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    object.castShadow = true;
+    object.receiveShadow = true;
+  });
 
-  const loader = new GLTFLoader();
-  loader.setDRACOLoader(draco);
-
-  try {
-    const gltf = await loader.loadAsync(threeDConfig.modelUrl);
-    const root = gltf.scene;
-    root.name = "Vehicle model";
-
-    const box = new THREE.Box3().setFromObject(root);
+  const box = boundsOf(root, threeDConfig.groundingNodeNames);
+  if (box) {
     const center = box.getCenter(new THREE.Vector3());
     const size = box.getSize(new THREE.Vector3());
     root.position.sub(center);
     root.position.y += size.y / 2;
-    root.rotation.y = Math.PI;
-
-    const paintMaterials: THREE.MeshPhysicalMaterial[] = [];
-    root.traverse((object) => {
-      if (!(object instanceof THREE.Mesh)) return;
-      object.castShadow = true;
-      object.receiveShadow = true;
-
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      for (const material of materials) {
-        if (threeDConfig.paintableMaterialNames.includes(material.name) && material instanceof THREE.MeshPhysicalMaterial) {
-          paintMaterials.push(material);
-        }
-      }
-    });
-
-    const wheelMounts = threeDConfig.wheelMountNames
-      .map((name) => root.getObjectByName(name))
-      .filter((mount): mount is THREE.Object3D => Boolean(mount));
-
-    // Deliberately passes [] rather than `wheelMounts`: the source GLB already includes its
-    // own wheels, so accessory wheels are not attached on top of them (see README).
-    const accessories = createAccessories(root, []);
-    draco.dispose();
-
-    return {
-      root,
-      paintMaterials,
-      wheelMounts,
-      ...accessories,
-    };
-  } catch (error) {
-    draco.dispose();
-    console.error("High-detail glTF failed to load; using procedural fallback.", error);
-    return createProceduralFallback();
   }
+  root.rotation.y = Math.PI;
 }
 
-function createAccessories(root: THREE.Group, wheelMounts: THREE.Object3D[]) {
-  const black = new THREE.MeshPhysicalMaterial({ color: "#080a0c", roughness: 0.34, metalness: 0.55 });
-  const amber = new THREE.MeshStandardMaterial({ color: "#ffb000", emissive: "#ff8a00", emissiveIntensity: 5 });
-  const rubber = new THREE.MeshStandardMaterial({ color: "#111214", roughness: 0.92 });
-  const alloy = new THREE.MeshStandardMaterial({ color: "#656b74", metalness: 0.82, roughness: 0.24 });
+function boundsOf(root: THREE.Object3D, nodeNames?: string[]): THREE.Box3 | null {
+  root.updateWorldMatrix(true, true);
 
-  const roofRack = new THREE.Group();
-  roofRack.name = "ADDON_ROOF_RACK";
-  roofRack.position.set(0, 1.88, -0.2);
-  for (const x of [-0.76, 0.76]) {
-    roofRack.add(positionedBox(0.08, 0.09, 2.42, 0.025, black, x, 0, 0));
+  if (!nodeNames?.length) return new THREE.Box3().setFromObject(root);
+
+  const box = new THREE.Box3();
+  let any = false;
+  for (const name of nodeNames) {
+    const node = root.getObjectByName(name);
+    if (!node) continue;
+    box.expandByObject(node);
+    any = true;
   }
-  for (const z of [-1.16, 1.16]) {
-    roofRack.add(positionedBox(1.6, 0.09, 0.08, 0.025, black, 0, 0, z));
-  }
-  for (const z of [-0.78, -0.39, 0, 0.39, 0.78]) {
-    roofRack.add(positionedBox(1.48, 0.055, 0.055, 0.018, black, 0, 0, z));
-  }
-  for (const x of [-0.68, 0.68]) {
-    for (const z of [-0.88, 0.88]) {
-      roofRack.add(positionedBox(0.1, 0.15, 0.13, 0.02, black, x, -0.1, z));
-    }
-  }
-  root.add(roofRack);
-
-  const lightBar = new THREE.Group();
-  lightBar.name = "ADDON_LIGHT_BAR";
-  // The assembled model faces -Z after its normalization rotation. Keep the
-  // bar on the front bumper so it never reads as a floating roof accessory.
-  lightBar.position.set(0, 0.72, -2.47);
-  lightBar.add(roundedBox(1.46, 0.1, 0.12, 0.025, black));
-  for (let i = -7; i <= 7; i++) {
-    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.038, 10, 8), amber);
-    lamp.position.set(i * 0.092, 0, -0.07);
-    lightBar.add(lamp);
-  }
-  root.add(lightBar);
-
-  const sliders = new THREE.Group();
-  sliders.name = "ADDON_SLIDERS";
-  for (const x of [-1.01, 1.01]) {
-    sliders.add(positionedBox(0.12, 0.1, 2.55, 0.03, black, x, 0.54, -0.04));
-    for (const z of [-0.72, 0.72]) {
-      sliders.add(positionedBox(0.1, 0.2, 0.08, 0.02, black, x * 0.91, 0.63, z));
-    }
-  }
-  root.add(sliders);
-
-  const wheels: THREE.Group[] = [];
-  for (const mount of wheelMounts) {
-    const wheel = createWheel(rubber, alloy);
-    wheel.name = `ADDON_${mount.name}`;
-    mount.add(wheel);
-    wheels.push(wheel);
-  }
-
-  return { roofRack, lightBar, sliders, wheels };
-}
-
-function applyBuild(
-  refs: SceneRefs,
-  build: BuildState,
-  wheelVariants: Vehicle3DConfig["wheelVariants"],
-  animate: boolean,
-) {
-  const target = new THREE.Color(build.paint);
-  refs.paintMaterials.forEach((material) => {
-    if (animate) {
-      gsap.to(material.color, {
-        r: target.r,
-        g: target.g,
-        b: target.b,
-        duration: 0.45,
-        ease: "power2.out",
-      });
-    } else {
-      material.color.copy(target);
-    }
-  });
-
-  const setVisibleScale = (object: THREE.Object3D, visible: boolean) => {
-    if (animate) gsap.to(object.scale, { x: 1, y: visible ? 1 : 0.001, z: 1, duration: 0.3 });
-    else object.scale.set(1, visible ? 1 : 0.001, 1);
-  };
-
-  setVisibleScale(refs.roofRack, build.roofRack);
-  setVisibleScale(refs.lightBar, build.lightBar);
-  setVisibleScale(refs.sliders, build.sliders);
-
-  const lift = build.lift * 0.045;
-  refs.root.position.y = lift;
-  const wheelScale = wheelVariants.find((variant) => variant.id === build.wheels)?.scale ?? 1;
-  refs.wheels.forEach((wheel) => {
-    if (animate) gsap.to(wheel.scale, { x: wheelScale, y: wheelScale, z: wheelScale, duration: 0.35 });
-    else wheel.scale.setScalar(wheelScale);
-  });
-}
-
-function createProceduralFallback(): SceneRefs {
-  const root = new THREE.Group();
-  const paint = new THREE.MeshPhysicalMaterial({
-    color: "#1558d6",
-    metalness: 0.72,
-    roughness: 0.24,
-    clearcoat: 1,
-    clearcoatRoughness: 0.08,
-  });
-  const black = new THREE.MeshPhysicalMaterial({ color: "#080a0c", roughness: 0.34, metalness: 0.55 });
-  const body = roundedBox(2.2, 1.1, 4.9, 0.18, paint);
-  body.position.y = 1.05;
-  root.add(body);
-  const roofRack = new THREE.Group();
-  roofRack.add(roundedBox(1.7, 0.08, 2.8, 0.025, black));
-  roofRack.position.y = 1.75;
-  root.add(roofRack);
-  const lightBar = new THREE.Group();
-  lightBar.add(roundedBox(1.5, 0.1, 0.12, 0.025, black));
-  lightBar.position.set(0, 1.9, 1.1);
-  root.add(lightBar);
-  const sliders = new THREE.Group();
-  root.add(sliders);
-  return { root, paintMaterials: [paint], roofRack, lightBar, sliders, wheels: [], wheelMounts: [] };
-}
-
-function roundedBox(width: number, height: number, depth: number, radius: number, material: THREE.Material) {
-  const shape = new THREE.Shape();
-  const x = -width / 2;
-  const y = -height / 2;
-  shape.moveTo(x + radius, y);
-  shape.lineTo(x + width - radius, y);
-  shape.quadraticCurveTo(x + width, y, x + width, y + radius);
-  shape.lineTo(x + width, y + height - radius);
-  shape.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-  shape.lineTo(x + radius, y + height);
-  shape.quadraticCurveTo(x, y + height, x, y + height - radius);
-  shape.lineTo(x, y + radius);
-  shape.quadraticCurveTo(x, y, x + radius, y);
-  const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth,
-    bevelEnabled: true,
-    bevelSegments: 3,
-    steps: 1,
-    bevelSize: radius * 0.55,
-    bevelThickness: radius * 0.55,
-  });
-  geometry.center();
-  return new THREE.Mesh(geometry, material);
-}
-
-function positionedBox(
-  width: number,
-  height: number,
-  depth: number,
-  radius: number,
-  material: THREE.Material,
-  x: number,
-  y: number,
-  z: number,
-) {
-  const mesh = roundedBox(width, height, depth, radius, material);
-  mesh.position.set(x, y, z);
-  return mesh;
-}
-
-function createWheel(rubber: THREE.Material, alloy: THREE.Material) {
-  const wheel = new THREE.Group();
-  wheel.rotation.y = Math.PI / 2;
-  const tire = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.15, 20, 48), rubber);
-  wheel.add(tire);
-  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.16, 24), alloy);
-  rim.rotation.x = Math.PI / 2;
-  wheel.add(rim);
-  return wheel;
+  return any ? box : new THREE.Box3().setFromObject(root);
 }

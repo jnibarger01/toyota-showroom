@@ -3,8 +3,8 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
 
-  constructor(status: number, code: string, message: string) {
-    super(message);
+  constructor(status: number, code: string, message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
@@ -29,4 +29,14 @@ export function notFound(message: string): ApiError {
 
 export function invalidQuery(message: string): ApiError {
   return new ApiError(400, "invalid_query", message);
+}
+
+/** Malformed or semantically invalid request body (unknown option id, bad grade/year combination). */
+export function invalidBody(message: string): ApiError {
+  return new ApiError(422, "invalid_body", message);
+}
+
+/** The client's `expectedRevision` no longer matches the stored record. */
+export function revisionConflict(message: string): ApiError {
+  return new ApiError(409, "revision_conflict", message);
 }
