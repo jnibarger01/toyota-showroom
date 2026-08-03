@@ -290,33 +290,43 @@ function createAccessories(root: THREE.Group, wheelMounts: THREE.Object3D[]) {
 
   const roofRack = new THREE.Group();
   roofRack.name = "ADDON_ROOF_RACK";
-  roofRack.position.set(0, 1.86, -0.15);
-  const rackBase = roundedBox(1.55, 0.06, 2.5, 0.025, black);
-  roofRack.add(rackBase);
-  for (let i = -4; i <= 4; i++) {
-    const bar = roundedBox(1.66, 0.07, 0.06, 0.02, black);
-    bar.position.z = i * 0.27;
-    roofRack.add(bar);
+  roofRack.position.set(0, 1.88, -0.2);
+  for (const x of [-0.76, 0.76]) {
+    roofRack.add(positionedBox(0.08, 0.09, 2.42, 0.025, black, x, 0, 0));
+  }
+  for (const z of [-1.16, 1.16]) {
+    roofRack.add(positionedBox(1.6, 0.09, 0.08, 0.025, black, 0, 0, z));
+  }
+  for (const z of [-0.78, -0.39, 0, 0.39, 0.78]) {
+    roofRack.add(positionedBox(1.48, 0.055, 0.055, 0.018, black, 0, 0, z));
+  }
+  for (const x of [-0.68, 0.68]) {
+    for (const z of [-0.88, 0.88]) {
+      roofRack.add(positionedBox(0.1, 0.15, 0.13, 0.02, black, x, -0.1, z));
+    }
   }
   root.add(roofRack);
 
   const lightBar = new THREE.Group();
   lightBar.name = "ADDON_LIGHT_BAR";
-  lightBar.position.set(0, 2.0, 0.75);
-  lightBar.add(roundedBox(1.5, 0.1, 0.12, 0.025, black));
+  // The assembled model faces -Z after its normalization rotation. Keep the
+  // bar on the front bumper so it never reads as a floating roof accessory.
+  lightBar.position.set(0, 0.72, -2.47);
+  lightBar.add(roundedBox(1.46, 0.1, 0.12, 0.025, black));
   for (let i = -7; i <= 7; i++) {
     const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.038, 10, 8), amber);
-    lamp.position.set(i * 0.095, 0, 0.07);
+    lamp.position.set(i * 0.092, 0, -0.07);
     lightBar.add(lamp);
   }
   root.add(lightBar);
 
   const sliders = new THREE.Group();
   sliders.name = "ADDON_SLIDERS";
-  for (const x of [-1.08, 1.08]) {
-    const slider = roundedBox(0.1, 0.1, 2.85, 0.025, black);
-    slider.position.set(x, 0.42, -0.05);
-    sliders.add(slider);
+  for (const x of [-1.01, 1.01]) {
+    sliders.add(positionedBox(0.12, 0.1, 2.55, 0.03, black, x, 0.54, -0.04));
+    for (const z of [-0.72, 0.72]) {
+      sliders.add(positionedBox(0.1, 0.2, 0.08, 0.02, black, x * 0.91, 0.63, z));
+    }
   }
   root.add(sliders);
 
@@ -419,6 +429,21 @@ function roundedBox(width: number, height: number, depth: number, radius: number
   });
   geometry.center();
   return new THREE.Mesh(geometry, material);
+}
+
+function positionedBox(
+  width: number,
+  height: number,
+  depth: number,
+  radius: number,
+  material: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+) {
+  const mesh = roundedBox(width, height, depth, radius, material);
+  mesh.position.set(x, y, z);
+  return mesh;
 }
 
 function createWheel(rubber: THREE.Material, alloy: THREE.Material) {

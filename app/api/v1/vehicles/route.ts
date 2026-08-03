@@ -8,12 +8,10 @@ import { VEHICLE_SCHEMA_VERSION } from "../../../../lib/types/vehicle";
 export const dynamic = "force-static";
 
 /**
- * GET /api/v1/vehicles — Toyota lineup with filtering + pagination (goal 2).
- * This project deploys as a static export (see next.config.mjs), so this route is
- * pre-rendered once at build time with no query string. Query-string filtering and
- * pagination are still fully implemented here via `queryVehicles`/`parseVehicleQuery`
- * and are exercised client-side against this payload by `lib/api/client.ts`, which
- * keeps the same contract if this route is ever served dynamically instead.
+ * GET /api/v1/vehicles — Toyota lineup with filtering + pagination when served by a
+ * query-aware runtime. GitHub Pages serves the generated `vehicles.json` catalog snapshot
+ * instead; consumers there must use `lib/api/client.ts`, which filters and paginates the
+ * complete catalog client-side.
  */
 export async function GET(request: NextRequest) {
   try {

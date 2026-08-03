@@ -177,8 +177,8 @@ export function BuilderApp() {
           <VehicleCanvas build={build} cameraPreset={preset} threeDConfig={vehicle.threeDConfig} />
 
           <div className="gpu-status">
-            <span><i /> WebGPU active</span>
-            <small>Procedural geometry · no GLB required</small>
+            <span><i /> WebGPU preferred</span>
+            <small>Assembled 4Runner asset · WebGL fallback ready</small>
           </div>
 
           <div className="installed-strip">

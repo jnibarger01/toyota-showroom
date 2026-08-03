@@ -5,8 +5,8 @@ import { paginateAndFilter, type Pagination, type PagedResult, type VehicleFilte
 /**
  * Typed client SDK for the versioned vehicle API. This project builds as a static export
  * (next.config.mjs `output: "export"`) for GitHub Pages, so it fetches the pre-generated
- * `/api/v1/*.json` snapshots (scripts/generate-static-api.ts) rather than the app/api Route
- * Handlers, which only run under the (currently unused) Cloudflare Worker deployment target.
+ * `/catalog/v1/*.json` fixtures (scripts/generate-static-api.ts) rather than the app/api Route
+ * Handlers, which require a query-aware runtime.
  * `listVehicles` and `compareVehicles` fetch the full static payload once (cached in-memory)
  * and apply the same `matchesFilters`/pagination logic the generator uses, so arbitrary
  * filter combinations work at runtime without a live backend.
@@ -14,8 +14,8 @@ import { paginateAndFilter, type Pagination, type PagedResult, type VehicleFilte
 
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-function apiUrl(path: string): string {
-  return `${basePath}/api/v1${path}.json`;
+function catalogUrl(path: string): string {
+  return `${basePath}/catalog/v1${path}.json`;
 }
 
 /**
@@ -67,7 +67,7 @@ let vehicleSummaryCache: Promise<VehicleSummary[]> | null = null;
 
 async function loadAllVehicleSummaries(): Promise<VehicleSummary[]> {
   if (!vehicleSummaryCache) {
-    vehicleSummaryCache = fetchJson<{ data: VehicleSummary[] }>(apiUrl("/vehicles")).then((r) => r.data.map(normalizeSummary));
+    vehicleSummaryCache = fetchJson<{ data: VehicleSummary[] }>(catalogUrl("/vehicles")).then((r) => r.data.map(normalizeSummary));
   }
   return vehicleSummaryCache;
 }
@@ -81,12 +81,12 @@ export async function listVehicles(
 }
 
 export async function getVehicle(slug: string): Promise<Vehicle> {
-  const { data } = await fetchJson<{ data: Vehicle }>(apiUrl(`/vehicles/${slug}`));
+  const { data } = await fetchJson<{ data: Vehicle }>(catalogUrl(`/vehicles/${slug}`));
   return normalizeVehicle(data);
 }
 
 export async function getVehicleMedia(slug: string): Promise<{ media: MediaManifest; threeDConfig: Vehicle3DConfig }> {
-  const result = await fetchJson<{ media: MediaManifest; threeDConfig: Vehicle3DConfig }>(apiUrl(`/vehicles/${slug}/media`));
+  const result = await fetchJson<{ media: MediaManifest; threeDConfig: Vehicle3DConfig }>(catalogUrl(`/vehicles/${slug}/media`));
   return { media: normalizeMedia(result.media), threeDConfig: normalizeThreeDConfig(result.threeDConfig) };
 }
 
@@ -102,5 +102,5 @@ export async function compareVehicles(slugs: string[]): Promise<Vehicle[]> {
 }
 
 export async function checkHealth(): Promise<{ status: string; schemaVersion: string; vehicleCount: number; timestamp: string }> {
-  return fetchJson(apiUrl("/health"));
+  return fetchJson(catalogUrl("/health"));
 }
