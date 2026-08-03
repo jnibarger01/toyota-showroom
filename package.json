@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "vinext dev",
+    "predev": "tsx scripts/generate-static-api.ts",
     "prebuild": "tsx scripts/generate-static-api.ts",
     "build": "vinext build",
     "start": "vinext start",

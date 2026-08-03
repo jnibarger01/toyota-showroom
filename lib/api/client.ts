@@ -1,4 +1,4 @@
-import type { MediaManifest, Vehicle, Vehicle3DConfig, VehicleSummary } from "../types/vehicle";
+import type { MediaAsset, MediaManifest, Vehicle, Vehicle3DConfig, VehicleSummary } from "../types/vehicle";
 import { ApiError, type ApiErrorBody } from "./errors";
 import { paginateAndFilter, type Pagination, type PagedResult, type VehicleFilters } from "./query";
 
@@ -18,6 +18,42 @@ function apiUrl(path: string): string {
   return `${basePath}/api/v1${path}.json`;
 }
 
+/**
+ * Catalog data stores root-relative asset URLs (e.g. "/images/hero.png"); under the GitHub
+ * Pages deployment the whole site is mounted at a sub-path (`vite.config.ts` `base`), so every
+ * asset URL a consumer receives from this SDK needs the same prefix the 3D model loader uses.
+ * Centralized here so components never have to remember to do it themselves.
+ */
+function withBasePath(url: string): string {
+  return url.startsWith("/") ? `${basePath}${url}` : url;
+}
+
+function normalizeAsset(asset: MediaAsset): MediaAsset {
+  return { ...asset, url: withBasePath(asset.url) };
+}
+
+function normalizeMedia(media: MediaManifest): MediaManifest {
+  return {
+    hero: normalizeAsset(media.hero),
+    gallery: media.gallery.map(normalizeAsset),
+    thumbnails: media.thumbnails.map(normalizeAsset),
+    videos: media.videos.map(normalizeAsset),
+    environmentMaps: media.environmentMaps.map(normalizeAsset),
+  };
+}
+
+function normalizeThreeDConfig(config: Vehicle3DConfig): Vehicle3DConfig {
+  return config.modelUrl ? { ...config, modelUrl: withBasePath(config.modelUrl) } : config;
+}
+
+function normalizeVehicle(vehicle: Vehicle): Vehicle {
+  return { ...vehicle, media: normalizeMedia(vehicle.media), threeDConfig: normalizeThreeDConfig(vehicle.threeDConfig) };
+}
+
+function normalizeSummary(summary: VehicleSummary): VehicleSummary {
+  return { ...summary, thumbnail: normalizeAsset(summary.thumbnail) };
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -31,7 +67,7 @@ let vehicleSummaryCache: Promise<VehicleSummary[]> | null = null;
 
 async function loadAllVehicleSummaries(): Promise<VehicleSummary[]> {
   if (!vehicleSummaryCache) {
-    vehicleSummaryCache = fetchJson<{ data: VehicleSummary[] }>(apiUrl("/vehicles")).then((r) => r.data);
+    vehicleSummaryCache = fetchJson<{ data: VehicleSummary[] }>(apiUrl("/vehicles")).then((r) => r.data.map(normalizeSummary));
   }
   return vehicleSummaryCache;
 }
@@ -46,11 +82,12 @@ export async function listVehicles(
 
 export async function getVehicle(slug: string): Promise<Vehicle> {
   const { data } = await fetchJson<{ data: Vehicle }>(apiUrl(`/vehicles/${slug}`));
-  return data;
+  return normalizeVehicle(data);
 }
 
 export async function getVehicleMedia(slug: string): Promise<{ media: MediaManifest; threeDConfig: Vehicle3DConfig }> {
-  return fetchJson<{ media: MediaManifest; threeDConfig: Vehicle3DConfig }>(apiUrl(`/vehicles/${slug}/media`));
+  const result = await fetchJson<{ media: MediaManifest; threeDConfig: Vehicle3DConfig }>(apiUrl(`/vehicles/${slug}/media`));
+  return { media: normalizeMedia(result.media), threeDConfig: normalizeThreeDConfig(result.threeDConfig) };
 }
 
 const MIN_COMPARE = 2;

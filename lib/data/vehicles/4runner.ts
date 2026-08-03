@@ -33,18 +33,6 @@ export const fourRunner: Vehicle = {
       towingCapacityLbs: 5000,
       payloadCapacityLbs: 1200,
     },
-    "i-force-max-hybrid": {
-      id: "i-force-max-hybrid",
-      type: "hybrid",
-      engine: "2.4L Turbo I4 + electric motor (i-FORCE MAX)",
-      horsepowerHp: 326,
-      torqueLbFt: 465,
-      transmission: "8-speed automatic",
-      drivetrain: "4wd",
-      fuelEconomy: { unit: "mpg", city: 23, highway: 24, combined: 23 },
-      towingCapacityLbs: 6000,
-      payloadCapacityLbs: 1100,
-    },
   },
 
   grades: [
@@ -75,17 +63,12 @@ export const fourRunner: Vehicle = {
     {
       id: "trd-pro",
       name: "TRD Pro",
-      msrp: 56650,
-      powertrainId: "i-force-max-hybrid",
+      msrp: 53900,
+      powertrainId: "v6-4.0l",
       seating: 5,
       availableExteriorColorCodes: ["1J9", "218", "0R2"],
       availableInteriorColorCodes: ["fa20-black"],
-      standardFeatures: [
-        "FOX internal-bypass shocks",
-        "TRD front skid plate",
-        "Roof rack",
-        "i-FORCE MAX hybrid powertrain",
-      ],
+      standardFeatures: ["FOX internal-bypass shocks", "TRD front skid plate", "Roof rack"],
       packages: [],
     },
     {

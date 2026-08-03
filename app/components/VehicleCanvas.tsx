@@ -54,8 +54,6 @@ type RendererLike = {
   toneMappingExposure: number;
 };
 
-const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
-
 export function VehicleCanvas({ build, cameraPreset, threeDConfig }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -237,7 +235,7 @@ async function loadVehicleModel(threeDConfig: Vehicle3DConfig): Promise<SceneRef
   loader.setDRACOLoader(draco);
 
   try {
-    const gltf = await loader.loadAsync(`${basePath}${threeDConfig.modelUrl}`);
+    const gltf = await loader.loadAsync(threeDConfig.modelUrl);
     const root = gltf.scene;
     root.name = "Vehicle model";
 

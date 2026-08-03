@@ -1,8 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { VEHICLES } from "../lib/data/vehicles";
-import { queryVehicles } from "../lib/api/query";
-import { VEHICLE_SCHEMA_VERSION } from "../lib/types/vehicle";
+import { VEHICLE_SCHEMA_VERSION, toVehicleSummary } from "../lib/types/vehicle";
 
 /**
  * `vinext build` (this project's `output: "export"` static export) does not pre-render
@@ -22,8 +21,22 @@ async function writeJson(relPath: string, data: unknown): Promise<void> {
 }
 
 async function main() {
-  const list = queryVehicles(VEHICLES, {}, { page: 1, pageSize: VEHICLES.length });
-  await writeJson("vehicles.json", { schemaVersion: VEHICLE_SCHEMA_VERSION, ...list });
+  // Clear any fixtures from a previous run (e.g. a vehicle removed or renamed since) so a
+  // retained public/api/v1 directory can't leave stale, still-fetchable endpoints behind.
+  await rm(outDir, { recursive: true, force: true });
+
+  // Deliberately bypasses `queryVehicles`/`paginateAndFilter`, which clamp to MAX_PAGE_SIZE
+  // (50): this snapshot is the full catalog the client SDK caches and filters/paginates
+  // client-side, so it must never be truncated regardless of the public per-request cap.
+  const summaries = VEHICLES.map(toVehicleSummary);
+  await writeJson("vehicles.json", {
+    schemaVersion: VEHICLE_SCHEMA_VERSION,
+    data: summaries,
+    page: 1,
+    pageSize: summaries.length,
+    totalItems: summaries.length,
+    totalPages: 1,
+  });
 
   for (const vehicle of VEHICLES) {
     await writeJson(`vehicles/${vehicle.slug}.json`, { schemaVersion: VEHICLE_SCHEMA_VERSION, data: vehicle });
