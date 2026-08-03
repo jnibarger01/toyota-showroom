@@ -1,4 +1,4 @@
-import { notFound, revisionConflict } from "./errors";
+import { ApiError, notFound, revisionConflict } from "./errors";
 import {
   CUSTOMIZATION_SCHEMA_VERSION,
   type VehicleConfiguration,
@@ -9,20 +9,8 @@ import {
   type ValidatedPatch,
 } from "../validation/configuration";
 
-/**
- * Browser-local implementation of the configuration endpoints.
- *
- * This project deploys as a static export to GitHub Pages (`next.config.mjs` `output: "export"`),
- * where the `force-dynamic` configuration routes cannot run — the Cloudflare Worker build serves
- * them, the Pages build does not. Rather than degrade to "saving is broken on the demo", the client
- * falls back to this transport, which runs the *same* validators the server does.
- *
- * The consequence is that validation behaviour is identical in both modes; only durability differs
- * (per-browser rather than shared). Nothing here is a second source of truth for the catalog —
- * option records still come from the generated static catalog.
- */
-
 const STORE_KEY = "toyota-showroom:configurations:v1";
+const RECOVERY_KEY = "toyota-showroom:recovery:v1";
 
 type Store = Record<string, VehicleConfiguration>;
 
@@ -38,8 +26,13 @@ function readStore(): Store {
 function writeStore(store: Store): void {
   try {
     window.localStorage.setItem(STORE_KEY, JSON.stringify(store));
-  } catch {
-    // Quota or private-browsing failures leave the in-session state intact; nothing to recover.
+  } catch (cause) {
+    throw new ApiError(
+      507,
+      "local_persistence_failed",
+      "This browser could not persist the configuration. The current view is not durable across reloads.",
+      { cause },
+    );
   }
 }
 
@@ -107,6 +100,7 @@ export const localConfigurationTransport = {
 
     store[configurationId] = next;
     writeStore(store);
+    this.clearRecovery(configurationId);
     return next;
   },
 
@@ -114,5 +108,34 @@ export const localConfigurationTransport = {
     const store = readStore();
     delete store[configurationId];
     writeStore(store);
+    this.clearRecovery(configurationId);
+  },
+
+  saveRecovery(configuration: VehicleConfiguration): void {
+    try {
+      window.localStorage.setItem(RECOVERY_KEY, JSON.stringify(configuration));
+    } catch {
+      // Best-effort crash recovery only. Normal persistence still reports failures explicitly.
+    }
+  },
+
+  readRecovery(configurationId: string): VehicleConfiguration | null {
+    try {
+      const raw = window.localStorage.getItem(RECOVERY_KEY);
+      if (!raw) return null;
+      const value = JSON.parse(raw) as VehicleConfiguration;
+      return value.configurationId === configurationId ? value : null;
+    } catch {
+      return null;
+    }
+  },
+
+  clearRecovery(configurationId: string): void {
+    try {
+      const recovered = this.readRecovery(configurationId);
+      if (recovered) window.localStorage.removeItem(RECOVERY_KEY);
+    } catch {
+      // Recovery cleanup must never turn a successful durable write into an error.
+    }
   },
 };
