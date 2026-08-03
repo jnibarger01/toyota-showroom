@@ -140,6 +140,18 @@ export interface Vehicle3DConfig {
   wheelMountNames: string[];
   wheelVariants: WheelVariantConfig[];
   interiorMaterialNames: string[];
+  /**
+   * Nodes hidden immediately after load. Blender exports frequently retain donor/source copies of
+   * parts that were duplicated into place; they render at the origin, inside and beneath the body.
+   * Listed by exact name so the cleanup is auditable rather than a bounds heuristic.
+   */
+  hiddenNodeNames?: string[];
+  /**
+   * Nodes whose union defines the vehicle's extent for centering and grounding. Without this the
+   * bounding box is taken over the whole scene, and any stray object at the origin silently lifts
+   * the vehicle off the floor.
+   */
+  groundingNodeNames?: string[];
 }
 
 export type AvailabilityStatus = "in_production" | "coming_soon" | "discontinued";

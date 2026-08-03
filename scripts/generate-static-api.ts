@@ -1,7 +1,9 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { VEHICLES } from "../lib/data/vehicles";
+import { getOptionsForVehicle } from "../lib/data/options";
 import { VEHICLE_SCHEMA_VERSION, toVehicleSummary } from "../lib/types/vehicle";
+import { CUSTOMIZATION_SCHEMA_VERSION } from "../lib/types/customization";
 
 /**
  * `vinext build` (this project's `output: "export"` static export) does not pre-render
@@ -46,6 +48,15 @@ async function main() {
       slug: vehicle.slug,
       media: vehicle.media,
       threeDConfig: vehicle.threeDConfig,
+    });
+
+    // The customization catalog is static data, exactly like the vehicle records, so it is
+    // snapshotted here too. Grade filtering is applied client-side from the full list, the same
+    // way the vehicle list handles query parameters the static host cannot vary on.
+    await writeJson(`vehicles/${vehicle.slug}/options.json`, {
+      schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
+      vehicleId: vehicle.slug,
+      data: getOptionsForVehicle(vehicle.slug),
     });
   }
 

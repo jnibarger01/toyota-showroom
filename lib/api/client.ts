@@ -57,8 +57,10 @@ function normalizeSummary(summary: VehicleSummary): VehicleSummary {
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as ApiErrorBody | null;
-    throw new ApiError(response.status, body?.error.code ?? "request_failed", body?.error.message ?? `Request to ${url} failed`);
+    // Defensive: an error response need not carry the `{ error: {...} }` envelope (a static host's
+    // own 404 page will not), and the error path must not itself throw.
+    const body = (await response.json().catch(() => null)) as Partial<ApiErrorBody> | null;
+    throw new ApiError(response.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `Request to ${url} failed`);
   }
   return response.json() as Promise<T>;
 }

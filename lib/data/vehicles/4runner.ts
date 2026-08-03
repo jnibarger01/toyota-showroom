@@ -150,5 +150,34 @@ export const fourRunner: Vehicle = {
       { id: "beadlock", label: "Beadlock", scale: 1.08 },
     ],
     interiorMaterialNames: [],
+
+    // Donor geometry retained by the Blender export, all sitting at the world origin: two WEISU
+    // wheels, one KO2 tyre, two brake assemblies, and a 2 m paint-swatch sphere ("Jet Black").
+    // The four PLACED_AOOA_caliper_* nodes are also at the origin rather than at their wheels —
+    // an authoring defect noted in docs/INTEGRATION_GUIDE.md §3; they contribute nothing visible
+    // from outside the body and are hidden here until the source file is corrected.
+    hiddenNodeNames: [
+      "322-1790(MD010)",
+      "322-1790(MD010).001",
+      "BFGoodrich_ALL_Terrain_TA_KO2",
+      "FRONT_BRAKES",
+      "REAR_BRAKES",
+      "Jet Black",
+      "PLACED_AOOA_caliper_front_left",
+      "PLACED_AOOA_caliper_front_right",
+      "PLACED_AOOA_caliper_rear_left",
+      "PLACED_AOOA_caliper_rear_right",
+    ],
+
+    // Body plus the four positioned tyres. Grounding on these puts the tyres on the floor; taking
+    // the box over the whole scene instead includes the origin sphere (which reaches y = -1) and
+    // lifts the vehicle about 1.1 units into the air.
+    groundingNodeNames: [
+      "BODY",
+      "PLACED_KO3_front_left",
+      "PLACED_KO3_front_right",
+      "PLACED_KO3_rear_left",
+      "PLACED_KO3_rear_right",
+    ],
   },
 };
