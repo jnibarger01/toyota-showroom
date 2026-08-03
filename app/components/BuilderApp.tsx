@@ -66,16 +66,14 @@ export function BuilderApp() {
   }, []);
 
   const installed = useMemo(() => {
-    if (!vehicle || !build) return [] as string[];
-    const wheelLabel = vehicle.threeDConfig.wheelVariants.find((v) => v.id === build.wheels)?.label ?? build.wheels;
+    if (!build) return [] as string[];
     return [
       build.roofRack && "Roof rack",
       build.lightBar && "LED light bar",
       build.sliders && "Rock sliders",
-      build.lift > 0 && `${build.lift}" lift`,
-      `${wheelLabel} wheels`
+      build.lift > 0 && `${build.lift}" lift`
     ].filter(Boolean) as string[];
-  }, [vehicle, build]);
+  }, [build]);
 
   const reset = () => {
     if (!vehicle) return;
@@ -101,7 +99,6 @@ export function BuilderApp() {
   }
 
   const cameraPresets = vehicle.threeDConfig.cameraPresets;
-  const wheelVariants = vehicle.threeDConfig.wheelVariants;
 
   return (
     <main className="builder-shell">
@@ -251,22 +248,12 @@ export function BuilderApp() {
             onChange={(sliders) => setBuild({ ...build, sliders })}
           />
 
-          {wheelVariants.length > 0 && (
-            <section className="control-section">
-              <label>Wheel style</label>
-              <div className="segmented">
-                {wheelVariants.map((variant) => (
-                  <button
-                    key={variant.id}
-                    className={build.wheels === variant.id ? "active" : ""}
-                    onClick={() => setBuild({ ...build, wheels: variant.id })}
-                  >
-                    {variant.label}
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
+          {/*
+            Wheel style is intentionally not exposed yet: `refs.wheels` is empty in every
+            current render path (real GLB and procedural fallback alike — see
+            VehicleCanvas.tsx), so selecting a variant here would change no visible geometry.
+            Goal 22 (Phase 3) wires this up against real wheel meshes; re-add the control then.
+          */}
 
           <button className="save-build" onClick={() => setSaved(true)}>
             <Save size={16}/> Save build to D1
