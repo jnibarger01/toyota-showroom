@@ -114,8 +114,8 @@ export async function getVehicleMedia(slug: string): Promise<{ media: MediaManif
   return { media: normalizeMedia(result.media), threeDConfig: normalizeThreeDConfig(result.threeDConfig) };
 }
 
-const MIN_COMPARE = 2;
-const MAX_COMPARE = 4;
+export const MIN_COMPARE = 2;
+export const MAX_COMPARE = 4;
 
 /** Groundwork for goal 10 (normalized side-by-side comparison) over the static catalog. */
 export async function compareVehicles(slugs: string[]): Promise<Vehicle[]> {

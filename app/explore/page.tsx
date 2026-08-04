@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Truck } from "lucide-react";
-import { listVehicles, pageUrl } from "../../lib/api/client";
+import { GitCompare, Loader2, Truck } from "lucide-react";
+import { listVehicles, pageUrl, MAX_COMPARE } from "../../lib/api/client";
 import { matchesFilters, MAX_PAGE_SIZE } from "../../lib/api/query";
 import type { BodyStyle, VehicleSummary } from "../../lib/types/vehicle";
 
@@ -26,6 +26,7 @@ export default function ExplorePage() {
   const [allSummaries, setAllSummaries] = useState<VehicleSummary[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [bodyStyle, setBodyStyle] = useState<BodyStyle | null>(null);
+  const [compareSlugs, setCompareSlugs] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +57,16 @@ export default function ExplorePage() {
       ),
     [allSummaries, bodyStyle],
   );
+
+  const toggleCompare = (slug: string) => {
+    setCompareSlugs((current) => {
+      if (current.includes(slug)) return current.filter((id) => id !== slug);
+      // Silently caps rather than rejecting: a disabled checkbox already prevents picking a 5th
+      // vehicle, so reaching this branch would mean state and UI disagreed with each other.
+      if (current.length >= MAX_COMPARE) return current;
+      return [...current, slug];
+    });
+  };
 
   return (
     <main className="explore-shell">
@@ -106,26 +117,60 @@ export default function ExplorePage() {
       ) : null}
 
       <div className="vehicle-grid">
-        {filtered.map((summary) => (
-          <a key={summary.slug} className="vehicle-card" href={pageUrl(summary.slug)}>
-            <div className="vehicle-card-media">
-              <img src={summary.thumbnail.url} alt={summary.thumbnail.alt} loading="lazy" />
-              {summary.availability !== "in_production" ? (
-                <span className="vehicle-card-badge">{AVAILABILITY_LABELS[summary.availability]}</span>
-              ) : null}
-            </div>
-            <div className="vehicle-card-body">
-              <span className="vehicle-card-year">{summary.year} &middot; {BODY_STYLE_LABELS[summary.bodyStyle]}</span>
-              <h2>{summary.model}</h2>
-              <div className="vehicle-card-specs">
-                <span>Seats {summary.maxSeating}</span>
-                {summary.maxTowingLbs > 0 ? <span>{summary.maxTowingLbs.toLocaleString()} lb tow</span> : null}
+        {filtered.map((summary) => {
+          const checked = compareSlugs.includes(summary.slug);
+          return (
+            <a key={summary.slug} className="vehicle-card" href={pageUrl(summary.slug)}>
+              <div className="vehicle-card-media">
+                <img src={summary.thumbnail.url} alt={summary.thumbnail.alt} loading="lazy" />
+                {summary.availability !== "in_production" ? (
+                  <span className="vehicle-card-badge">{AVAILABILITY_LABELS[summary.availability]}</span>
+                ) : null}
               </div>
-              <p className="vehicle-card-price">Starting at ${summary.startingMsrp.toLocaleString()}</p>
-            </div>
-          </a>
-        ))}
+              <div className="vehicle-card-body">
+                <span className="vehicle-card-year">{summary.year} &middot; {BODY_STYLE_LABELS[summary.bodyStyle]}</span>
+                <h2>{summary.model}</h2>
+                <div className="vehicle-card-specs">
+                  <span>Seats {summary.maxSeating}</span>
+                  {summary.maxTowingLbs > 0 ? <span>{summary.maxTowingLbs.toLocaleString()} lb tow</span> : null}
+                </div>
+                <p className="vehicle-card-price">Starting at ${summary.startingMsrp.toLocaleString()}</p>
+                <label
+                  className="vehicle-card-compare"
+                  // The card itself is the link; this control must not trigger that navigation.
+                  onClick={(event) => event.preventDefault()}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={!checked && compareSlugs.length >= MAX_COMPARE}
+                    onChange={() => toggleCompare(summary.slug)}
+                  />
+                  Compare
+                </label>
+              </div>
+            </a>
+          );
+        })}
       </div>
+
+      {compareSlugs.length > 0 ? (
+        <div className="compare-bar">
+          <span>
+            <GitCompare size={16} /> {compareSlugs.length} selected
+          </span>
+          {compareSlugs.length >= 2 ? (
+            <a className="primary" href={`${pageUrl("compare")}?vehicles=${compareSlugs.join(",")}`}>
+              Compare
+            </a>
+          ) : (
+            <span className="compare-bar-hint">Pick at least one more to compare</span>
+          )}
+          <button className="ghost" onClick={() => setCompareSlugs([])}>
+            Clear
+          </button>
+        </div>
+      ) : null}
     </main>
   );
 }

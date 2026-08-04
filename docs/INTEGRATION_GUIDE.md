@@ -528,6 +528,34 @@ previously inert "Explore" nav button now navigates here.
 
 `/` and `/[slug]` are unchanged — this is an additive route, not a redesign of the existing ones.
 
+### Vehicle comparison (`app/compare/page.tsx`)
+
+Also built on groundwork that predates this task: `lib/api/client.ts`'s `compareVehicles(slugs)`
+(2–4 slugs, now exported as `MIN_COMPARE`/`MAX_COMPARE`) fetches each vehicle's full record in
+parallel and was already validated, just never called from a page. `app/explore/page.tsx` gained a
+per-card "Compare" checkbox and a sticky bar that appears once 2+ are picked, linking to
+`/compare?vehicles=<slug>,<slug>,...`.
+
+`app/compare/page.tsx` reads that query string exactly once via a `useState` lazy initializer
+(`typeof window === "undefined" ? [] : ...`) rather than an effect — the value is this component's
+own editable `picked` state from the first render on, not something an effect needs to keep
+synchronized with an external source. Every subsequent recomputation (`validSlugs`, the fetch
+effect, the comparison table) derives from `picked`, so checking or unchecking a box in the page's
+own vehicle picker updates the table live, without needing the "Update comparison" link — that link
+exists to make the current selection shareable/bookmarkable via a real URL, not to trigger the
+comparison itself. The fetch effect never calls `setState` synchronously in its own body (an early
+`setVehicles(null)` guard would trip `react-hooks/set-state-in-effect`, the same rule
+`app/[slug]/page.tsx`'s `key={slug}` remount was chosen to satisfy back in Task 18); instead a
+derived `canCompare` boolean gates which effect branch runs and which JSX renders, so there is
+nothing to synchronize when the selection drops below `MIN_COMPARE`.
+
+The comparison table's spec rows are the **union** of every compared vehicle's `Vehicle.specs[]`
+entries, keyed by `SpecEntry.key` and grouped by `SpecEntry.category` — 4Runner, Tacoma, and Camry
+each define an overlapping but not identical set of keys (all three have `zero_to_60_sec`; only
+Tacoma has `max_towing_lbs`; only Camry has `hybrid_battery_warranty_years_miles`), so a naive
+per-vehicle listing would misalign rows. A vehicle missing a given key renders `—` in that column
+rather than the row being dropped.
+
 ---
 
 ## 5. Backend Endpoint Design
@@ -1096,8 +1124,9 @@ $ npm test             # 175 passed (13 files), including a CI-time check that t
                         # write rate limiter against both a fake and a real local binding, and 9 tests
                         # proving the Tacoma/Camry catalogs resolve against the real procedural
                         # fallback vehicle they actually render with
-$ npm run build        # 10 routes, static export succeeds — including per-vehicle routes /4runner,
-                        # /tacoma, /camry (app/[slug]/page.tsx) and the /explore lineup page
+$ npm run build        # 11 routes, static export succeeds — including per-vehicle routes /4runner,
+                        # /tacoma, /camry (app/[slug]/page.tsx), the /explore lineup page, and
+                        # /compare
 ```
 
 ### Known gaps
