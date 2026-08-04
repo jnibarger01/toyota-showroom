@@ -1192,13 +1192,15 @@ All twelve steps are done and tested on this branch.
 ```
 $ npm run lint         # clean (eslint.config.js added; catches real react-hooks issues, not noise)
 $ npm run typecheck    # clean
-$ npm test             # 185 passed (15 files), including a CI-time check that the catalog resolves
+$ npm test             # 208 passed (16 files), including a CI-time check that the catalog resolves
                         # against the real, checked-in GLB (tests/glbContract.test.ts), 13 tests of
                         # D1ConfigurationRepository against a real local D1 instance, 7 tests of the
                         # write rate limiter against both a fake and a real local binding, 9 tests
                         # proving the Tacoma/Camry catalogs resolve against the real procedural
-                        # fallback vehicle they actually render with, and 10 real component tests
-                        # (tests/components/*.test.tsx, jsdom) for CustomizationButton and BuilderApp
+                        # fallback vehicle they actually render with, 10 real component tests
+                        # (tests/components/*.test.tsx, jsdom) for CustomizationButton and BuilderApp,
+                        # and 23 tests of lib/api/query.ts's filter/pagination logic, including
+                        # against the real three-vehicle catalog
 $ npm run build        # 11 routes, static export succeeds — including per-vehicle routes /4runner,
                         # /tacoma, /camry (app/[slug]/page.tsx), the /explore lineup page, and
                         # /compare
