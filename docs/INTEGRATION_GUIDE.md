@@ -768,6 +768,10 @@ of regression, then reverted.
 
 ## 5. Backend Endpoint Design
 
+For full request/response schemas and status codes, see `docs/API_REFERENCE.md` /
+`docs/openapi.yaml`. This section covers the design rationale; that pair is the exhaustive
+reference.
+
 | Method | Path | Runtime | Purpose |
 |---|---|---|---|
 | `GET` | `/api/v1/vehicles/:vehicleId/options` | static | Catalog for one vehicle, optionally grade-filtered |
