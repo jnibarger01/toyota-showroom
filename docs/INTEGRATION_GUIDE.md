@@ -582,6 +582,54 @@ Reading a configuration by id has never required the owner token (§5's "Ownersh
 visitor view and then freely re-customize the build in their own session, but never overwrites the
 original unless they also hold its owner token.
 
+### Component tests (`tests/components/*.test.tsx`)
+
+Every prior test in this project imports plain library modules under Node — none render a
+component, because none needed to. `CustomizationButton.tsx` and `BuilderApp.tsx` do, so this
+required real infrastructure: `@testing-library/react` + `@testing-library/jest-dom`, and jsdom as
+a DOM. Rather than switch the whole suite to jsdom (slower, and pointless for the ~175 tests that
+never touch a DOM), `vitest.config.ts`'s `environmentMatchGlobs` scopes jsdom to
+`tests/components/**/*.test.tsx` only — everything else keeps running under plain Node.
+
+Two things had to be worked out to get a single component rendering at all, both recorded as
+comments in `vitest.config.ts` so they aren't rediscovered the hard way again:
+
+- **"React is not defined."** Vitest's own module runner transforms `.tsx` via esbuild directly,
+  ahead of any Vite plugin pipeline — `esbuild`'s default JSX transform is classic
+  (`React.createElement`, no auto-import) unless told otherwise. Fixed with
+  `esbuild: { jsx: "automatic", jsxImportSource: "react" }` in the vitest config. Adding
+  `@vitejs/plugin-react` on top achieves nothing at runtime (esbuild already owns the transform)
+  and breaks `tsc`: its `Plugin` type resolves against this repo's root `vite` (rolldown-vite 8.x),
+  while `vitest/config`'s `PluginOption` resolves against Vitest's own bundled, older, plain
+  `vite` (7.x) — two nominally distinct `Plugin` types for the same runtime behavior. Left out.
+
+`CustomizationButton.test.tsx` drives the real `configurationStore` singleton (`attachScene` with a
+duck-typed fake `VehicleSceneController` — `applyOption`/`removeOption`/`applyConfiguration` always
+succeed, so the test asserts the button's own rendering and click-dispatch behavior, not scene
+node-resolution, which `tests/sceneController.test.ts` already owns) and mocks only
+`lib/api/configurations` (the network boundary) — clicking a chip is a real `selectOption` call
+through the real store, asserted by the resulting DOM (`aria-pressed`, `disabled`, `.active`).
+
+`BuilderApp.test.tsx` mocks `VehicleCanvas` (jsdom cannot run WebGPU/WebGL) with a stub that
+immediately calls `onReady` with a fake controller and the full real `fourRunnerOptions` catalog,
+and mocks `lib/api/client`/`lib/api/configurations`, but otherwise renders the real component tree
+against real catalog and vehicle data (`lib/data/vehicles/4runner.ts`). It covers the loading
+state, bootstrap rendering, and — closing the gap called out in Task 6's own commit — the grade
+selector: switching grades creates a new configuration and **drops a grade-incompatible selection**
+(asserted by selecting `paint-0r2-solar-octane`, a TRD Pro-only option, switching to `sr5`, and
+checking it's gone from `configurationStore`'s selections). Verified with the deliberate-bug
+technique used elsewhere in this project: reverting the `changeGrade` filter to keep every
+selection regardless of grade compatibility turns that assertion red, confirming the test would
+actually catch the regression it exists to prevent.
+
+Writing these also surfaced a real, pre-existing UI inconsistency worth recording: the left rail's
+"Systems" buttons (added by the same parallel work stream as the single-category redesign) don't
+all map to the category their label implies — "Lighting" is the button that actually switches to
+the `accessory` category (roof rack, light bar, rock sliders); "Accessories" switches to `decal`.
+`BuilderApp.test.tsx` documents this with a comment at its one point of contact rather than silently
+using the mismatched label. Not fixed here — it's the other stream's UI design, not a regression
+this task introduced, and relabeling it without knowing that stream's intent risks guessing wrong.
+
 ---
 
 ## 5. Backend Endpoint Design
@@ -1144,12 +1192,13 @@ All twelve steps are done and tested on this branch.
 ```
 $ npm run lint         # clean (eslint.config.js added; catches real react-hooks issues, not noise)
 $ npm run typecheck    # clean
-$ npm test             # 175 passed (13 files), including a CI-time check that the catalog resolves
+$ npm test             # 185 passed (15 files), including a CI-time check that the catalog resolves
                         # against the real, checked-in GLB (tests/glbContract.test.ts), 13 tests of
                         # D1ConfigurationRepository against a real local D1 instance, 7 tests of the
-                        # write rate limiter against both a fake and a real local binding, and 9 tests
+                        # write rate limiter against both a fake and a real local binding, 9 tests
                         # proving the Tacoma/Camry catalogs resolve against the real procedural
-                        # fallback vehicle they actually render with
+                        # fallback vehicle they actually render with, and 10 real component tests
+                        # (tests/components/*.test.tsx, jsdom) for CustomizationButton and BuilderApp
 $ npm run build        # 11 routes, static export succeeds — including per-vehicle routes /4runner,
                         # /tacoma, /camry (app/[slug]/page.tsx), the /explore lineup page, and
                         # /compare
@@ -1192,12 +1241,14 @@ $ npm run build        # 11 routes, static export succeeds — including per-veh
   (`lib/server/rateLimit.ts`) throttles POST/PATCH/DELETE at 30 writes/minute per `cf-connecting-ip`,
   which is the best available key given Task 10's anonymous, no-accounts ownership model — a NAT'd
   office or a mobile carrier's shared egress IP shares one budget. Revisit if user accounts land.
-- **`BuilderApp.tsx` has no dedicated component test suite yet**, including the grade selector's
-  `changeGrade` (§4, "Grade switching") and the garage/share/terrain controls merged in from a
-  parallel work stream (below). It is exercised indirectly today — `validation.test.ts` covers
-  grade-gating rules server-side, `d1ConfigurationRepository.test.ts` and `transport.test.ts` cover
-  creating a configuration with a given `gradeId` — but there is no test that clicks a grade button
-  and asserts the scene resets. Real component tests for `BuilderApp` are planned work.
+- **`BuilderApp.tsx`'s garage/share/terrain controls (merged in from a parallel work stream) have
+  no dedicated tests.** `tests/components/BuilderApp.test.tsx` (§4, "Component tests") covers
+  bootstrap, the grade selector, and reset — not `saveToGarage`, `share`, or the terrain/lighting
+  toggles.
+- **The left rail's "Systems" button labels don't all match the category they switch to** — e.g.
+  "Lighting" opens the `accessory` category, "Accessories" opens `decal` (§4, "Component tests").
+  Discovered while writing `BuilderApp.test.tsx`, not introduced by it; the mismatch predates this
+  task, in the same parallel work stream that added the single-category redesign.
 - **The `/explore` lineup page (§4, "Vehicle lineup") fetches the whole catalog and filters client-side
   without pagination UI.** `lib/api/query.ts`'s `paginateAndFilter`/`queryVehicles` already support it
   and `MAX_PAGE_SIZE` is used defensively, but with three vehicles today a page-2 control has nothing
