@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "toyota-showroom-worker",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "dist/server/index.js",
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "toyota-showroom-db",
+      "database_id": "__CLOUDFLARE_D1_DATABASE_ID__",
+      "migrations_dir": "db/migrations"
+    }
+  ]
+}
