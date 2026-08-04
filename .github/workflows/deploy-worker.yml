@@ -56,4 +56,4 @@ jobs:
         if: env.WRITE_API_KEY != ''
         run: printf '%s' "$WRITE_API_KEY" | npx wrangler secret put WRITE_API_KEY --config wrangler.jsonc
       - name: Deploy Worker
-        run: npx --yes @vinext/cloudflare@0.0.50 deploy --skip-build
+        run: npx vinext deploy --skip-build
