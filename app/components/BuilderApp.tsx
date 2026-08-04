@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Armchair,
@@ -25,7 +25,7 @@ import {
   Truck,
   ZoomIn,
 } from "lucide-react";
-import { VehicleCanvas, type CameraPreset } from "./VehicleCanvas";
+import type { CameraPreset } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
@@ -41,6 +41,14 @@ import {
 } from "../../lib/types/customization";
 import type { VehicleSceneController } from "../../lib/three/sceneController";
 import { createConfigurationShareUrl, estimateBuildTotal, readSharedConfigurationId } from "../../lib/showroom/buildTools";
+
+/**
+ * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
+ * app ships — split into its own chunk so `/explore` and `/compare`, which never render a canvas,
+ * don't pay to parse it, and so this page's own chrome (header, rail, right panel) can paint and
+ * become interactive before that chunk finishes downloading.
+ */
+const VehicleCanvas = lazy(() => import("./VehicleCanvas").then((module) => ({ default: module.VehicleCanvas })));
 
 /** Used only when no `vehicleSlug` prop is given — the root route's implicit default vehicle. */
 const DEFAULT_VEHICLE_SLUG = "4runner";
@@ -427,16 +435,18 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             </div>
           </div>
 
-          <VehicleCanvas
-            threeDConfig={vehicle.threeDConfig}
-            catalog={bootstrap.catalog}
-            cameraPreset={preset}
-            lift={lift}
-            terrain={terrain}
-            sceneMood={sceneMood}
-            onReady={handleSceneReady}
-            onError={handleSceneError}
-          />
+          <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
+            <VehicleCanvas
+              threeDConfig={vehicle.threeDConfig}
+              catalog={bootstrap.catalog}
+              cameraPreset={preset}
+              lift={lift}
+              terrain={terrain}
+              sceneMood={sceneMood}
+              onReady={handleSceneReady}
+              onError={handleSceneError}
+            />
+          </Suspense>
 
           <div className="gpu-status">
             <span><i /> WebGPU preferred</span>

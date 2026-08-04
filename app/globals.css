@@ -129,6 +129,7 @@ button { font: inherit; color: inherit; }
 
 .stage { min-width: 0; position: relative; display: grid; grid-template-rows: 1fr auto; background: #0c1015; }
 .vehicle-canvas { position: absolute; inset: 0 0 84px; }
+.vehicle-canvas-loading { display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .stage-toolbar {
   position: absolute; z-index: 4; left: 18px; right: 18px; top: 16px; display: flex; justify-content: space-between; pointer-events: none;
 }

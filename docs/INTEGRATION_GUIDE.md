@@ -1594,3 +1594,49 @@ the cost of geometry precision. The defaults already produced a real, verified r
 touching visual fidelity, and this repo has no practical way to script a "does it still look right
 up close" check (§1's same caliper-geometry caveat) — tuning further without that feedback would be
 guessing.
+
+---
+
+## 16. Code-Splitting the Three.js Renderer
+
+Three.js (core + the WebGPU renderer + `OrbitControls` + loaders) plus `gsap` was the single
+heaviest dependency this app ships, and it was bundled directly into the same chunk as
+`BuilderApp.tsx` — the component every route with a canvas mounts first, before the scene itself is
+even needed. `npm run build` flagged this on its own ("Some chunks are larger than 500 kB after
+minification"): the pre-split chunk was 1.38 MiB.
+
+**Fix: `React.lazy` + `Suspense`, not a build-config change.** `app/components/BuilderApp.tsx` no
+longer imports `VehicleCanvas` directly; it imports only its type (`import type { CameraPreset }`,
+erased at build time) and lazily loads the component itself:
+
+```ts
+const VehicleCanvas = lazy(() => import("./VehicleCanvas").then((module) => ({ default: module.VehicleCanvas })));
+```
+
+wrapped at its render site in `<Suspense fallback={...}>` with a placeholder that reuses the real
+`.vehicle-canvas` element's CSS (`app/globals.css`) so nothing shifts layout while the chunk streams
+in. This was the correct lever over a bundler `manualChunks` tweak because the *goal* isn't just a
+smaller file on disk — it's that the builder's own chrome (header, grade rail, right panel) can
+paint and become interactive without waiting on a ~1.3 MiB parse, and that routes with no canvas at
+all (`/explore`, `/compare`) never fetch it in the first place.
+
+**Result:** `BuilderApp`'s own chunk dropped from 1.38 MiB to ~51 KB; Three.js/gsap now ship in a
+separate `VehicleCanvas-*.js` chunk (~1.33 MiB) fetched only when a route actually mounts the
+canvas. The 500 kB build warning is gone.
+
+**Verified with real network inspection** (`tests/e2e/code-splitting.spec.ts`), not just chunk
+files existing on disk — a stray shared import could still pull Three.js into a chunk `/explore`
+loads even with a separate file present. Two tests: `/explore` and `/compare` are asserted to make
+*zero* requests matching `/assets/VehicleCanvas-*`, and the builder page (`/4runner/`) is asserted
+to make at least one. Deliberate-bug check: reverted the `lazy()` change back to a static import,
+rebuilt — the `VehicleCanvas-*` chunk stopped existing entirely and the "builder page fetches it"
+test correctly failed (`Timeout ... Received: 0`), proving the test is a real regression signal and
+not vacuously true. The complementary "`/explore`/`/compare` never fetch it" test stayed green in
+both states, which is expected and not a gap: those routes never import `BuilderApp` at all
+(`app/[slug]/page.tsx` and `app/page.tsx` are the only two importers), so that invariant holds
+regardless of whether the split exists — it documents that existing isolation rather than testing
+this task's change specifically.
+
+Full local suite re-verified after: `npm test` (208/208), `npm run build`, and the full
+`npm run test:e2e` (7/7, including both real-GLB `build-and-restore.spec.ts` tests against the
+now-lazy-loaded canvas).
