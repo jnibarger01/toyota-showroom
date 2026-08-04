@@ -34,9 +34,15 @@ import {
 } from "../../lib/types/customization";
 import type { VehicleSceneController } from "../../lib/three/sceneController";
 
-const VEHICLE_SLUG = "4runner";
+/** Used only when no `vehicleSlug` prop is given — the root route's implicit default vehicle. */
+const DEFAULT_VEHICLE_SLUG = "4runner";
 const DEFAULT_GRADE = "trd-pro";
-const STORAGE_KEY = "toyota-showroom:configurationId";
+
+function storageKeyFor(vehicleSlug: string): string {
+  // Scoped per vehicle so switching vehicles doesn't clobber (or try to resume) another vehicle's
+  // remembered configuration id — each route keeps its own "last worked on" pointer independently.
+  return `toyota-showroom:configurationId:${vehicleSlug}`;
+}
 
 const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Paint",
@@ -61,7 +67,12 @@ type Bootstrap = {
   configuration: VehicleConfiguration;
 };
 
-export function BuilderApp() {
+type Props = {
+  /** Defaults to the site's implicit default vehicle when the route doesn't name one (`/`). */
+  vehicleSlug?: string;
+};
+
+export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preset, setPreset] = useState<CameraPreset | null>(null);
@@ -73,18 +84,24 @@ export function BuilderApp() {
   // ------------------------------------------------------------------ step 1-4
   // Load vehicle metadata, then the option catalog, then the saved configuration. Nothing here
   // touches Three.js; the scene is only mutated once the GLB reports its node contract verified.
+  //
+  // The App Router does not remount a page component just because a route param changed under the
+  // same `[slug]` segment, so `app/[slug]/page.tsx` forces a clean remount on vehicle switches with
+  // `key={slug}` rather than this effect resetting state imperatively (setState synchronously at the
+  // top of an effect body causes an extra render pass React's own lint rules flag against). Every
+  // field this effect writes therefore starts at its `useState` initial value on each new vehicle.
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       try {
-        const vehicle = await getVehicle(VEHICLE_SLUG);
+        const vehicle = await getVehicle(vehicleSlug);
         const gradeId = vehicle.grades.some((grade) => grade.id === DEFAULT_GRADE)
           ? DEFAULT_GRADE
           : (vehicle.grades[0]?.id ?? DEFAULT_GRADE);
 
         const [options, configuration] = await Promise.all([
-          configurationsApi.listVehicleOptions(VEHICLE_SLUG, gradeId),
+          configurationsApi.listVehicleOptions(vehicleSlug, gradeId),
           resumeOrCreateConfiguration(vehicle, gradeId),
         ]);
 
@@ -100,7 +117,7 @@ export function BuilderApp() {
       cancelled = true;
       configurationStore.reset();
     };
-  }, []);
+  }, [vehicleSlug]);
 
   // ------------------------------------------------------------------ step 5-7
   // Called by the canvas after the base GLB loads and `verifyNodeContract` runs. Saved selections
@@ -146,7 +163,7 @@ export function BuilderApp() {
       modelYear: bootstrap.vehicle.year,
       gradeId: bootstrap.configuration.gradeId,
     });
-    rememberConfigurationId(fresh.configurationId);
+    rememberConfigurationId(vehicleSlug, fresh.configurationId);
     if (controllerRef.current) {
       await configurationStore.attachScene(controllerRef.current, fresh, catalog);
     }
@@ -165,7 +182,7 @@ export function BuilderApp() {
   if (!bootstrap || !preset) {
     return (
       <main className="builder-shell builder-status">
-        <p>Loading {VEHICLE_SLUG}&hellip;</p>
+        <p>Loading {vehicleSlug}&hellip;</p>
       </main>
     );
   }
@@ -385,24 +402,25 @@ export function presetForConfiguration(
   return { id: saved.presetId ?? "saved", label: "Saved", position: saved.position, target: saved.target };
 }
 
-function rememberConfigurationId(configurationId: string): void {
+function rememberConfigurationId(vehicleSlug: string, configurationId: string): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, configurationId);
+    window.localStorage.setItem(storageKeyFor(vehicleSlug), configurationId);
   } catch {
     // Private browsing or a full quota is not a reason to fail the build session.
   }
 }
 
 /**
- * Resumes the configuration this browser last worked on, or creates a fresh one.
+ * Resumes the configuration this browser last worked on for this vehicle, or creates a fresh one.
  *
  * Only the *id* is kept client-side; the configuration itself is re-fetched, so the server stays
  * authoritative and a build edited elsewhere shows its latest state here. A stored id that no
  * longer resolves (deleted, or a wiped dev database) falls through to creating a new record rather
- * than leaving the builder stuck on an error.
+ * than leaving the builder stuck on an error. The vehicle-id check also guards against a corrupted
+ * or hand-edited storage value pointing at the wrong vehicle.
  */
 async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): Promise<VehicleConfiguration> {
-  const storedId = safeReadStoredId();
+  const storedId = safeReadStoredId(vehicle.slug);
 
   if (storedId) {
     try {
@@ -418,13 +436,13 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
     modelYear: vehicle.year,
     gradeId,
   });
-  rememberConfigurationId(created.configurationId);
+  rememberConfigurationId(vehicle.slug, created.configurationId);
   return created;
 }
 
-function safeReadStoredId(): string | null {
+function safeReadStoredId(vehicleSlug: string): string | null {
   try {
-    return window.localStorage.getItem(STORAGE_KEY);
+    return window.localStorage.getItem(storageKeyFor(vehicleSlug));
   } catch {
     return null;
   }
