@@ -1424,6 +1424,24 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   static assets today because the base GLB still exceeds Workers Static Assets' 25 MiB single-file
   cap even after §15's compression (28.1 MiB). The config is real and verified against the actual
   build output (§17); it activates with no further change once either constraint lifts.
+- **Three near-identical, only-partly-tokenized reds.** `app/globals.css`'s design tokens
+  (`docs/DESIGN_TOKENS.md`) name two accent reds, `--accent` (`#eb0a1e`) and `--accent-2`
+  (`#ff3b4a`, itself never actually referenced by any rule) — but `.brand span` (both the builder
+  header and `app/explore/page.tsx`'s) uses a third, untokenized `#f34a50` directly. Not fixed here:
+  picking which of the three is correct and consolidating the others is a design decision, found
+  while auditing token adoption for `docs/DESIGN_TOKENS.md`, not made unilaterally as a documentation
+  task.
+- **The light theme (`app/globals.css`'s `:root[data-theme="light"]`) is fully defined but dead
+  code.** Nothing in `app/components/` ever sets `data-theme` on anything — verified by grepping the
+  whole app source, not assumed. The values are real and would work the moment something set that
+  attribute; there is simply no theme toggle control anywhere yet
+  (`docs/DESIGN_TOKENS.md`'s "Theming" section).
+- **Most of the design token system (typography, spacing, radius, motion scales) is
+  forward-declared, not adopted.** Only the color/surface/border/muted/accent tokens are actually
+  referenced anywhere in `app/globals.css`'s ~340 lines of component CSS — every `font-size`,
+  margin/padding/gap, and `border-radius` value in that file is a hardcoded literal instead, several
+  of them (7px, 9px, 12px) coincidentally matching the unused radius tokens' own values.
+  `docs/DESIGN_TOKENS.md`'s "Adoption status" section has the full, grep-verified breakdown.
 
 ---
 
