@@ -102,6 +102,20 @@ afterEach(() => {
   configurationStore.reset();
 });
 
+/**
+ * Renders and waits past both async gaps in bootstrap: the "4Runner" heading appears once
+ * `vehicle`/`configuration` metadata loads, but grade buttons stay `disabled` and the catalog stays
+ * empty until `handleSceneReady`'s `attachScene(...)` call — kicked off by the mocked VehicleCanvas's
+ * `onReady` effect — resolves separately. A bare `findByRole("heading", ...)` races that second gap;
+ * CI caught this for real once (BuilderApp.tsx's grade buttons rendered `disabled=""` and no paint
+ * swatches existed yet, even though the heading itself was already on screen).
+ */
+async function renderBuilderReady(vehicleSlug = "4runner") {
+  render(<BuilderApp vehicleSlug={vehicleSlug} />);
+  await screen.findByRole("heading", { name: "4Runner" });
+  await waitFor(() => expect(screen.getByRole("button", { name: /trd pro/i })).not.toBeDisabled());
+}
+
 describe("BuilderApp", () => {
   it("shows a loading state before the vehicle bootstraps", () => {
     render(<BuilderApp vehicleSlug="4runner" />);
@@ -109,9 +123,7 @@ describe("BuilderApp", () => {
   });
 
   it("renders the vehicle, its default grade, and the option catalog once bootstrapped", async () => {
-    render(<BuilderApp vehicleSlug="4runner" />);
-
-    await screen.findByRole("heading", { name: "4Runner" });
+    await renderBuilderReady();
     expect(screen.getByTestId("vehicle-canvas")).toBeInTheDocument();
 
     // DEFAULT_GRADE in BuilderApp.tsx — the grade this configuration was created with.
@@ -131,8 +143,7 @@ describe("BuilderApp", () => {
   });
 
   it("switching grades creates a new configuration and updates the active grade button", async () => {
-    render(<BuilderApp vehicleSlug="4runner" />);
-    await screen.findByRole("heading", { name: "4Runner" });
+    await renderBuilderReady();
 
     const sr5 = screen.getByRole("button", { name: /^sr5/i });
     fireEvent.click(sr5);
@@ -143,8 +154,7 @@ describe("BuilderApp", () => {
   });
 
   it("drops a grade-incompatible selection when switching to a grade that doesn't offer it", async () => {
-    render(<BuilderApp vehicleSlug="4runner" />);
-    await screen.findByRole("heading", { name: "4Runner" });
+    await renderBuilderReady();
 
     // Solar Octane is compatibleGradeIds: ["trd-pro"] only (lib/data/options/4runner.ts).
     const solarOctane = screen.getByRole("button", { name: /solar octane/i });
@@ -159,8 +169,7 @@ describe("BuilderApp", () => {
   });
 
   it("reset creates a fresh configuration with a new revision", async () => {
-    render(<BuilderApp vehicleSlug="4runner" />);
-    await screen.findByRole("heading", { name: "4Runner" });
+    await renderBuilderReady();
 
     const revisionRow = screen.getByText("Revision").closest("div")!;
     const before = revisionRow.querySelector("strong")?.textContent;
