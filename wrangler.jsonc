@@ -60,5 +60,40 @@
       "namespace_id": "1001",
       "simple": { "limit": 30, "period": 60 }
     }
-  ]
+  ],
+
+  // Named environment for `.github/workflows/deploy-staging.yml`, which deploys every pull request
+  // here before it can reach the production Worker (top-level config above, deployed by `npm run
+  // deploy` — there is no CI-driven production deploy workflow; this repo's Worker is deployed
+  // manually today, same standing gap `npm run deploy`'s own dependency on real Cloudflare
+  // credentials already documents). `compatibility_date`/`compatibility_flags` are inherited from
+  // the top level; Wrangler does not merge `d1_databases`/`ratelimits`, so both are restated here
+  // pointing at their own staging resources rather than production's.
+  "env": {
+    "staging": {
+      "name": "toyota-showroom-staging",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "toyota-showroom-staging",
+          // Placeholder, same as the production id above — replace with the id
+          // `wrangler d1 create toyota-showroom-staging` prints. A *separate* database from
+          // production's: staging is expected to be reset/reseeded freely, which production must
+          // never be.
+          "database_id": "REPLACE_WITH_REAL_STAGING_D1_DATABASE_ID",
+          "migrations_dir": "db/migrations"
+        }
+      ],
+      "ratelimits": [
+        {
+          "name": "CONFIG_WRITE_LIMITER",
+          // Distinct from production's 1001 — Cloudflare rate limiter namespaces are scoped to the
+          // account, not the Worker, so reusing a namespace id here would share one 30-writes/minute
+          // budget between every PR's staging deploy and production itself.
+          "namespace_id": "1002",
+          "simple": { "limit": 30, "period": 60 }
+        }
+      ]
+    }
+  }
 }

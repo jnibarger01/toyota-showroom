@@ -1180,7 +1180,7 @@ $ npm run build        # 11 routes, static export succeeds — including per-veh
   Acceptable for the anonymous, no-accounts v1 this implements — revisit if user accounts land.
 - **A shared link (§4, "Share configuration") only resolves cross-browser when a real backend is
   live.** `localConfigurationTransport` — the fallback `lib/api/configurations.ts` uses once it
-  detects there's no request-aware backend (e.g. the plain GitHub Pages export, §8's deployment
+  detects there's no request-aware backend (e.g. the plain GitHub Pages export, §5's deployment
   note) — persists to `window.localStorage`, so a link shared from that deployment only opens
   correctly in the same browser that created it. On the Cloudflare Worker + D1 deployment (§5,
   "Persistence"), the configuration is server-side and the link works everywhere. Not fixable
@@ -1210,3 +1210,47 @@ $ npm run build        # 11 routes, static export succeeds — including per-veh
   not yet wired into `lib/data/vehicles` — no `rav4` entry exists in `VEHICLES` yet). The merge commit
   documents the conflict resolution for the three files both streams touched
   (`BuilderApp.tsx`, `VehicleCanvas.tsx`, `lib/data/vehicles/4runner.ts`).
+
+---
+
+## 12. Deployment
+
+Two independent targets, matching §5's "Deployment note": `.github/workflows/pages.yml` deploys the
+static export (`dist/client`) to GitHub Pages on every push to `main`; the Worker (`dist/server`,
+the dynamic `/api/v1/configurations/**` routes) is deployed separately, by hand today —
+`npm run deploy` — since there is no CI-driven *production* Worker deploy workflow. There is now a
+CI-driven **staging** one.
+
+### `.github/workflows/deploy-staging.yml`
+
+Runs on every pull request targeting `main` (and via manual `workflow_dispatch`): builds, applies
+D1 migrations to a separate `toyota-showroom-staging` database, then deploys the Worker under
+`wrangler.jsonc`'s new `env.staging` block — its own Worker name (`toyota-showroom-staging`), its
+own D1 database, its own rate-limiter namespace (`1002`, distinct from production's `1001` — a
+namespace id is account-scoped, not Worker-scoped, so reusing production's would mean a PR's
+staging traffic and production traffic drew from the same 30-writes/minute budget). Both the
+migration and deploy steps are skipped — not failed — when `CLOUDFLARE_API_TOKEN` /
+`CLOUDFLARE_ACCOUNT_ID` repository secrets aren't set, logged via `::notice::` rather than a red X,
+the same posture `wrangler.jsonc`'s placeholder `database_id`s already take toward credentials this
+environment doesn't have. To actually make this deploy something:
+
+1. `wrangler d1 create toyota-showroom-staging`, paste the id into
+   `wrangler.jsonc`'s `env.staging.d1_databases[0].database_id`.
+2. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets (Settings → Secrets
+   and variables → Actions).
+
+### The redirected-configuration gotcha
+
+Discovered while wiring this up, and non-obvious enough to record: `@cloudflare/vite-plugin`
+auto-generates `dist/client/wrangler.json` during `npm run build` — a flattened snapshot of
+`wrangler.jsonc` — and `wrangler deploy` prefers it by default via `.wrangler/deploy/config.json`
+("Using redirected Wrangler configuration"). That snapshot does not re-resolve `--env staging`'s
+bindings; passing `--env staging` against the redirected config silently deploys with
+**production's** D1 binding under the staging Worker's name — the opposite of what a staging
+deployment is supposed to isolate. `wrangler deploy ... --config wrangler.jsonc` (explicit, not
+relying on the redirect) is what makes `--env staging` actually resolve `toyota-showroom-staging`'s
+bindings; both `npm run deploy` and `npm run deploy:staging` pass it now, and production's script
+additionally passes `--env ""` to silence Wrangler's own "multiple environments defined, no target
+specified" warning now that `env.staging` exists. Verified by dry-running both
+(`wrangler deploy dist/server/index.js --no-bundle --env staging --dry-run`, with and without
+`--config wrangler.jsonc`) and comparing which D1 database name each reports.

@@ -19,8 +19,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply toyota-showroom --local",
     "db:migrate:remote": "wrangler d1 migrations apply toyota-showroom --remote",
+    "db:migrate:staging": "wrangler d1 migrations apply toyota-showroom-staging --remote --env staging --config wrangler.jsonc",
     "db:studio": "drizzle-kit studio",
-    "deploy": "npm run build && wrangler deploy dist/server/index.js --no-bundle"
+    "deploy": "npm run build && wrangler deploy dist/server/index.js --no-bundle --env \"\" --config wrangler.jsonc",
+    "deploy:staging": "npm run build && wrangler deploy dist/server/index.js --no-bundle --env staging --config wrangler.jsonc"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
