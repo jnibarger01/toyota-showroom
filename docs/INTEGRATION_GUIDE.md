@@ -60,14 +60,18 @@ primitive referencing it. This happened to be safe for `body.carmain` (only `BOD
 unsafe as a pattern: in this same asset `metal.chrome` is shared by six nodes and `tire.sidewall`
 by five. Any future option using this code would have repainted all of them.
 
-### Two defects found in the asset itself
+### Two defects found in the asset itself — since fixed at the source
 
-Both were measured by parsing the GLB's JSON chunk and accessor bounds, not guessed.
+Both were measured by parsing the GLB's JSON chunk and accessor bounds, not guessed, and both are
+now fixed in the shipped GLB itself (`scripts/fix-donor-geometry.mjs`) rather than worked around at
+runtime. This subsection keeps the original diagnosis for context; see that script's own header
+comment for the fix, and "Fixing the donor geometry at the source" further down for how it was
+verified.
 
-**Donor geometry at the world origin.** Six nodes sit at the scene root with no transform and
+**Donor geometry at the world origin.** Six nodes sat at the scene root with no transform and
 geometry authored around the origin — `322-1790(MD010)`, `322-1790(MD010).001`,
-`BFGoodrich_ALL_Terrain_TA_KO2`, `FRONT_BRAKES`, `REAR_BRAKES`, and `Jet Black`. The last is a
-**radius-1 sphere** spanning y −1 → 1. All four `PLACED_AOOA_caliper_*` nodes are at the origin
+`BFGoodrich_ALL_Terrain_TA_KO2`, `FRONT_BRAKES`, `REAR_BRAKES`, and `Jet Black`. The last was a
+**radius-1 sphere** spanning y −1 → 1. All four `PLACED_AOOA_caliper_*` nodes were at the origin
 too, rather than at their wheels.
 
 **The vehicle floated.** Grounding used a `Box3` over the whole scene:
@@ -80,19 +84,65 @@ root.position.y += size.y / 2;                       // → y = 1.0
 
 The tyres' lowest point is y 0.12, so the 4Runner hovered roughly 1.1 units above the grid.
 
-Fixed by two data fields, not a heuristic (`lib/data/vehicles/4runner.ts`):
+Originally worked around by two data fields (`lib/data/vehicles/4runner.ts`) rather than a
+heuristic — `hiddenNodeNames` (hid the six donor nodes and the four mispositioned calipers) and
+`groundingNodeNames` (computed the bounding box from an explicit list instead of the whole scene).
+`groundingNodeNames` is unchanged and still the more precise choice even now that the donor sphere
+is gone entirely; `hiddenNodeNames` is gone — nothing left to hide.
 
-```ts
-hiddenNodeNames: ["322-1790(MD010)", /* … */, "Jet Black", "PLACED_AOOA_caliper_front_left", /* … */],
-groundingNodeNames: ["BODY", "PLACED_KO3_front_left", /* …the four tyres */],
-```
+### Fixing the donor geometry at the source (`scripts/fix-donor-geometry.mjs`)
 
-`prepareVehicleRoot` (`app/components/VehicleCanvas.tsx`) hides the first list and computes the
-bounding box from the second.
+No Blender is available in this environment, and there's no checked-in `.blend` source file
+either — only the exported GLB. `scripts/fix-donor-geometry.mjs` is the closest achievable
+equivalent: editing the shipped binary directly with `@gltf-transform/core`/`functions`, producing
+the same *result* a Blender re-export and reupload would, verifiably.
 
-> **Blender follow-up:** the calipers should be re-parented to the `MOUNT_WHEEL_*` nodes and the
-> donor objects deleted before the next export. Until then they are hidden at runtime, which costs
-> nothing visually — at the origin they are fully enclosed by the body.
+Two fixes, both derived from data already present in the file — nothing guessed or invented:
+
+1. **Reposition, don't hide, the four `PLACED_AOOA_caliper_*` nodes.** They shipped with no
+   `translation` at all (defaulting to `BODY`'s own local origin), which is why they read as
+   "mispositioned" rather than simply broken — they're real, intended geometry (the material names
+   are literally `Red_wilwood`, `metal.chrome`, `Caliper_cover_logo`), just missing a transform.
+   Every other per-wheel node (`PLACED_KO3_*`, `PLACED_WEISU_*`) already carries the correct
+   translation for its wheel, matching `MOUNT_WHEEL_*`'s own — copying that exact vector onto the
+   matching caliper node is precise, not an authoring guess.
+2. **Delete the six true donor nodes** (`322-1790(MD010)`, `.001`, `BFGoodrich_ALL_Terrain_TA_KO2`,
+   `FRONT_BRAKES`, `REAR_BRAKES`, `Jet Black`) and prune what becomes unreferenced. Verified before
+   writing the script that every material these nodes use is also referenced **by index** from
+   real, surviving geometry with *different* accessors (e.g. `PLACED_AOOA_caliper_front_left`'s
+   mesh and `FRONT_BRAKES`'s mesh share the same four material indices but are distinct geometry) —
+   so a `prune()` pass safely drops the truly-orphaned donor meshes/accessors (and the one material
+   nothing else used, the "Jet Black" sphere's) while leaving every material a real node still
+   references untouched. `gltf-transform`'s reachability analysis is what makes this safe to assert
+   rather than hope; it isn't a heuristic guess about what "donor" means.
+
+**A real near-miss, caught before it shipped.** The first run of `prune()` (without `keepLeaves:
+true`) also deleted `MOUNT_WHEEL_*`, `MOUNT_LICENSE_PLATE_*`, and `MOUNT_SOUND_EXHAUST` — every
+empty, mesh-less, child-less node the *glTF document itself* doesn't reference from anywhere else.
+That describes real donor junk exactly as well as it describes load-bearing marker nodes
+`VehicleCanvas.tsx`'s `installWheelAndTireAssets` and `lib/data/vehicles/4runner.ts`'s
+`wheelMountNames` resolve **by name at runtime** — nothing inside the document points at them, so
+pure glTF-graph reachability can't tell "empty transform used as an attachment point" from "empty
+transform nobody needs." Caught by re-dumping the node list after the first run and noticing seven
+nodes gone instead of the six actually named for deletion; fixed with `keepLeaves: true`, re-verified.
+
+**Verification, not just a clean script exit:**
+- `npm test` (`tests/glbContract.test.ts` and the rest) — 208/208, unaffected node names still
+  resolve.
+- `npm run build` + `npm run test:e2e` — all 5 Playwright tests green, including a full real-browser
+  GLB load and the build-and-restore flow, against the *edited* file.
+- The resulting node list dumped and read by hand: exactly the six donor names gone, the four
+  calipers now carrying the same translation as their matching `PLACED_KO3_*` node, every
+  `MOUNT_*` marker still present.
+- File size: 56.9 MiB → 38.7 MiB (a ~32% reduction — donor geometry was a meaningful fraction of
+  the payload; a welcome side effect for the base-GLB-size gap this repo already tracks, though not
+  what this fix was for).
+
+Not fixed here, and not attempted: the calipers' local geometry/orientation itself (are they
+authored to actually look correct once positioned?) wasn't visually re-verified beyond confirming
+the scene loads and renders without errors — a full visual check needs either a real Blender
+session or a much closer render inspection than this environment made practical to script
+reliably. If they look wrong up close, that is 3D-authoring work this fix did not and could not do.
 
 ### Target architecture
 
@@ -673,7 +723,7 @@ the same build back. Runs the same way the visual tests do — real static expor
 Pages visitor gets: `lib/api/configurations.ts` detects there's no request-aware backend and falls
 back to `localConfigurationTransport` (browser `localStorage`), same as §5's "Deployment note".
 
-Two tests, each a real GLB load (`public/models/modsnation_7416_assets_assembled.glb`, ~57 MiB) —
+Two tests, each a real GLB load (`public/models/modsnation_7416_assets_assembled.glb`, ~39 MiB) —
 not mocked, unlike `tests/components/BuilderApp.test.tsx`'s stubbed `VehicleCanvas`, because the
 whole point here is proving the real scene restores a real selection, not just that
 `configurationStore`'s state does:
@@ -688,7 +738,7 @@ whole point here is proving the real scene restores a real selection, not just t
    instead of the wrong assumption it started from.
 
 Both tests run `test.describe.configure({ mode: "serial" })`, and `playwright.config.ts` caps
-`workers` to `1` in CI specifically: two Chromium instances each loading a 57 MiB GLB at once was
+`workers` to `1` in CI specifically: two Chromium instances each loading a 39 MiB GLB at once was
 enough resource contention in the sandbox this was built in to make the second one time out for
 reasons that had nothing to do with the app — GitHub Actions' standard runners are similarly
 modest (2-core). Verified with the deliberate-bug technique used throughout this project: forcing
@@ -1028,7 +1078,7 @@ map may still be referenced by other meshes.
 | Part not in the base GLB, or too heavy to ship always | `mesh-replacement` | Loads on demand, cached |
 | Different vehicle entirely | full model reload | The **only** case that justifies it |
 
-Default to the cheapest row that works. Ordinary option changes must never reload the 57 MB base
+Default to the cheapest row that works. Ordinary option changes must never reload the 39 MB base
 asset — the setup effect runs once and reads callbacks through latest-value refs precisely so a
 prop change can't retrigger it.
 
@@ -1306,7 +1356,11 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   "Persistence"), the configuration is server-side and the link works everywhere. Not fixable
   without a real backend, which is the same standing dependency the D1 `database_id` placeholder
   already documents above.
-- **Calipers and donor geometry are hidden, not deleted.** The Blender source should be corrected.
+- **Calipers were repositioned and donor geometry deleted at the GLB source** (§1, "Fixing the
+  donor geometry at the source"), not just hidden at runtime anymore. What's still genuinely open:
+  the calipers' own local geometry/orientation was never visually re-verified up close (no Blender,
+  no practical way to script a close-up render check in this environment) — if they look wrong
+  once actually looked at, that's real 3D-authoring work this fix didn't and couldn't do.
 - **Visual regression (§4, "Visual regression testing") covers DOM/CSS pages only** — `/explore`,
   `/compare`, and the builder's chrome with the 3D canvas masked out, not the canvas's own content,
   for reasons that section explains. And its committed baselines carry a disclosed risk: generated

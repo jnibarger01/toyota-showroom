@@ -27,7 +27,7 @@
   // vinext's own Cloudflare integration auto-adds a static-assets binding pointing at dist/client
   // when generating its deploy-time config (visible at dist/client/wrangler.json after a build) —
   // this file does not declare one itself. That matters for `npm run deploy`: as of this GLB
-  // (public/models/modsnation_7416_assets_assembled.glb, ~57 MiB), an assets-inclusive deploy fails
+  // (public/models/modsnation_7416_assets_assembled.glb, ~39 MiB), an assets-inclusive deploy fails
   // with "Asset too large" — Cloudflare Workers Static Assets cap a single file at 25 MiB. Verified
   // via `wrangler deploy dist/server/index.js --no-bundle --dry-run`, which succeeds and correctly
   // reports the D1 binding once the assets directory is swapped for an empty one. Until the GLB is
