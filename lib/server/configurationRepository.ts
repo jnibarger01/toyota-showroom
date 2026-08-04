@@ -2,6 +2,7 @@ import { CUSTOMIZATION_SCHEMA_VERSION, type VehicleConfiguration } from "../type
 import type { ValidatedConfigurationInput, ValidatedPatch } from "../validation/configuration";
 import { forbidden, notFound, revisionConflict } from "../api/errors";
 import { generateOwnerToken, hashOwnerToken, verifyOwnerToken } from "../shared/ownerToken";
+import { newId } from "../shared/id";
 
 /**
  * Persistence boundary for configurations.
@@ -22,14 +23,6 @@ export interface ConfigurationRepository {
   /** Throws `forbidden()` if `ownerToken` doesn't match; returns `false` only for a genuinely missing id. */
   delete(configurationId: string, ownerToken: string): Promise<boolean>;
   listRevisions(configurationId: string): Promise<VehicleConfiguration[]>;
-}
-
-function newId(prefix: string): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
-  return `${prefix}_${random.replace(/-/g, "").slice(0, 20)}`;
 }
 
 interface StoredRecord {

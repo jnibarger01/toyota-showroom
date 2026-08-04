@@ -620,6 +620,27 @@ Handlers depend on `ConfigurationRepository`, never on Drizzle directly, so the 
 against D1 in the Worker and the in-memory store in dev and tests. Revision bumping and history
 appending live in the repository, so no caller can write without recording a revision.
 
+`lib/server/d1ConfigurationRepository.ts` is the real D1 implementation, bound automatically —
+`instrumentation.ts`'s `register()` runs once per Worker isolate (vinext emits it as a top-level
+`await` in the generated App Router entry), tries `import("cloudflare:workers")` for `env.DB`, and
+calls `setConfigurationRepository(new D1ConfigurationRepository(env.DB))` only when that binding
+resolves. Everywhere else — `npm run dev`, `vitest`, static prerendering — the import fails or the
+binding is absent, `register()` returns early, and `InMemoryConfigurationRepository` (the default)
+stays active; no environment sniffing at any call site. `cloudflare:workers` is externalized in
+`vite.config.ts`'s `build.rolldownOptions` — Rolldown doesn't auto-externalize `cloudflare:`-prefixed
+specifiers the way it does `node:`-prefixed ones, and without that the build fails outright rather
+than deferring the import to runtime.
+
+D1 has no interactive multi-round-trip transactions; its real atomicity primitive is
+`db.batch([...])`, an all-or-nothing group of prepared statements. Every write touching both
+`configurations` and `configuration_revisions` goes through one batch call. The preceding read (to
+decide 404 vs. 403 vs. 409) is a separate statement — a real, accepted narrowing versus full ACID,
+closed as far as practical by re-checking `revision` in the update's own `WHERE` clause and treating
+zero affected rows as a concurrent-write conflict, but not eliminated. Verified against a real local
+D1 instance — no Cloudflare account needed; `wrangler d1 migrations apply --local` and `wrangler`'s
+`getPlatformProxy()` both work fully offline — in `tests/d1ConfigurationRepository.test.ts`, not just
+typechecked against `@cloudflare/workers-types`.
+
 ### Deployment note
 
 `output: "export"` cannot serve `force-dynamic` routes, so the GitHub Pages build has no
@@ -983,11 +1004,14 @@ Each step compiles and passes tests on its own.
 9. **Store** — `lib/state/*`. Optimistic apply, batching, rollback.
 10. **UI** — `CustomizationButton`, then rewire `BuilderApp` and `VehicleCanvas`.
 11. **Static fixtures** — options in `generate-static-api.ts`; transport fallback.
-12. **D1 repository** — implement `ConfigurationRepository` over Drizzle; `setConfigurationRepository`
-    from the Worker entry point.
+12. **D1 repository** — `lib/server/d1ConfigurationRepository.ts` implements `ConfigurationRepository`
+    over Drizzle; `instrumentation.ts`'s `register()` calls `setConfigurationRepository` with it once
+    a real `env.DB` binding resolves inside the Worker (no-op everywhere else — Node dev, tests,
+    prerendering — where `InMemoryConfigurationRepository` stays active). Verified against a real
+    local D1 instance, not just typechecked — see §5's "Persistence" note and
+    `tests/d1ConfigurationRepository.test.ts`.
 
-Steps 1–9 are done and tested on this branch. Step 12 is the remaining production task; the
-interface and in-memory implementation are in place.
+All twelve steps are done and tested on this branch.
 
 ---
 
@@ -1009,8 +1033,9 @@ interface and in-memory implementation are in place.
 ```
 $ npm run lint         # clean (eslint.config.js added; catches real react-hooks issues, not noise)
 $ npm run typecheck    # clean
-$ npm test             # 138 passed (9 files), including a CI-time check that the catalog resolves
-                        # against the real, checked-in GLB (tests/glbContract.test.ts)
+$ npm test             # 151 passed (10 files), including a CI-time check that the catalog resolves
+                        # against the real, checked-in GLB (tests/glbContract.test.ts) and 13 tests
+                        # of D1ConfigurationRepository against a real local D1 instance
 $ npm run build        # 9 routes, static export succeeds — including per-vehicle routes /4runner,
                         # /tacoma, /camry (app/[slug]/page.tsx)
 ```
@@ -1019,10 +1044,14 @@ $ npm run build        # 9 routes, static export succeeds — including per-vehi
 
 - **Hood, panel, and decal options are contract-gated.** The current GLB has no such nodes; the
   catalog records are written and tested, and activate on re-export with no code change.
-- **`db/schema.ts` has no D1 implementation yet.** `wrangler.jsonc` declares the binding and
-  `db/migrations/` has the generated SQL; the repository interface and in-memory implementation are
-  in place, and handlers depend only on the interface — but the actual D1-backed
-  `ConfigurationRepository` is not written, so nothing yet persists across a Worker restart.
+- **D1 read-then-write isn't fully ACID.** `D1ConfigurationRepository.update()` re-checks `revision`
+  in its own `WHERE` clause as a safety net, but the preceding existence/ownership read is a separate
+  statement from the write batch — see §5's "Persistence" note. Acceptable for this workload; would
+  need revisiting under real write contention.
+- **`wrangler.jsonc`'s `database_id` is still a placeholder.** Everything downstream (the repository,
+  the migration, `instrumentation.ts`'s binding logic) is implemented and verified against a real
+  local D1 instance; only `wrangler d1 create toyota-showroom` against an actual Cloudflare account
+  — which this environment has no credentials for — remains to make it live in production.
 - **Tacoma and Camry ship empty customization catalogs.** `lib/data/options/index.ts` maps both to
   `[]` — there is no GLB asset for either vehicle in this repo to write a catalog against.
 - **Owner tokens have no recovery path.** Losing the token (clearing localStorage, switching
