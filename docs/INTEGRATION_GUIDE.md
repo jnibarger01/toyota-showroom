@@ -1036,10 +1036,12 @@ All twelve steps are done and tested on this branch.
 ```
 $ npm run lint         # clean (eslint.config.js added; catches real react-hooks issues, not noise)
 $ npm run typecheck    # clean
-$ npm test             # 158 passed (11 files), including a CI-time check that the catalog resolves
+$ npm test             # 167 passed (12 files), including a CI-time check that the catalog resolves
                         # against the real, checked-in GLB (tests/glbContract.test.ts), 13 tests of
-                        # D1ConfigurationRepository against a real local D1 instance, and 7 tests of
-                        # the write rate limiter against both a fake and a real local binding
+                        # D1ConfigurationRepository against a real local D1 instance, 7 tests of the
+                        # write rate limiter against both a fake and a real local binding, and 9 tests
+                        # proving the Tacoma/Camry catalogs resolve against the real procedural
+                        # fallback vehicle they actually render with
 $ npm run build        # 9 routes, static export succeeds — including per-vehicle routes /4runner,
                         # /tacoma, /camry (app/[slug]/page.tsx)
 ```
@@ -1056,8 +1058,13 @@ $ npm run build        # 9 routes, static export succeeds — including per-vehi
   the migration, `instrumentation.ts`'s binding logic) is implemented and verified against a real
   local D1 instance; only `wrangler d1 create toyota-showroom` against an actual Cloudflare account
   — which this environment has no credentials for — remains to make it live in production.
-- **Tacoma and Camry ship empty customization catalogs.** `lib/data/options/index.ts` maps both to
-  `[]` — there is no GLB asset for either vehicle in this repo to write a catalog against.
+- **Tacoma and Camry render the procedural fallback vehicle, not a real model.** Neither has a GLB in
+  this repo (`threeDConfig.hasModel: false`), so both use `createProceduralVehicle()`
+  (`lib/three/proceduralParts.ts`) — a low-detail stand-in, not a placeholder-only state. Their
+  catalogs (`lib/data/options/{tacoma,camry}.ts`) are written against that fallback's node/material
+  names and are genuinely functional today, verified in
+  `tests/proceduralVehicleCatalogs.test.ts`, not gated. Swapping in real GLBs later needs no catalog
+  changes as long as the new assets follow the same naming contract (§3).
 - **Owner tokens have no recovery path.** Losing the token (clearing localStorage, switching
   browsers) permanently locks out further writes to that configuration; only reads keep working.
   Acceptable for the anonymous, no-accounts v1 this implements — revisit if user accounts land.
