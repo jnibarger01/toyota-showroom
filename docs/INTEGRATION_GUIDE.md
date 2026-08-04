@@ -316,6 +316,18 @@ while (off < buf.length) {
 }
 ```
 
+### The contract is also verified in CI, not only in the browser
+
+`tests/glbContract.test.ts` parses the real, checked-in GLB via `lib/tooling/glbInspect.ts` — a
+dependency-free binary-chunk reader, no three.js/DOM needed — and re-derives the same pass/fail
+`verifyNodeContract` would produce at runtime, for every option in every vehicle's catalog. A typo'd
+node name, a renamed material, or a swapped asset now fails the build instead of surfacing only as a
+console warning the first time someone loads the page.
+
+Options that are genuinely forward-declared (see below) are named in `KNOWN_GATED_OPTION_IDS`; the
+test asserts they *stay* unresolved, so the allowlist itself goes stale — and gets caught — the
+moment an asset delivery quietly makes one of them resolvable.
+
 ### The contract is verified at load, not at click
 
 `verifyNodeContract(root, catalog)` checks every option's nodes and materials against the loaded
