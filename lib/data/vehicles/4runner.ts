@@ -149,7 +149,11 @@ export const fourRunner: Vehicle = {
       { id: "trail", label: "Trail", scale: 1 },
       { id: "beadlock", label: "Beadlock", scale: 1.08 },
     ],
-    interiorMaterialNames: [],
+    // Forward-declared, matching the naming contract (docs/INTEGRATION_GUIDE.md §3): the current
+    // GLB is exterior-only (body, wheels, lights, exhaust, grille) with no seat/dash geometry, so
+    // "interior.seat" names an expected future material, not one that exists yet — the interior
+    // options in lib/data/options/4runner.ts are correspondingly gated, same as hood/decal.
+    interiorMaterialNames: ["interior.seat"],
 
     // Donor geometry retained by the Blender export, all sitting at the world origin: two WEISU
     // wheels, one KO2 tyre, two brake assemblies, and a 2 m paint-swatch sphere ("Jet Black").

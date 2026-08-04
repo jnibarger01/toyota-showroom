@@ -30,7 +30,13 @@ const SYNTHETIC_NODE_NAMES = new Set<string>(Object.values(ACCESSORY_NODE_NAMES)
  * Those are named here explicitly so the allowlist is itself a reviewable, greppable record of what
  * this repo is knowingly deferring — anything NOT on it must resolve, or the build fails.
  */
-const KNOWN_GATED_OPTION_IDS = new Set(["hood-stock", "hood-sport-scoop", "decal-trd-side-stripe"]);
+const KNOWN_GATED_OPTION_IDS = new Set([
+  "hood-stock",
+  "hood-sport-scoop",
+  "decal-trd-side-stripe",
+  "interior-fa20-black",
+  "interior-lf10-red",
+]);
 
 function missingMaterials(
   inspection: ReturnType<typeof inspectGlb>,

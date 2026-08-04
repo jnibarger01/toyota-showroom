@@ -52,7 +52,11 @@ const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   decal: "Decals & graphics",
   trim: "Trim",
   accessory: "Accessories",
+  interior: "Interior",
 };
+
+/** Categories rendered as circular colour swatches rather than text chips. */
+const SWATCH_CATEGORIES: ReadonlySet<CustomizationCategory> = new Set(["paint", "interior"]);
 
 /**
  * Bootstrap data resolved before the scene is touched.
@@ -331,12 +335,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           {grouped.map(({ category, options }) => (
             <section className="control-section" key={category}>
               <label>{CATEGORY_LABELS[category]}</label>
-              <div className={category === "paint" ? "paint-row" : "chip-row"}>
+              <div className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"}>
                 {options.map((option) => (
                   <CustomizationButton
                     key={option.id}
                     option={option}
-                    variant={category === "paint" ? "swatch" : "chip"}
+                    variant={SWATCH_CATEGORIES.has(category) ? "swatch" : "chip"}
                   />
                 ))}
               </div>

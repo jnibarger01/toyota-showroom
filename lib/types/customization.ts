@@ -14,12 +14,15 @@ export type CustomizationCategory =
   | "panel"
   | "decal"
   | "trim"
-  | "accessory";
+  | "accessory"
+  | "interior";
 
 /**
  * Deterministic application order. Later categories may depend on nodes introduced by earlier
  * ones (a decal targets a panel; paint must repaint whatever hood is currently mounted), so
  * restoration always walks this list rather than object key order, which is insertion-dependent.
+ * `interior` sits beside `paint` — both are colour/material choices with no dependency on, or
+ * from, any other category.
  */
 export const CATEGORY_APPLY_ORDER: readonly CustomizationCategory[] = [
   "trim",
@@ -27,6 +30,7 @@ export const CATEGORY_APPLY_ORDER: readonly CustomizationCategory[] = [
   "hood",
   "wheels",
   "paint",
+  "interior",
   "decal",
   "accessory",
 ];

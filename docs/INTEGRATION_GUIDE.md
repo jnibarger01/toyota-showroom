@@ -118,7 +118,7 @@ lib/state/configurationStore.ts        optimistic apply, batching, rollback
 
 ```ts
 export type CustomizationCategory =
-  | "paint" | "wheels" | "hood" | "panel" | "decal" | "trim" | "accessory";
+  | "paint" | "wheels" | "hood" | "panel" | "decal" | "trim" | "accessory" | "interior";
 
 export interface CustomizationOption {
   id: string;
@@ -149,8 +149,17 @@ and the server, so both compute identical results:
 
 ```ts
 export const MULTI_SELECT_CATEGORIES = ["accessory", "decal"] as const;
-export const CATEGORY_APPLY_ORDER = ["trim","panel","hood","wheels","paint","decal","accessory"] as const;
+export const CATEGORY_APPLY_ORDER =
+  ["trim","panel","hood","wheels","paint","interior","decal","accessory"] as const;
 ```
+
+`interior` sits next to `paint` in the apply order — both are colour/material choices with no
+dependency on any other category. It reuses the same `material-update` operation and
+`SWATCH_CATEGORIES` swatch rendering as paint in `BuilderApp.tsx`; the only new thing it needed was
+the category itself and a `Vehicle.threeDConfig.interiorMaterialNames` field naming the expected
+seat material (`lib/data/vehicles/4runner.ts`). The 4Runner's GLB is exterior-only, so its two
+interior options (`interior-fa20-black`, `interior-lf10-red` in `lib/data/options/4runner.ts`,
+mirroring `interiorColors` exactly) are contract-gated like hood/decal — see "Known gaps" below.
 
 ### Persisted configuration
 
@@ -1036,7 +1045,7 @@ All twelve steps are done and tested on this branch.
 ```
 $ npm run lint         # clean (eslint.config.js added; catches real react-hooks issues, not noise)
 $ npm run typecheck    # clean
-$ npm test             # 167 passed (12 files), including a CI-time check that the catalog resolves
+$ npm test             # 169 passed (12 files), including a CI-time check that the catalog resolves
                         # against the real, checked-in GLB (tests/glbContract.test.ts), 13 tests of
                         # D1ConfigurationRepository against a real local D1 instance, 7 tests of the
                         # write rate limiter against both a fake and a real local binding, and 9 tests
@@ -1048,8 +1057,9 @@ $ npm run build        # 9 routes, static export succeeds — including per-vehi
 
 ### Known gaps
 
-- **Hood, panel, and decal options are contract-gated.** The current GLB has no such nodes; the
-  catalog records are written and tested, and activate on re-export with no code change.
+- **Hood, panel, decal, and interior options are contract-gated.** The current GLB has no such
+  nodes (it's exterior-only — no hood variants, no decal UVs, no seat/dash geometry); the catalog
+  records are written and tested, and activate on re-export with no code change.
 - **D1 read-then-write isn't fully ACID.** `D1ConfigurationRepository.update()` re-checks `revision`
   in its own `WHERE` clause as a safety net, but the preceding existence/ownership read is a separate
   statement from the write batch — see §5's "Persistence" note. Acceptable for this workload; would
