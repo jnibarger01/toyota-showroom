@@ -18,6 +18,14 @@ const repo = new InMemoryConfigurationRepository();
 let gate: { release: () => void; opened: Promise<void> } | null = null;
 let updateCalls = 0;
 
+/**
+ * Mirrors the real `lib/api/configurations.ts`'s owner-token bookkeeping (there: localStorage;
+ * here: a plain Map). Both the mock's `createConfiguration` and the `attach()` helper's direct
+ * `repo.create(...)` call must register their token here, or the mocked `updateConfiguration`
+ * would present an empty token and every write in this file would 403.
+ */
+const ownerTokens = new Map<string, string>();
+
 function openGate() {
   let release!: () => void;
   const opened = new Promise<void>((resolve) => {
@@ -29,7 +37,9 @@ function openGate() {
 
 vi.mock("../lib/api/configurations", () => ({
   async createConfiguration(input: unknown) {
-    return repo.create(validateCreateConfiguration(input));
+    const { configuration, ownerToken } = await repo.create(validateCreateConfiguration(input));
+    ownerTokens.set(configuration.configurationId, ownerToken);
+    return configuration;
   },
   async getConfiguration(id: string) {
     const record = await repo.get(id);
@@ -41,10 +51,10 @@ vi.mock("../lib/api/configurations", () => ({
     if (gate) await gate.opened;
     const existing = await repo.get(id);
     if (!existing) throw new Error("missing");
-    return repo.update(id, validatePatchConfiguration(patch, existing));
+    return repo.update(id, validatePatchConfiguration(patch, existing), ownerTokens.get(id) ?? "");
   },
   async deleteConfiguration(id: string) {
-    await repo.delete(id);
+    await repo.delete(id, ownerTokens.get(id) ?? "");
   },
   async listVehicleOptions() {
     return fourRunnerOptions;
@@ -61,15 +71,17 @@ function freshScene(catalog = fourRunnerOptions) {
 
 async function attach(catalog = fourRunnerOptions) {
   const scene = freshScene(catalog);
-  const configuration = await repo.create(
+  const { configuration, ownerToken } = await repo.create(
     validateCreateConfiguration({ vehicleId: "4runner", modelYear: 2024, gradeId: "trd-pro" }),
   );
+  ownerTokens.set(configuration.configurationId, ownerToken);
   await configurationStore.attachScene(scene.controller, configuration, scene.catalog);
   return { ...scene, configuration };
 }
 
 beforeEach(() => {
   repo.clear();
+  ownerTokens.clear();
   gate = null;
   updateCalls = 0;
   configurationStore.reset();

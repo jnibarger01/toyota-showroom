@@ -35,6 +35,7 @@ CREATE TABLE `configurations` (
 	`model_year` integer NOT NULL,
 	`model` text NOT NULL,
 	`grade_id` text NOT NULL,
+	`owner_token_hash` text NOT NULL,
 	`selections` text NOT NULL,
 	`camera_state` text,
 	`revision` integer DEFAULT 1 NOT NULL,

@@ -511,6 +511,32 @@ same actions is like-for-like.
 This is the **only** direction node names, material names, and asset URLs travel. They are never
 accepted inbound.
 
+### Ownership: who may PATCH or DELETE a configuration
+
+Until this was added, knowing a `configurationId` — leaked through a shared URL, browser history, a
+referrer header — was sufficient to overwrite or delete someone else's saved build; there was no
+notion of who created a record. There is no user-account system to authenticate against, so
+`lib/shared/ownerToken.ts` implements the minimum that actually closes the gap: a per-configuration
+capability token, not a login.
+
+`POST` mints a random 256-bit token, stores only its SHA-256 hash (`configurations.owner_token_hash`
+in `db/schema.ts`), and returns the plaintext exactly once, in the create response. Every `PATCH`/
+`DELETE` must present it via `X-Owner-Token`; the repository hashes what it receives and compares
+with a constant-time check before touching the record. `GET` takes no token and stays open — that's
+what the sharing feature (Task 5) depends on.
+
+The client SDK (`lib/api/configurations.ts`) handles this transparently: `createConfiguration`
+remembers the token it receives (localStorage, keyed by `configurationId`); `updateConfiguration`/
+`deleteConfiguration` attach it automatically. `configurationStore.ts` and `BuilderApp.tsx` call
+these exactly as before and need no awareness that writes are now authenticated at all. The
+browser-local fallback transport (`localConfigurationTransport.ts`, used on the static export)
+enforces the identical check against its own storage, for consistency — even though a same-origin
+tab is already its own isolation boundary there.
+
+Deliberately per-configuration rather than per-device: a leaked token compromises one saved build,
+not everything a browser has ever created, and there is no separate provisioning step — `create` and
+"receive an owner token" are the same call.
+
 ### `POST /api/v1/configurations`
 
 ```json
@@ -528,21 +554,30 @@ accepted inbound.
             "selections": { "paint": ["paint-0r2-solar-octane"] },
             "revision": 1, "schemaVersion": "1.0.0",
             "createdAt": "2026-08-03T18:41:02.113Z", "updatedAt": "2026-08-03T18:41:02.113Z" },
+  "ownerToken": "k7QpX...redacted...9fZ",
   "pricing": { "optionsTotal": 425 }
 }
 ```
 
 `model` is stamped from the catalog, not the request. `optionsTotal` is summed from catalog
-`priceDelta` values, never from client figures.
+`priceDelta` values, never from client figures. `ownerToken` is the **only** response that ever
+carries the plaintext — it is not returned by `GET`, and a lost token has no recovery path short of
+creating a new configuration.
 
 ### `PATCH /api/v1/configurations/:configurationId`
 
+```
+X-Owner-Token: k7QpX...redacted...9fZ
+```
 ```json
 { "selections": { "paint": ["paint-1j9-ice-cap"], "accessory": ["accessory-roof-rack"] },
   "expectedRevision": 1 }
 ```
 
-Returns the full canonical record at `revision: 2`. A stale `expectedRevision` yields `409`.
+Returns the full canonical record at `revision: 2`. A stale `expectedRevision` yields `409`; a
+missing or non-matching `X-Owner-Token` yields `403` — checked *after* existence, so a wrong token
+against an unknown id still reports `404`, not `403` (avoids using the ownership check to confirm
+whether an id exists at all).
 
 ### Errors
 
@@ -556,6 +591,7 @@ Every non-2xx body matches `ApiErrorBody` (`lib/api/errors.ts`):
 | Status | Code | Cause |
 |---|---|---|
 | 400 | `invalid_query` | Bad query parameter |
+| 403 | `forbidden` | Missing or non-matching `X-Owner-Token` on a PATCH/DELETE |
 | 404 | `not_found` | Unknown vehicle or configuration |
 | 409 | `revision_conflict` | Stale `expectedRevision` |
 | 422 | `invalid_body` | Unknown option, wrong category, bad grade/year, cardinality violation |
@@ -971,17 +1007,28 @@ interface and in-memory implementation are in place.
 | 10 | Tests for mapping, validation, persistence, restoration | ✅ | 88 tests across six files |
 
 ```
-$ npm run typecheck   # clean
-$ npm test            # 88 passed (6 files)
-$ npm run build       # 8 routes, static export succeeds
+$ npm run lint         # clean (eslint.config.js added; catches real react-hooks issues, not noise)
+$ npm run typecheck    # clean
+$ npm test             # 138 passed (9 files), including a CI-time check that the catalog resolves
+                        # against the real, checked-in GLB (tests/glbContract.test.ts)
+$ npm run build        # 9 routes, static export succeeds — including per-vehicle routes /4runner,
+                        # /tacoma, /camry (app/[slug]/page.tsx)
 ```
 
 ### Known gaps
 
-- **`npm run lint` fails** — the repo has no `eslint.config.js`, required since ESLint 9. Pre-existing.
 - **Hood, panel, and decal options are contract-gated.** The current GLB has no such nodes; the
   catalog records are written and tested, and activate on re-export with no code change.
-- **`db/schema.ts` has no D1 implementation yet** (step 12); the repository interface and in-memory
-  implementation are in place, and handlers depend only on the interface.
+- **`db/schema.ts` has no D1 implementation yet.** `wrangler.jsonc` declares the binding and
+  `db/migrations/` has the generated SQL; the repository interface and in-memory implementation are
+  in place, and handlers depend only on the interface — but the actual D1-backed
+  `ConfigurationRepository` is not written, so nothing yet persists across a Worker restart.
+- **Tacoma and Camry ship empty customization catalogs.** `lib/data/options/index.ts` maps both to
+  `[]` — there is no GLB asset for either vehicle in this repo to write a catalog against.
+- **Owner tokens have no recovery path.** Losing the token (clearing localStorage, switching
+  browsers) permanently locks out further writes to that configuration; only reads keep working.
+  Acceptable for the anonymous, no-accounts v1 this implements — revisit if user accounts land.
 - **Calipers and donor geometry are hidden, not deleted.** The Blender source should be corrected.
 - **No visual regression testing.** Correctness here is asserted structurally, not by pixels.
+- **No rate limiting on configuration writes.** A scripted client can still create unlimited
+  configurations or hammer PATCH/DELETE (each individually authenticated, but with no throttling).

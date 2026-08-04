@@ -1,4 +1,4 @@
-import { ApiError, notFound, revisionConflict } from "./errors";
+import { ApiError, forbidden, notFound, revisionConflict } from "./errors";
 import {
   CUSTOMIZATION_SCHEMA_VERSION,
   type VehicleConfiguration,
@@ -8,11 +8,18 @@ import {
   validatePatchConfiguration,
   type ValidatedPatch,
 } from "../validation/configuration";
+import { generateOwnerToken, hashOwnerToken, verifyOwnerToken } from "../shared/ownerToken";
 
 const STORE_KEY = "toyota-showroom:configurations:v1";
 const RECOVERY_KEY = "toyota-showroom:recovery:v1";
 
-type Store = Record<string, VehicleConfiguration>;
+interface StoredRecord {
+  configuration: VehicleConfiguration;
+  /** Mirrors the real API's storage shape (lib/shared/ownerToken.ts) — never the plaintext token. */
+  ownerTokenHash: string;
+}
+
+type Store = Record<string, StoredRecord>;
 
 function readStore(): Store {
   try {
@@ -45,10 +52,10 @@ function newId(): string {
 }
 
 export const localConfigurationTransport = {
-  async create(input: unknown): Promise<VehicleConfiguration> {
+  async create(input: unknown): Promise<{ configuration: VehicleConfiguration; ownerToken: string }> {
     const validated = validateCreateConfiguration(input);
     const now = new Date().toISOString();
-    const record: VehicleConfiguration = {
+    const configuration: VehicleConfiguration = {
       configurationId: newId(),
       vehicleId: validated.vehicleId,
       modelYear: validated.modelYear,
@@ -62,23 +69,31 @@ export const localConfigurationTransport = {
       updatedAt: now,
     };
 
+    const ownerToken = generateOwnerToken();
+    const ownerTokenHash = await hashOwnerToken(ownerToken);
+
     const store = readStore();
-    store[record.configurationId] = record;
+    store[configuration.configurationId] = { configuration, ownerTokenHash };
     writeStore(store);
-    return record;
+    return { configuration, ownerToken };
   },
 
   async get(configurationId: string): Promise<VehicleConfiguration> {
     const record = readStore()[configurationId];
     if (!record) throw notFound(`No configuration found with id "${configurationId}".`);
-    return record;
+    return record.configuration;
   },
 
-  async update(configurationId: string, patch: unknown): Promise<VehicleConfiguration> {
+  async update(configurationId: string, patch: unknown, ownerToken: string): Promise<VehicleConfiguration> {
     const store = readStore();
-    const existing = store[configurationId];
-    if (!existing) throw notFound(`No configuration found with id "${configurationId}".`);
+    const stored = store[configurationId];
+    if (!stored) throw notFound(`No configuration found with id "${configurationId}".`);
 
+    if (!(await verifyOwnerToken(ownerToken, stored.ownerTokenHash))) {
+      throw forbidden(`Owner token missing or does not match for configuration "${configurationId}".`);
+    }
+
+    const existing = stored.configuration;
     const validated: ValidatedPatch = validatePatchConfiguration(patch, {
       vehicleId: existing.vehicleId,
       gradeId: existing.gradeId,
@@ -98,14 +113,21 @@ export const localConfigurationTransport = {
       updatedAt: new Date().toISOString(),
     };
 
-    store[configurationId] = next;
+    store[configurationId] = { configuration: next, ownerTokenHash: stored.ownerTokenHash };
     writeStore(store);
     this.clearRecovery(configurationId);
     return next;
   },
 
-  async delete(configurationId: string): Promise<void> {
+  async delete(configurationId: string, ownerToken: string): Promise<void> {
     const store = readStore();
+    const stored = store[configurationId];
+    if (!stored) return; // matches the server: deleting an already-gone id is not an error here
+
+    if (!(await verifyOwnerToken(ownerToken, stored.ownerTokenHash))) {
+      throw forbidden(`Owner token missing or does not match for configuration "${configurationId}".`);
+    }
+
     delete store[configurationId];
     writeStore(store);
     this.clearRecovery(configurationId);

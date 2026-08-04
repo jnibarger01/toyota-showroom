@@ -41,6 +41,13 @@ export const configurations = sqliteTable(
     modelYear: integer("model_year").notNull(),
     model: text("model").notNull(),
     gradeId: text("grade_id").notNull(),
+    /**
+     * SHA-256 of the capability token returned to the creator once, at POST time
+     * (lib/shared/ownerToken.ts). Never the plaintext token — a leaked database export must not
+     * itself grant write access to every configuration in it. PATCH/DELETE require the caller to
+     * present the plaintext; GET stays open so the sharing feature keeps working unauthenticated.
+     */
+    ownerTokenHash: text("owner_token_hash").notNull(),
     selections: text("selections", { mode: "json" }).notNull().$type<Record<string, string[]>>(),
     cameraState: text("camera_state", { mode: "json" }).$type<{
       presetId?: string;

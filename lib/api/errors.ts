@@ -40,3 +40,8 @@ export function invalidBody(message: string): ApiError {
 export function revisionConflict(message: string): ApiError {
   return new ApiError(409, "revision_conflict", message);
 }
+
+/** Missing or non-matching owner token on a write to a configuration the caller doesn't own. */
+export function forbidden(message: string): ApiError {
+  return new ApiError(403, "forbidden", message);
+}

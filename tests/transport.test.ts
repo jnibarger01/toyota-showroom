@@ -7,6 +7,7 @@ import {
   resetTransportDetection,
   updateConfiguration,
 } from "../lib/api/configurations";
+import { localConfigurationTransport } from "../lib/api/localConfigurationTransport";
 import { fourRunnerOptions } from "../lib/data/options/4runner";
 
 /** Minimal `window.localStorage` so the local transport can run under the node test environment. */
@@ -165,5 +166,75 @@ describe("local transport behaviour", () => {
         expectedRevision: 1,
       }),
     ).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("owner token", () => {
+  it("attaches the token createConfiguration received to a later remote PATCH", async () => {
+    const remoteConfig = {
+      configurationId: "cfg_remote",
+      vehicleId: "4runner",
+      modelYear: 2024,
+      model: "4Runner",
+      gradeId: "trd-pro",
+      selections: {},
+      revision: 1,
+      schemaVersion: "1.0.0",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return jsonResponse({ data: { ...remoteConfig, revision: 2 } });
+      }
+      return jsonResponse({ data: remoteConfig, ownerToken: "secret-owner-token" }, 201);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createConfiguration(validCreate);
+    await updateConfiguration("cfg_remote", { selections: { paint: ["paint-218-blueprint"] } });
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    const headers = patchCall?.[1]?.headers as Record<string, string> | undefined;
+    expect(headers?.["X-Owner-Token"]).toBe("secret-owner-token");
+  });
+
+  it("propagates a remote 403 as an ApiError without falling back to local storage", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(
+        { error: { code: "forbidden", status: 403, message: "Owner token missing or does not match." } },
+        403,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      updateConfiguration("cfg_someone_elses", { selections: { paint: ["paint-218-blueprint"] } }),
+    ).rejects.toMatchObject({ status: 403, code: "forbidden" });
+
+    // A 403 is not one of the signals that means "this host has no such route" — it must not have
+    // triggered the local-storage fallback, which would have masked the rejection as success.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("localConfigurationTransport itself rejects a write with no or the wrong token", async () => {
+    const { configuration, ownerToken } = await localConfigurationTransport.create(validCreate);
+
+    await expect(
+      localConfigurationTransport.update(configuration.configurationId, { selections: {} }, ""),
+    ).rejects.toMatchObject({ status: 403, code: "forbidden" });
+
+    await expect(
+      localConfigurationTransport.update(configuration.configurationId, { selections: {} }, "wrong-token"),
+    ).rejects.toMatchObject({ status: 403 });
+
+    await expect(
+      localConfigurationTransport.delete(configuration.configurationId, "wrong-token"),
+    ).rejects.toMatchObject({ status: 403 });
+
+    // The correct token still works — this isn't broken shut.
+    await expect(
+      localConfigurationTransport.update(configuration.configurationId, { selections: {} }, ownerToken),
+    ).resolves.toMatchObject({ revision: 2 });
   });
 });

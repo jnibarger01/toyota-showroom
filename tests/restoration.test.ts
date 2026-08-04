@@ -15,6 +15,14 @@ import type { VehicleConfiguration } from "../lib/types/customization";
  */
 const repo = new InMemoryConfigurationRepository();
 const failNextUpdate = { value: false };
+/**
+ * Mirrors the real `lib/api/configurations.ts`'s owner-token bookkeeping (there: localStorage;
+ * here: a plain Map, since this file mocks that module wholesale and its own `beforeEach` already
+ * clears everything per test). Every path that creates a configuration — the mock's own
+ * `createConfiguration`, and the direct `repo.create(...)` calls this file makes to seed test state
+ * — must register its token here, or a later `updateConfiguration` through the mock gets a real 403.
+ */
+const ownerTokens = new Map<string, string>();
 
 vi.mock("../lib/api/configurations", async () => {
   const { InMemoryConfigurationRepository: Repo } = await import("../lib/server/configurationRepository");
@@ -22,7 +30,9 @@ vi.mock("../lib/api/configurations", async () => {
   return {
     async createConfiguration(input: unknown) {
       const { validateCreateConfiguration: validate } = await import("../lib/validation/configuration");
-      return repo.create(validate(input));
+      const { configuration, ownerToken } = await repo.create(validate(input));
+      ownerTokens.set(configuration.configurationId, ownerToken);
+      return configuration;
     },
     async getConfiguration(id: string) {
       const record = await repo.get(id);
@@ -37,10 +47,10 @@ vi.mock("../lib/api/configurations", async () => {
       const existing = await repo.get(id);
       if (!existing) throw new Error("missing");
       const { validatePatchConfiguration: validate } = await import("../lib/validation/configuration");
-      return repo.update(id, validate(patch, existing));
+      return repo.update(id, validate(patch, existing), ownerTokens.get(id) ?? "");
     },
     async deleteConfiguration(id: string) {
-      await repo.delete(id);
+      await repo.delete(id, ownerTokens.get(id) ?? "");
     },
     async listVehicleOptions() {
       return fourRunnerOptions;
@@ -56,18 +66,20 @@ function freshScene() {
   return { fixture, controller: new VehicleSceneController(fixture.root, satisfied), catalog: satisfied };
 }
 
+/** Creates a configuration directly against the repository and registers its token like the mock does. */
+async function createAndRegister(input: Parameters<typeof validateCreateConfiguration>[0]): Promise<VehicleConfiguration> {
+  const { configuration, ownerToken } = await repo.create(validateCreateConfiguration(input));
+  ownerTokens.set(configuration.configurationId, ownerToken);
+  return configuration;
+}
+
 async function seedConfiguration(): Promise<VehicleConfiguration> {
-  return repo.create(
-    validateCreateConfiguration({
-      vehicleId: "4runner",
-      modelYear: 2024,
-      gradeId: "trd-pro",
-    }),
-  );
+  return createAndRegister({ vehicleId: "4runner", modelYear: 2024, gradeId: "trd-pro" });
 }
 
 beforeEach(() => {
   repo.clear();
+  ownerTokens.clear();
   failNextUpdate.value = false;
   configurationStore.reset();
 });
@@ -209,14 +221,12 @@ describe("restoration after a reload", () => {
   it("surfaces an error when a saved option cannot be applied to the current asset", async () => {
     // A configuration saved before an asset regression: the option is still valid server-side but
     // the loaded GLB no longer carries its node.
-    const configuration = await repo.create(
-      validateCreateConfiguration({
-        vehicleId: "4runner",
-        modelYear: 2024,
-        gradeId: "trd-pro",
-        selections: { hood: ["hood-sport-scoop"] },
-      }),
-    );
+    const configuration = await createAndRegister({
+      vehicleId: "4runner",
+      modelYear: 2024,
+      gradeId: "trd-pro",
+      selections: { hood: ["hood-sport-scoop"] },
+    });
 
     const { controller } = freshScene();
     // Hand the controller the full catalog so the option resolves but its nodes do not.
@@ -246,9 +256,7 @@ describe("patch validation reaches the store", () => {
   it("rolls back when the server rejects the selection", async () => {
     const { fixture, controller, catalog } = freshScene();
     // Grade sr5 does not offer Solar Octane, so the PATCH is rejected by the real validator.
-    const configuration = await repo.create(
-      validateCreateConfiguration({ vehicleId: "4runner", modelYear: 2024, gradeId: "sr5" }),
-    );
+    const configuration = await createAndRegister({ vehicleId: "4runner", modelYear: 2024, gradeId: "sr5" });
     await configurationStore.attachScene(controller, configuration, fourRunnerOptions);
     void catalog;
 

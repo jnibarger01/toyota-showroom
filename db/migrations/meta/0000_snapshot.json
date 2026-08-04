@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8d829ccc-be11-4f97-9891-2653331bc8c1",
+  "id": "12ed0c76-dd04-41fa-b55b-1601c638fb3c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "builds": {
@@ -227,6 +227,13 @@
         },
         "grade_id": {
           "name": "grade_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_token_hash": {
+          "name": "owner_token_hash",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

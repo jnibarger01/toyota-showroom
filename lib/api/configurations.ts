@@ -124,6 +124,53 @@ export interface UpdateConfigurationInput {
 }
 
 /**
+ * Owner-token bookkeeping (lib/shared/ownerToken.ts).
+ *
+ * `createConfiguration` receives a plaintext capability token exactly once and remembers it here;
+ * `updateConfiguration`/`deleteConfiguration` attach it automatically. This is deliberately invisible
+ * to every caller above this module — `configurationStore.ts` and `BuilderApp.tsx` call
+ * `updateConfiguration(id, patch)` exactly as before and need no awareness that a write is now
+ * authenticated at all.
+ */
+const OWNER_TOKENS_STORAGE_KEY = "toyota-showroom:ownerTokens";
+const OWNER_TOKEN_HEADER = "X-Owner-Token";
+
+function readOwnerTokens(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(OWNER_TOKENS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function rememberOwnerToken(configurationId: string, ownerToken: string): void {
+  try {
+    const tokens = readOwnerTokens();
+    tokens[configurationId] = ownerToken;
+    window.localStorage.setItem(OWNER_TOKENS_STORAGE_KEY, JSON.stringify(tokens));
+  } catch {
+    // Best-effort: losing the token means a later write to this configuration gets rejected with
+    // 403 rather than silently succeeding as an edit from whoever holds the id — a safe failure mode,
+    // not a correctness bug.
+  }
+}
+
+function ownerTokenFor(configurationId: string): string {
+  return readOwnerTokens()[configurationId] ?? "";
+}
+
+function forgetOwnerToken(configurationId: string): void {
+  try {
+    const tokens = readOwnerTokens();
+    delete tokens[configurationId];
+    window.localStorage.setItem(OWNER_TOKENS_STORAGE_KEY, JSON.stringify(tokens));
+  } catch {
+    // Nothing to recover — the configuration itself is already gone.
+  }
+}
+
+/**
  * The customization catalog is static data and is read from the generated snapshot, the same way
  * `lib/api/client.ts` reads vehicles. Grade filtering happens here because a static host cannot
  * vary a file by query string.
@@ -166,13 +213,18 @@ export async function createConfiguration(input: CreateConfigurationInput): Prom
   return withFallback(
     "WRITE",
     async () => {
-      const { data } = await request<{ data: VehicleConfiguration }>(apiUrl("/configurations"), {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
+      const { data, ownerToken } = await request<{ data: VehicleConfiguration; ownerToken: string }>(
+        apiUrl("/configurations"),
+        { method: "POST", body: JSON.stringify(input) },
+      );
+      rememberOwnerToken(data.configurationId, ownerToken);
       return data;
     },
-    () => localConfigurationTransport.create(input),
+    async () => {
+      const { configuration, ownerToken } = await localConfigurationTransport.create(input);
+      rememberOwnerToken(configuration.configurationId, ownerToken);
+      return configuration;
+    },
   );
 }
 
@@ -199,27 +251,34 @@ export async function updateConfiguration(
     async () => {
       const { data } = await request<{ data: VehicleConfiguration }>(
         apiUrl(`/configurations/${encodeURIComponent(configurationId)}`),
-        // `keepalive` lets the request outlive the document during `pagehide`; browsers are free
-        // to abort ordinary in-flight fetches as a page unloads, which would silently drop the
-        // user's last click.
-        { method: "PATCH", body: JSON.stringify(input), keepalive: options.keepalive },
+        {
+          method: "PATCH",
+          body: JSON.stringify(input),
+          // `keepalive` lets the request outlive the document during `pagehide`; browsers are free
+          // to abort ordinary in-flight fetches as a page unloads, which would silently drop the
+          // user's last click.
+          keepalive: options.keepalive,
+          headers: { [OWNER_TOKEN_HEADER]: ownerTokenFor(configurationId) },
+        },
       );
       return data;
     },
-    () => localConfigurationTransport.update(configurationId, input),
+    () => localConfigurationTransport.update(configurationId, input, ownerTokenFor(configurationId)),
   );
 }
 
 export async function deleteConfiguration(configurationId: string): Promise<void> {
-  return withFallback(
+  await withFallback(
     "WRITE",
     async () => {
       await request<unknown>(apiUrl(`/configurations/${encodeURIComponent(configurationId)}`), {
         method: "DELETE",
+        headers: { [OWNER_TOKEN_HEADER]: ownerTokenFor(configurationId) },
       });
     },
-    () => localConfigurationTransport.delete(configurationId),
+    () => localConfigurationTransport.delete(configurationId, ownerTokenFor(configurationId)),
   );
+  forgetOwnerToken(configurationId);
 }
 
 /** Test hook: forget the detected transport so each case starts from an unknown state. */

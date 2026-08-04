@@ -18,22 +18,30 @@ async function readJson(request: NextRequest): Promise<unknown> {
   }
 }
 
-/** POST /api/v1/configurations — create a configuration and return the canonical saved record. */
+/**
+ * POST /api/v1/configurations — create a configuration and return the canonical saved record.
+ *
+ * `ownerToken` in the response is the only time the plaintext capability token is ever sent — the
+ * server stores only its hash (lib/shared/ownerToken.ts). The caller must hold onto it and present
+ * it via the `X-Owner-Token` header on every future PATCH/DELETE to this configuration; it is not
+ * required for GET, which stays open so a shared configuration link keeps working unauthenticated.
+ */
 export async function POST(request: NextRequest) {
   try {
     const input = validateCreateConfiguration(await readJson(request));
-    const saved = await getConfigurationRepository().create(input);
+    const { configuration, ownerToken } = await getConfigurationRepository().create(input);
 
     return NextResponse.json(
       {
         schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
-        data: saved,
-        pricing: { optionsTotal: priceSelections(saved.vehicleId, saved.selections) },
+        data: configuration,
+        ownerToken,
+        pricing: { optionsTotal: priceSelections(configuration.vehicleId, configuration.selections) },
       },
       {
         status: 201,
         headers: {
-          Location: `/api/v1/configurations/${saved.configurationId}`,
+          Location: `/api/v1/configurations/${configuration.configurationId}`,
           "Cache-Control": "no-store",
         },
       },
