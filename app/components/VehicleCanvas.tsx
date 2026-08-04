@@ -8,7 +8,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
-import { getGltfLoader, disposeSubtree } from "../../lib/three/assets";
+import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 
@@ -134,6 +134,13 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         return;
       }
 
+      try {
+        await installWheelAndTireAssets(root, threeDConfig);
+      } catch (error) {
+        // Replacement running gear is additive enhancement; retain the complete base model if an
+        // optional glTF cannot be fetched or decoded.
+        console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
+      }
       prepareVehicleRoot(root, threeDConfig);
       buildProceduralAccessories(root);
       scene.add(root);
@@ -294,6 +301,60 @@ async function loadVehicleRoot(threeDConfig: Vehicle3DConfig): Promise<THREE.Obj
   if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
   const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl);
   return gltf.scene;
+}
+
+/**
+ * Mounts the supplied standalone running-gear assets at the authored wheel mounts. The original
+ * meshes are removed (not merely hidden) so the catalog's exact node-name contract resolves to
+ * the replacements and the scene never renders duplicate wheels or tyres.
+ */
+async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Vehicle3DConfig): Promise<void> {
+  const config = threeDConfig.wheelAndTireAssets;
+  if (!config) return;
+
+  const mounts = threeDConfig.wheelMountNames.map((name) => root.getObjectByName(name));
+  if (mounts.some((mount) => !mount)) {
+    console.warn("[customization] supplied wheel and tyre glTFs were not mounted: wheel mounts are missing.");
+    return;
+  }
+
+  const [wheelSource, tireSource] = await Promise.all([loadAsset(config.wheelUrl), loadAsset(config.tireUrl)]);
+
+  for (let index = 0; index < mounts.length; index += 1) {
+    const wheelNodeName = config.wheelNodeNames[index]!;
+    const tireNodeName = config.tireNodeNames[index]!;
+
+    // Remove the model's baked-in pair before naming replacements, avoiding duplicate matches in
+    // `getObjectByName` as well as duplicate visible geometry.
+    removeNode(root.getObjectByName(wheelNodeName));
+    removeNode(root.getObjectByName(tireNodeName));
+
+    const assembly = new THREE.Group();
+    assembly.name = `AUTHORED_RUNNING_GEAR_${index}`;
+    assembly.scale.setScalar(config.scale ?? 1);
+
+    const tire = instantiateAsset(tireSource);
+    tire.name = tireNodeName;
+    const wheel = instantiateAsset(wheelSource);
+    wheel.name = wheelNodeName;
+    renameMaterials(wheel, index < 2 ? "wheel.metal" : "wheel.metal.001");
+
+    assembly.add(tire, wheel);
+    attachToMount(mounts[index]!, assembly, "authored-wheel-and-tire");
+  }
+}
+
+function removeNode(node: THREE.Object3D | undefined): void {
+  node?.parent?.remove(node);
+}
+
+function renameMaterials(root: THREE.Object3D, name: string): void {
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      material.name = name === "wheel.metal.001" && material.name === "wheel.metal" ? name : material.name;
+    }
+  });
 }
 
 /**
