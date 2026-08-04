@@ -203,9 +203,11 @@ the model never invalidates a saved build.
 
 ### Database
 
-`db/schema.ts` adds `configurations` and an append-only `configuration_revisions`. `selections` is
-a JSON column, so a new category is a catalog edit rather than a migration. The legacy `builds`
-table is retained and marked superseded.
+`db/schema.ts` defines `configurations` and an append-only `configuration_revisions`. `selections` is
+a JSON column, so a new category is a catalog edit rather than a migration. The prototype's original
+`builds`/`camera_presets` tables (one column per feature) were removed outright once confirmed
+unreferenced anywhere in the codebase — this schema has never been deployed to a real database, so
+there was no data to migrate away from, only a design to leave behind.
 
 ---
 
