@@ -331,7 +331,6 @@ async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Veh
 
     const assembly = new THREE.Group();
     assembly.name = `AUTHORED_RUNNING_GEAR_${index}`;
-    assembly.scale.setScalar(config.scale ?? 1);
 
     const tire = instantiateAsset(tireSource);
     tire.name = tireNodeName;
@@ -341,6 +340,7 @@ async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Veh
 
     assembly.add(tire, wheel);
     attachToMount(mounts[index]!, assembly, "authored-wheel-and-tire");
+    assembly.scale.setScalar(config.scale ?? 1);
   }
 }
 
