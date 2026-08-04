@@ -129,6 +129,17 @@ export interface WheelVariantConfig {
   scale: number;
 }
 
+/** Authored wheel and tyre glTFs mounted over the base vehicle's original running gear. */
+export interface WheelAndTireAssetConfig {
+  wheelUrl: string;
+  tireUrl: string;
+  /** Uniform scale applied to each wheel-and-tyre assembly at its authored hub mount. */
+  scale?: number;
+  /** Exact names retained for the configured wheel and tyre controls. */
+  wheelNodeNames: [string, string, string, string];
+  tireNodeNames: [string, string, string, string];
+}
+
 /** Maps a vehicle to the assets and parameters the 3D viewer needs to render and configure it. */
 export interface Vehicle3DConfig {
   hasModel: boolean;
@@ -139,6 +150,8 @@ export interface Vehicle3DConfig {
   paintableMaterialNames: string[];
   wheelMountNames: string[];
   wheelVariants: WheelVariantConfig[];
+  /** Optional replacement running gear loaded from standalone glTF assets. */
+  wheelAndTireAssets?: WheelAndTireAssetConfig;
   interiorMaterialNames: string[];
   /**
    * Nodes hidden immediately after load. Blender exports frequently retain donor/source copies of

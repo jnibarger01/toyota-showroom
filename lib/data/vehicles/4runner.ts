@@ -149,6 +149,29 @@ export const fourRunner: Vehicle = {
       { id: "trail", label: "Trail", scale: 1 },
       { id: "beadlock", label: "Beadlock", scale: 1.08 },
     ],
+
+    // Replace the assembled model's baked-in running gear with the supplied authored glTFs.
+    // The node names deliberately match the configuration catalog, so wheel-finish and tyre-sidewall
+    // controls continue to target the newly mounted meshes.
+    wheelAndTireAssets: {
+      wheelUrl: "/renders/4runner-2024/ModsNation_7416_wheel_a.gltf",
+      tireUrl: "/renders/4runner-2024/ModsNation_7416_tire.gltf",
+      // The standalone source assets are 0.553 units across, while the vehicle uses metre-scale
+      // dimensions. This yields an approximately 0.80 m (31.5 in) outside tyre diameter.
+      scale: 1.45,
+      wheelNodeNames: [
+        "PLACED_WEISU_front_left",
+        "PLACED_WEISU_front_right",
+        "PLACED_WEISU_rear_left",
+        "PLACED_WEISU_rear_right",
+      ],
+      tireNodeNames: [
+        "PLACED_KO3_front_left",
+        "PLACED_KO3_front_right",
+        "PLACED_KO3_rear_left",
+        "PLACED_KO3_rear_right",
+      ],
+    },
     interiorMaterialNames: [],
 
     // Donor geometry retained by the Blender export, all sitting at the world origin: two WEISU
