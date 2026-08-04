@@ -16,7 +16,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply toyota-showroom --local",
+    "db:migrate:remote": "wrangler d1 migrations apply toyota-showroom --remote",
+    "db:studio": "drizzle-kit studio",
+    "deploy": "npm run build && wrangler deploy dist/server/index.js --no-bundle"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

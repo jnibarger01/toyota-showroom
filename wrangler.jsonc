@@ -1,0 +1,51 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "toyota-showroom",
+
+  // Deliberately no "main" here. vite.config.ts's `cloudflare()` plugin auto-discovers this file
+  // during `npm run build`, and its config-time hook resolves `main` against disk as a *source*
+  // entry it expects to bundle itself — pointing it at dist/server/index.js (vinext's own SSR
+  // output, produced by a separate internal build stage) makes the plugin either fail outright on a
+  // clean build ("doesn't point to an existing file", main not written yet) or, on a stale dist/,
+  // try to re-parse vinext's already-bundled output as source and choke on its duplicate `export
+  // default`. Deploy the built Worker by passing the path on the CLI instead — see `npm run deploy`
+  // — which reads bindings from this file without ever routing through Vite's plugin resolution.
+  //
+  // Matches the @cloudflare/workers-types version already pinned in package.json
+  // ("^4.20260702.1" encodes the 2026-07-02 Workers runtime snapshot its types describe) — keep
+  // these two in lockstep when either is bumped.
+  "compatibility_date": "2026-07-02",
+  // Required: the built Worker entry (dist/server/index.js) imports `node:async_hooks`
+  // (AsyncLocalStorage) — vinext's RSC runtime depends on it. Without this flag the Worker throws
+  // at startup on every request.
+  "compatibility_flags": ["nodejs_compat"],
+
+  // This Worker serves the dynamic /api/v1/configurations/** routes only. The static site
+  // (dist/client — catalog fixtures, the GLB, images, the app shell) is deployed separately by
+  // .github/workflows/pages.yml to GitHub Pages; the two are independent deployment targets by
+  // design (see scripts/generate-static-api.ts's top-of-file comment for why).
+  // vinext's own Cloudflare integration auto-adds a static-assets binding pointing at dist/client
+  // when generating its deploy-time config (visible at dist/client/wrangler.json after a build) —
+  // this file does not declare one itself. That matters for `npm run deploy`: as of this GLB
+  // (public/models/modsnation_7416_assets_assembled.glb, ~57 MiB), an assets-inclusive deploy fails
+  // with "Asset too large" — Cloudflare Workers Static Assets cap a single file at 25 MiB. Verified
+  // via `wrangler deploy dist/server/index.js --no-bundle --dry-run`, which succeeds and correctly
+  // reports the D1 binding once the assets directory is swapped for an empty one. Until the GLB is
+  // reduced below that limit (or excluded from the assets directory some other way), deploy the
+  // Worker for its API routes only and keep relying on .github/workflows/pages.yml for the static
+  // site, which is what the current build already assumes.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "toyota-showroom",
+      // Placeholder — replace with the id `wrangler d1 create toyota-showroom` prints, or run
+      // `wrangler d1 create toyota-showroom --json` and copy `uuid` from the output. Not a secret;
+      // safe to commit once real (Cloudflare's D1 IDs are not credentials).
+      "database_id": "REPLACE_WITH_REAL_D1_DATABASE_ID",
+      // Points Wrangler's own D1 migration runner (`wrangler d1 migrations apply`) at the same SQL
+      // files drizzle-kit generates (`npm run db:generate` → db/migrations/*.sql), so there is one
+      // migration source of truth rather than two competing migration tools.
+      "migrations_dir": "db/migrations"
+    }
+  ]
+}
