@@ -1392,10 +1392,16 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
 - **This branch merged a substantial parallel work stream from `main`** (commit range `ee6d097..f5c67a7`):
   garage save/share (`lib/showroom/buildTools.ts`), terrain/lighting scene controls, a single-category
   builder view, authored wheel/tire glTFs replacing the 4Runner's baked-in running gear, a locally
-  vendored Draco decoder (`public/draco/`), and a new RAV4 render asset set (`public/renders/rav4-2024/`,
-  not yet wired into `lib/data/vehicles` — no `rav4` entry exists in `VEHICLES` yet). The merge commit
-  documents the conflict resolution for the three files both streams touched
-  (`BuilderApp.tsx`, `VehicleCanvas.tsx`, `lib/data/vehicles/4runner.ts`).
+  vendored Draco decoder (`public/draco/` — present on disk but not actually wired into the loader
+  configuration; §13 found the app still reaches `https://www.gstatic.com/draco/...` at runtime), and
+  a new RAV4 render asset set (`public/renders/rav4-2024/`, not yet wired into `lib/data/vehicles` —
+  no `rav4` entry exists in `VEHICLES` yet). The merge commit documents the conflict resolution for
+  the three files both streams touched (`BuilderApp.tsx`, `VehicleCanvas.tsx`,
+  `lib/data/vehicles/4runner.ts`).
+- **The static export's CSP can't set `frame-ancestors`.** §13 explains why (only a real HTTP header
+  can carry that directive; a `<meta http-equiv>` tag, the only mechanism GitHub Pages allows, can't)
+  — this app has no click-jacking protection at all on that deployment target. The Worker side
+  (`app/api/v1/**`) does send `X-Frame-Options: DENY` and `frame-ancestors 'none'` for real.
 
 ---
 
@@ -1440,3 +1446,78 @@ additionally passes `--env ""` to silence Wrangler's own "multiple environments 
 specified" warning now that `env.staging` exists. Verified by dry-running both
 (`wrangler deploy dist/server/index.js --no-bundle --env staging --dry-run`, with and without
 `--config wrangler.jsonc`) and comparing which D1 database name each reports.
+
+---
+
+## 13. Security Headers
+
+Two independent surfaces, matching §5/§12's "two deployment targets," each needing its own
+delivery mechanism because neither can reach the other:
+
+### `app/api/v1/**` (`lib/server/securityHeaders.ts`)
+
+The Worker side can set real HTTP response headers, so it gets the full set:
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+`Referrer-Policy: strict-origin-when-cross-origin`, a locked-down `Permissions-Policy`, and
+`Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` — every response here is
+pure JSON, never rendered as HTML, so nothing on this surface should ever load a script, style,
+image, or frame at all. `withSecurityHeaders()` merges this baseline under whatever a route already
+set (`Cache-Control`, `ETag`, `Retry-After`, `Location`); every `app/api/v1/**/route.ts` response
+now goes through it, including three vehicle-catalog routes whose error paths previously duplicated
+`NextResponse.json(toErrorBody(err), ...)` inline instead of calling the shared `errorResponse()`
+helper — consolidated onto it as part of this change, since that duplication was exactly the one
+place the new baseline headers would otherwise have needed repeating a fourth time.
+
+### The static HTML shell (`app/layout.tsx`)
+
+GitHub Pages has no server to attach response headers with, so a `<meta http-equiv=
+"Content-Security-Policy">` tag in the root layout is the only mechanism that can reach this
+surface at all. Per spec, that delivery mechanism **cannot** enforce `frame-ancestors` or
+`sandbox` — those directives are only honored over a real HTTP header — so this app has no way to
+prevent itself from being framed on the plain static export. A real, disclosed gap, not an
+oversight; fixable only by moving the static site behind something that can set headers (the
+Cloudflare Worker, once §12/Task 23's asset-size dependency clears, or Cloudflare Pages instead of
+GitHub Pages).
+
+The policy itself (`default-src 'self'`, plus per-directive allowances) needed two deliberate,
+non-default relaxations, both verified empirically with Playwright — console-monitoring every
+navigation for CSP violation reports across the builder, explore, and compare pages, not assumed
+safe from reading the directive list:
+
+- `'unsafe-inline'` on `script-src`/`style-src`. The RSC hydration payload ships as an inline
+  `<script>` whose content differs per prerendered page (a nonce needs a per-request server; a hash
+  needs a build step keyed to each page's own differing content — both judged not worth the
+  complexity here). `CustomizationButton.tsx`'s paint swatches (`style={{ background:
+  option.materialConfig?.color }}`) need the same allowance for inline style attributes.
+- `'wasm-unsafe-eval'` on `script-src`, and `blob:`/`data:` on `connect-src`. Required by the
+  vendored Draco/Basis decoders' Emscripten-generated glue code and by `GLTFLoader`'s internal
+  loaders, which `fetch()` both blob and data URLs directly — confirmed by running the CSP against
+  the real builder page and reading which specific `connect-src` violations came back before adding
+  either allowance, not guessed in advance.
+
+**A real, unrelated bug found and fixed while doing this verification.** Loading `/compare/` with a
+non-empty `?vehicles=` query threw React error #418 (hydration mismatch) — pre-existing, reproduced
+against the already-committed code with no security-header changes applied at all, so unrelated to
+this task's own changes; just found by the same empirical checking. `app/compare/page.tsx`'s
+`picked` state was seeded by a `useState` lazy initializer reading `window.location.search`
+directly: on the server prerender, `window` doesn't exist, so that initializer always produced
+`[]`; on the client's first paint (before hydration reconciles), the same initializer runs for
+real and can produce a non-empty array — which flips the "Update comparison" link (gated on
+`picked.length >= MIN_COMPARE`) from absent to present between the two passes, a genuine
+server/client mismatch. Fixed by starting `picked` at `[]` unconditionally and moving the
+`window.location.search` read into a mount-only `useEffect` — the standard, React-endorsed shape
+for "value only available client-side, needed once after mount," with a targeted
+`eslint-disable-next-line react-hooks/set-state-in-effect` and a comment explaining why this
+specific case isn't the derived-state-sync anti-pattern that rule exists to catch. Verified fixed
+by loading `/compare/?vehicles=4runner,tacoma` with Playwright and confirming zero `pageerror`
+events, both before (red) and after (green) the fix.
+
+### Vendored Draco/Basis decoders still reach an external CDN
+
+Also surfaced during this task's CSP verification, not fixed here: loading the builder page still
+issues real network requests to `https://www.gstatic.com/draco/...` even though
+`public/draco/` already vendors a local copy — the loader configuration isn't actually pointed at
+it. Harmless today only because `installWheelAndTireAssets`'s failure is already non-fatal (the
+base model has no Draco-compressed geometry itself, only the optional wheel/tire glTFs might), and
+this CSP correctly blocks the external request rather than silently allowing it. Left as a known
+gap for the task that owns the vendored decoder specifically, not addressed here.

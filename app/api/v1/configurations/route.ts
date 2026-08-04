@@ -5,6 +5,7 @@ import { priceSelections, validateCreateConfiguration } from "../../../../lib/va
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../../../../lib/types/customization";
 import { enforceConfigWriteRateLimit } from "../../../../lib/server/rateLimit";
 import { errorResponse } from "../../../../lib/server/apiResponse";
+import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 
 /**
  * Configuration writes need a request-aware runtime. Unlike the catalog routes this one is not
@@ -43,10 +44,10 @@ export async function POST(request: NextRequest) {
       },
       {
         status: 201,
-        headers: {
+        headers: withSecurityHeaders({
           Location: `/api/v1/configurations/${configuration.configurationId}`,
           "Cache-Control": "no-store",
-        },
+        }),
       },
     );
   } catch (err) {

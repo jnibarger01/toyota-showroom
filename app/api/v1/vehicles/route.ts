@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { VEHICLES } from "../../../../lib/data/vehicles";
 import { queryVehicles } from "../../../../lib/api/query";
 import { parseVehicleQuery } from "../../../../lib/validation/vehicle-query";
-import { ApiError, toErrorBody } from "../../../../lib/api/errors";
+import { ApiError } from "../../../../lib/api/errors";
 import { VEHICLE_SCHEMA_VERSION } from "../../../../lib/types/vehicle";
+import { errorResponse } from "../../../../lib/server/apiResponse";
+import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 
 export const dynamic = "force-static";
 
@@ -20,16 +22,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { schemaVersion: VEHICLE_SCHEMA_VERSION, ...result },
       {
-        headers: {
+        headers: withSecurityHeaders({
           "Cache-Control": "public, max-age=300",
           ETag: `"vehicles-${VEHICLES.length}-${VEHICLE_SCHEMA_VERSION}"`,
-        },
+        }),
       },
     );
   } catch (err) {
-    if (err instanceof ApiError) {
-      return NextResponse.json(toErrorBody(err), { status: err.status });
-    }
+    if (err instanceof ApiError) return errorResponse(err);
     throw err;
   }
 }

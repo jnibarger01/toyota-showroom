@@ -75,13 +75,25 @@ export default function ComparePage() {
   const [allSummaries, setAllSummaries] = useState<VehicleSummary[] | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // Seeded once from `?vehicles=` at mount (a lazy initializer, not an effect: `window` doesn't
-  // exist during the static prerender, but by the time this runs in the browser there is nothing
-  // else to synchronize with — the URL is read exactly once, then `picked` is this component's own
-  // state, edited freely by the checkboxes below).
-  const [picked, setPicked] = useState<string[]>(() =>
-    typeof window === "undefined" ? [] : parseSlugsFromSearch(window.location.search).slice(0, MAX_COMPARE),
-  );
+  // Starts empty on both the server prerender and the client's first paint — a lazy initializer
+  // reading `window.location.search` directly was tried first and reverted: it renders the "Update
+  // comparison" link (gated on `picked.length >= MIN_COMPARE`) on the client's very first paint
+  // whenever `?vehicles=` already names 2+ slugs, while the prerendered HTML has no such link
+  // (`window` doesn't exist at prerender time, so that lazy initializer always saw `[]` there) —
+  // a real server/client mismatch, React error #418, reproduced by loading this page with a
+  // populated `?vehicles=` query and confirmed gone once seeding moved into the effect below.
+  const [picked, setPicked] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Deliberately not flagged by react-hooks/set-state-in-effect's usual "don't derive state from
+    // props/state in an effect" case: `window.location.search` isn't reactive state this effect
+    // re-syncs against on every change (the empty deps array is not a placeholder for "should
+    // depend on something" — there is nothing to depend on), it's a browser-only value read once,
+    // after mount, specifically so the SSR/hydration passes agree — the standard, React-endorsed
+    // shape for exactly this problem.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPicked(parseSlugsFromSearch(window.location.search).slice(0, MAX_COMPARE));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

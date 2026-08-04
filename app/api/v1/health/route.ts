@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { VEHICLES } from "../../../../lib/data/vehicles";
 import { VEHICLE_SCHEMA_VERSION } from "../../../../lib/types/vehicle";
+import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 
 export const dynamic = "force-static";
 
@@ -13,6 +14,6 @@ export async function GET() {
       vehicleCount: VEHICLES.length,
       timestamp: new Date().toISOString(),
     },
-    { headers: { "Cache-Control": "no-store" } },
+    { headers: withSecurityHeaders({ "Cache-Control": "no-store" }) },
   );
 }

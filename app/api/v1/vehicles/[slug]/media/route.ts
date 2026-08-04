@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAllVehicleSlugs, getVehicleBySlug } from "../../../../../../lib/data/vehicles";
-import { notFound, toErrorBody } from "../../../../../../lib/api/errors";
+import { notFound } from "../../../../../../lib/api/errors";
 import { VEHICLE_SCHEMA_VERSION } from "../../../../../../lib/types/vehicle";
+import { errorResponse } from "../../../../../../lib/server/apiResponse";
+import { withSecurityHeaders } from "../../../../../../lib/server/securityHeaders";
 
 export const dynamic = "force-static";
 
@@ -14,10 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const { slug } = await params;
   const vehicle = getVehicleBySlug(slug);
 
-  if (!vehicle) {
-    const err = notFound(`No vehicle found for slug "${slug}"`);
-    return NextResponse.json(toErrorBody(err), { status: err.status });
-  }
+  if (!vehicle) return errorResponse(notFound(`No vehicle found for slug "${slug}"`));
 
   return NextResponse.json(
     {
@@ -26,6 +25,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
       media: vehicle.media,
       threeDConfig: vehicle.threeDConfig,
     },
-    { headers: { "Cache-Control": "public, max-age=300", ETag: `"${vehicle.slug}-media-${vehicle.updatedAt}"` } },
+    { headers: withSecurityHeaders({ "Cache-Control": "public, max-age=300", ETag: `"${vehicle.slug}-media-${vehicle.updatedAt}"` }) },
   );
 }

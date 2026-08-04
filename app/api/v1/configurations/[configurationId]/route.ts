@@ -5,6 +5,7 @@ import { priceSelections, validatePatchConfiguration } from "../../../../../lib/
 import { CUSTOMIZATION_SCHEMA_VERSION, type VehicleConfiguration } from "../../../../../lib/types/customization";
 import { enforceConfigWriteRateLimit } from "../../../../../lib/server/rateLimit";
 import { errorResponse } from "../../../../../lib/server/apiResponse";
+import { withSecurityHeaders } from "../../../../../lib/server/securityHeaders";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ function respond(record: VehicleConfiguration, status = 200) {
     },
     {
       status,
-      headers: { "Cache-Control": "no-store", ETag: `"${record.configurationId}-r${record.revision}"` },
+      headers: withSecurityHeaders({ "Cache-Control": "no-store", ETag: `"${record.configurationId}-r${record.revision}"` }),
     },
   );
 }
@@ -86,7 +87,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     const { configurationId } = await params;
     const deleted = await getConfigurationRepository().delete(configurationId, ownerTokenFrom(request));
     if (!deleted) throw notFound(`No configuration found with id "${configurationId}".`);
-    return new NextResponse(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+    return new NextResponse(null, { status: 204, headers: withSecurityHeaders({ "Cache-Control": "no-store" }) });
   } catch (err) {
     if (err instanceof ApiError) return errorResponse(err);
     throw err;
