@@ -45,3 +45,8 @@ export function revisionConflict(message: string): ApiError {
 export function forbidden(message: string): ApiError {
   return new ApiError(403, "forbidden", message);
 }
+
+/** The caller exceeded the configuration-write rate limit (lib/server/rateLimit.ts). */
+export function tooManyRequests(message: string): ApiError {
+  return new ApiError(429, "rate_limited", message);
+}

@@ -47,5 +47,18 @@
       // migration source of truth rather than two competing migration tools.
       "migrations_dir": "db/migrations"
     }
+  ],
+
+  // Throttles POST/PATCH/DELETE on /api/v1/configurations, keyed by client IP
+  // (lib/server/rateLimit.ts) — there is no user-account system (see Task 10's ownership model) to
+  // key on instead. `namespace_id` is developer-chosen, not Cloudflare-issued (unlike D1's
+  // `database_id`), so this needs no real account to be a valid, real value; picked 1001 with no
+  // significance beyond being unique among this Worker's bindings.
+  "ratelimits": [
+    {
+      "name": "CONFIG_WRITE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 30, "period": 60 }
+    }
   ]
 }

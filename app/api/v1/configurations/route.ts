@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ApiError, invalidBody, toErrorBody } from "../../../../lib/api/errors";
+import { ApiError, invalidBody } from "../../../../lib/api/errors";
 import { getConfigurationRepository } from "../../../../lib/server/configurationRepository";
 import { priceSelections, validateCreateConfiguration } from "../../../../lib/validation/configuration";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../../../../lib/types/customization";
+import { enforceConfigWriteRateLimit } from "../../../../lib/server/rateLimit";
+import { errorResponse } from "../../../../lib/server/apiResponse";
 
 /**
  * Configuration writes need a request-aware runtime. Unlike the catalog routes this one is not
@@ -28,6 +30,7 @@ async function readJson(request: NextRequest): Promise<unknown> {
  */
 export async function POST(request: NextRequest) {
   try {
+    await enforceConfigWriteRateLimit(request);
     const input = validateCreateConfiguration(await readJson(request));
     const { configuration, ownerToken } = await getConfigurationRepository().create(input);
 
@@ -47,7 +50,7 @@ export async function POST(request: NextRequest) {
       },
     );
   } catch (err) {
-    if (err instanceof ApiError) return NextResponse.json(toErrorBody(err), { status: err.status });
+    if (err instanceof ApiError) return errorResponse(err);
     throw err;
   }
 }

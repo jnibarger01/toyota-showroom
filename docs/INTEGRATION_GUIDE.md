@@ -595,6 +595,7 @@ Every non-2xx body matches `ApiErrorBody` (`lib/api/errors.ts`):
 | 404 | `not_found` | Unknown vehicle or configuration |
 | 409 | `revision_conflict` | Stale `expectedRevision` |
 | 422 | `invalid_body` | Unknown option, wrong category, bad grade/year, cardinality violation |
+| 429 | `rate_limited` | More than 30 writes/minute from one client IP (POST/PATCH/DELETE only; `Retry-After: 60` header set) |
 
 ### What validation enforces
 
@@ -1033,9 +1034,10 @@ All twelve steps are done and tested on this branch.
 ```
 $ npm run lint         # clean (eslint.config.js added; catches real react-hooks issues, not noise)
 $ npm run typecheck    # clean
-$ npm test             # 151 passed (10 files), including a CI-time check that the catalog resolves
-                        # against the real, checked-in GLB (tests/glbContract.test.ts) and 13 tests
-                        # of D1ConfigurationRepository against a real local D1 instance
+$ npm test             # 158 passed (11 files), including a CI-time check that the catalog resolves
+                        # against the real, checked-in GLB (tests/glbContract.test.ts), 13 tests of
+                        # D1ConfigurationRepository against a real local D1 instance, and 7 tests of
+                        # the write rate limiter against both a fake and a real local binding
 $ npm run build        # 9 routes, static export succeeds — including per-vehicle routes /4runner,
                         # /tacoma, /camry (app/[slug]/page.tsx)
 ```
@@ -1059,5 +1061,7 @@ $ npm run build        # 9 routes, static export succeeds — including per-vehi
   Acceptable for the anonymous, no-accounts v1 this implements — revisit if user accounts land.
 - **Calipers and donor geometry are hidden, not deleted.** The Blender source should be corrected.
 - **No visual regression testing.** Correctness here is asserted structurally, not by pixels.
-- **No rate limiting on configuration writes.** A scripted client can still create unlimited
-  configurations or hammer PATCH/DELETE (each individually authenticated, but with no throttling).
+- **Rate limiting is keyed on IP, not on identity.** `enforceConfigWriteRateLimit`
+  (`lib/server/rateLimit.ts`) throttles POST/PATCH/DELETE at 30 writes/minute per `cf-connecting-ip`,
+  which is the best available key given Task 10's anonymous, no-accounts ownership model — a NAT'd
+  office or a mobile carrier's shared egress IP shares one budget. Revisit if user accounts land.
