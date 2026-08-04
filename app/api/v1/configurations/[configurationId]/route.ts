@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, invalidBody, notFound, toErrorBody } from "../../../../../lib/api/errors";
-import { getConfigurationRepository } from "../../../../../lib/server/configurationRepository";
+import {
+  getConfigurationRepository,
+  type ConfigurationRepository,
+} from "../../../../../lib/server/configurationRepository";
+import { responseHeaders } from "../../../../../lib/server/http";
+import { log } from "../../../../../lib/server/log";
+import { requireWriteAccess } from "../../../../../lib/server/writeAccess";
 import { priceSelections, validatePatchConfiguration } from "../../../../../lib/validation/configuration";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../../../../../lib/types/customization";
 
@@ -14,13 +20,17 @@ async function readJson(request: NextRequest): Promise<unknown> {
   }
 }
 
-async function requireConfiguration(configurationId: string) {
-  const record = await getConfigurationRepository().get(configurationId);
+async function requireConfiguration(repository: ConfigurationRepository, configurationId: string) {
+  const record = await repository.get(configurationId);
   if (!record) throw notFound(`No configuration found with id "${configurationId}".`);
   return record;
 }
 
-function respond(record: Awaited<ReturnType<typeof requireConfiguration>>, status = 200) {
+function respond(
+  request: NextRequest,
+  record: Awaited<ReturnType<typeof requireConfiguration>>,
+  status = 200,
+) {
   return NextResponse.json(
     {
       schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
@@ -29,18 +39,34 @@ function respond(record: Awaited<ReturnType<typeof requireConfiguration>>, statu
     },
     {
       status,
-      headers: { "Cache-Control": "no-store", ETag: `"${record.configurationId}-r${record.revision}"` },
+      headers: responseHeaders(request, {
+        ETag: `"${record.configurationId}-r${record.revision}"`,
+      }),
     },
   );
 }
 
+function apiErrorResponse(request: NextRequest, err: ApiError) {
+  return NextResponse.json(toErrorBody(err), {
+    status: err.status,
+    headers: responseHeaders(request),
+  });
+}
+
 /** GET /api/v1/configurations/:configurationId */
-export async function GET(_request: NextRequest, { params }: { params: Promise<{ configurationId: string }> }) {
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ configurationId: string }> },
+) {
   try {
     const { configurationId } = await params;
-    return respond(await requireConfiguration(configurationId));
+    const repository = await getConfigurationRepository();
+    return respond(request, await requireConfiguration(repository, configurationId));
   } catch (err) {
-    if (err instanceof ApiError) return NextResponse.json(toErrorBody(err), { status: err.status });
+    if (err instanceof ApiError) return apiErrorResponse(request, err);
+    log("error", "configuration.read_failed", request, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     throw err;
   }
 }
@@ -48,30 +74,61 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 /**
  * PATCH /api/v1/configurations/:configurationId
  *
- * Re-validates the incoming selections against the *stored* vehicle and grade rather than anything
+ * Re-validates the incoming selections against the stored vehicle and grade rather than anything
  * in the request, so a client cannot widen its own compatibility rules by restating them.
  */
-export async function PATCH(request: NextRequest, { params }: { params: Promise<{ configurationId: string }> }) {
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ configurationId: string }> },
+) {
   try {
+    await requireWriteAccess(request);
     const { configurationId } = await params;
-    const existing = await requireConfiguration(configurationId);
+    const repository = await getConfigurationRepository();
+    const existing = await requireConfiguration(repository, configurationId);
     const patch = validatePatchConfiguration(await readJson(request), existing);
-    return respond(await getConfigurationRepository().update(configurationId, patch));
+    const updated = await repository.update(configurationId, patch);
+
+    log("info", "configuration.updated", request, {
+      configurationId,
+      revision: updated.revision,
+      schemaVersion: updated.schemaVersion,
+    });
+
+    return respond(request, updated);
   } catch (err) {
-    if (err instanceof ApiError) return NextResponse.json(toErrorBody(err), { status: err.status });
+    if (err instanceof ApiError) {
+      log("warn", "configuration.update_rejected", request, { code: err.code, status: err.status });
+      return apiErrorResponse(request, err);
+    }
+    log("error", "configuration.update_failed", request, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     throw err;
   }
 }
 
 /** DELETE /api/v1/configurations/:configurationId */
-export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ configurationId: string }> }) {
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ configurationId: string }> },
+) {
   try {
+    await requireWriteAccess(request);
     const { configurationId } = await params;
-    const deleted = await getConfigurationRepository().delete(configurationId);
+    const deleted = await (await getConfigurationRepository()).delete(configurationId);
     if (!deleted) throw notFound(`No configuration found with id "${configurationId}".`);
-    return new NextResponse(null, { status: 204, headers: { "Cache-Control": "no-store" } });
+
+    log("info", "configuration.deleted", request, { configurationId });
+    return new NextResponse(null, { status: 204, headers: responseHeaders(request) });
   } catch (err) {
-    if (err instanceof ApiError) return NextResponse.json(toErrorBody(err), { status: err.status });
+    if (err instanceof ApiError) {
+      log("warn", "configuration.delete_rejected", request, { code: err.code, status: err.status });
+      return apiErrorResponse(request, err);
+    }
+    log("error", "configuration.delete_failed", request, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     throw err;
   }
 }
