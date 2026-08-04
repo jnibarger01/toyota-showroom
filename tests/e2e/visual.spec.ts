@@ -55,9 +55,11 @@ test("builder chrome renders consistently (3D canvas masked out)", async ({ page
     ...SCREENSHOT_OPTIONS,
     mask: [page.locator(".vehicle-canvas")],
   });
-  // Not asserted empty here, unlike the other two: the vendored Draco decoder still falls through
-  // to an external CDN blocked by this app's CSP (§13's "Vendored Draco/Basis decoders" gap),
-  // which surfaces as a page error on this specific page. Asserted narrowly instead, so a
-  // *different* page error still fails this test.
-  expect(errors.filter((message) => !message.includes("Failed to fetch"))).toEqual([]);
+  // Waited for explicitly, not just implied by the screenshot above completing: the optional
+  // wheel/tyre glTF replacement (VehicleCanvas.tsx's installWheelAndTireAssets, Draco-decoded) is
+  // still in flight after the title renders, and a network failure surfaces as a `pageerror` on
+  // its own timeline — asserting immediately after the screenshot raced that and missed it once
+  // for real, while proving the Draco-decoder-vendoring fix (docs/INTEGRATION_GUIDE.md §13).
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
 });

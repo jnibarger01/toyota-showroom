@@ -1393,8 +1393,8 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   garage save/share (`lib/showroom/buildTools.ts`), terrain/lighting scene controls, a single-category
   builder view, authored wheel/tire glTFs replacing the 4Runner's baked-in running gear, a locally
   vendored Draco decoder (`public/draco/` — present on disk but not actually wired into the loader
-  configuration; §13 found the app still reaches `https://www.gstatic.com/draco/...` at runtime), and
-  a new RAV4 render asset set (`public/renders/rav4-2024/`, not yet wired into `lib/data/vehicles` —
+  configuration until §14 fixed it), and a new RAV4 render asset set
+  (`public/renders/rav4-2024/`, not yet wired into `lib/data/vehicles` —
   no `rav4` entry exists in `VEHICLES` yet). The merge commit documents the conflict resolution for
   the three files both streams touched (`BuilderApp.tsx`, `VehicleCanvas.tsx`,
   `lib/data/vehicles/4runner.ts`).
@@ -1512,12 +1512,35 @@ specific case isn't the derived-state-sync anti-pattern that rule exists to catc
 by loading `/compare/?vehicles=4runner,tacoma` with Playwright and confirming zero `pageerror`
 events, both before (red) and after (green) the fix.
 
-### Vendored Draco/Basis decoders still reach an external CDN
+---
 
-Also surfaced during this task's CSP verification, not fixed here: loading the builder page still
-issues real network requests to `https://www.gstatic.com/draco/...` even though
-`public/draco/` already vendors a local copy — the loader configuration isn't actually pointed at
-it. Harmless today only because `installWheelAndTireAssets`'s failure is already non-fatal (the
-base model has no Draco-compressed geometry itself, only the optional wheel/tire glTFs might), and
-this CSP correctly blocks the external request rather than silently allowing it. Left as a known
-gap for the task that owns the vendored decoder specifically, not addressed here.
+## 14. Vendoring the Draco Decoder Locally
+
+Surfaced by §13's CSP verification, fixed here: loading the builder page issued real network
+requests to `https://www.gstatic.com/draco/versioned/decoders/1.5.7/...` even though
+`public/draco/` (`draco_decoder.js`, `draco_decoder.wasm`, `draco_wasm_wrapper.js` — merged in from
+the parallel work stream §1/§4/§11 already document) had vendored a local copy of exactly those
+three files — the loader configuration just wasn't pointed at it. `lib/three/assets.ts`'s
+`DRACO_DECODER_PATH` was still the literal Google CDN URL.
+
+Fixed by pointing it at `` `${import.meta.env.BASE_URL}draco/` `` instead — the same
+`import.meta.env.BASE_URL` prefixing every other asset URL this app emits already uses
+(`lib/api/client.ts`'s `withBasePath`), required once GitHub Pages serves the whole site under
+`/toyota-showroom/`. Two independent reasons this needed fixing, either sufficient alone: §13's CSP
+intentionally does not allow `connect-src` to reach third-party hosts, so the CDN path was already
+being silently blocked there; and a CDN dependency is one more thing that can be down,
+rate-limited, or blocked by a restrictive network, for a feature (the optional wheel/tyre glTF
+replacements — the base 4Runner GLB has no Draco-compressed geometry of its own) that has nothing
+to do with needing the public internet.
+
+**Verified with real network-request inspection, not just a passing build.** Loaded the builder
+page with Playwright and logged every request matching `/draco/`: before the fix,
+`https://www.gstatic.com/draco/...`; after, `http://.../toyota-showroom/draco/draco_wasm_wrapper.js`
+and `.../draco_decoder.wasm` — confirmed the browser is actually fetching the vendored files, not
+just that the constant changed. `tests/e2e/visual.spec.ts`'s builder-chrome test now asserts zero
+page errors after `waitForLoadState("networkidle")` (previously it special-cased away exactly the
+"Failed to fetch" error this fix eliminates); reverting the fix and rerunning turns that assertion
+red, the same deliberate-bug verification used throughout this project. That revert-and-rerun also
+found a real timing gap in the test's *first* version — asserting immediately after the screenshot,
+before `installWheelAndTireAssets`'s CSP-blocked fetch had time to reject, let the regression pass
+silently; `waitForLoadState("networkidle")` closed it.

@@ -14,7 +14,18 @@ import { clone as cloneSkinnedScene } from "three/examples/jsm/utils/SkeletonUti
 let sharedLoader: GLTFLoader | null = null;
 let sharedDraco: DRACOLoader | null = null;
 
-export const DRACO_DECODER_PATH = "https://www.gstatic.com/draco/versioned/decoders/1.5.7/";
+/**
+ * Vendored locally at `public/draco/` (draco_decoder.js, draco_decoder.wasm,
+ * draco_wasm_wrapper.js — the exact three files `DRACOLoader` fetches), not Google's CDN. Two
+ * independent reasons, either one sufficient on its own: this app's CSP (`app/layout.tsx`, §13)
+ * intentionally does not allow `connect-src` to reach third-party hosts, so a CDN path would be
+ * silently blocked there; and a CDN dependency is one more thing that can be down, rate-limited,
+ * or blocked by a restrictive network for a feature (the optional wheel/tyre glTF replacements)
+ * that has nothing to do with needing the public internet. `import.meta.env.BASE_URL` matches
+ * every other asset URL this app emits (`lib/api/client.ts`'s `withBasePath`) — required once
+ * GitHub Pages serves the whole site under `/toyota-showroom/`.
+ */
+export const DRACO_DECODER_PATH = `${import.meta.env.BASE_URL}draco/`;
 
 export function getGltfLoader(): GLTFLoader {
   if (sharedLoader) return sharedLoader;
