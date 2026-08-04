@@ -136,7 +136,7 @@ nodes gone instead of the six actually named for deletion; fixed with `keepLeave
   `MOUNT_*` marker still present.
 - File size: 56.9 MiB → 38.7 MiB (a ~32% reduction — donor geometry was a meaningful fraction of
   the payload; a welcome side effect for the base-GLB-size gap this repo already tracks, though not
-  what this fix was for).
+  what this fix was for). §15 later compresses this file further, down to ~28.1 MiB.
 
 Not fixed here, and not attempted: the calipers' local geometry/orientation itself (are they
 authored to actually look correct once positioned?) wasn't visually re-verified beyond confirming
@@ -1078,9 +1078,9 @@ map may still be referenced by other meshes.
 | Part not in the base GLB, or too heavy to ship always | `mesh-replacement` | Loads on demand, cached |
 | Different vehicle entirely | full model reload | The **only** case that justifies it |
 
-Default to the cheapest row that works. Ordinary option changes must never reload the 39 MB base
-asset — the setup effect runs once and reads callbacks through latest-value refs precisely so a
-prop change can't retrigger it.
+Default to the cheapest row that works. Ordinary option changes must never reload the base asset
+(~28 MiB as of §15's Draco compression) — the setup effect runs once and reads callbacks through
+latest-value refs precisely so a prop change can't retrigger it.
 
 ---
 
@@ -1544,3 +1544,53 @@ red, the same deliberate-bug verification used throughout this project. That rev
 found a real timing gap in the test's *first* version — asserting immediately after the screenshot,
 before `installWheelAndTireAssets`'s CSP-blocked fetch had time to reject, let the regression pass
 silently; `waitForLoadState("networkidle")` closed it.
+
+---
+
+## 15. Compressing the Base GLB Payload (`scripts/compress-glb.mjs`)
+
+§1's donor-geometry fix got the shipped 4Runner GLB from 56.9 MiB to 38.7 MiB by deleting dead
+weight; this is the second, independent lever — compressing what's left, since nothing more in the
+file is unused.
+
+**Measured before choosing a lever.** A raw JSON-chunk dump of the (post-§1) GLB found 13 embedded
+images totalling ~0.16 MiB out of a ~38.6 MiB binary buffer — essentially none of this file's size
+is texture data. The weight is geometry: positions, normals, UVs, and indices across 19 meshes.
+That rules out texture re-encoding (the usual first lever for a bloated glTF) and points at mesh
+compression instead.
+
+**`KHR_draco_mesh_compression` via `@gltf-transform/functions`'s `draco()` transform**, encoder
+supplied by the `draco3dgltf` npm package (`method: "edgebreaker"` — better ratios than
+`"sequential"` for the connected surfaces a vehicle body is; quantization left at
+`gltf-transform`'s own defaults — position 14 bits, normal 10, texcoord 12 — rather than overridden
+blind). This is also the first real workout for the decoder §14 vendored and wired in: that fix
+made `public/draco/`'s decoder reachable and correctly configured, but the *base* GLB shipped
+uncompressed the whole time, so nothing had actually exercised the decode path against it until
+this task compressed the file it loads.
+
+**Result: 38.7 MiB → 28.1 MiB, a further ~27% reduction** (combined with §1's fix, ~50% off the
+original 56.9 MiB shipped asset).
+
+**Verification:**
+- A raw JSON-chunk dump of the compressed file confirms `extensionsRequired` now includes
+  `KHR_draco_mesh_compression`, node count is unchanged at 26 (all four `MOUNT_WHEEL_*` markers and
+  the rest of §1's `keepLeaves: true` set survived untouched — this transform only rewrites mesh
+  accessors, not the node graph), and mesh/material/image counts are unchanged.
+- `npm test` — 208/208 unaffected (`tests/glbContract.test.ts` exercises `glbInspect` against
+  synthetic fixtures, not the shipped binary, so it wasn't expected to catch a compression
+  regression on its own — the real signal is the next two).
+- `npm run build` + `npm run test:e2e` — all 5 Playwright tests green against the *compressed*
+  file, including both `build-and-restore.spec.ts` tests, which apply real option selections to a
+  live WebGL scene built from this exact GLB. A silently broken decode (wrong decoder version,
+  mismatched quantization, a corrupted write) would show up there as a scene that never finishes
+  loading or a `pageerror`, not as a quiet size difference — this is the same class of "screenshot
+  alone would miss it" gap §4's visual-regression note and §14's network-inspection check exist to
+  close.
+- Backed up the pre-compression file before running the transform; restorable from that backup if
+  a problem surfaced post-verification (none did).
+
+Not attempted: re-running Draco with a different quantization profile to chase a smaller file at
+the cost of geometry precision. The defaults already produced a real, verified reduction without
+touching visual fidelity, and this repo has no practical way to script a "does it still look right
+up close" check (§1's same caliper-geometry caveat) — tuning further without that feedback would be
+guessing.
