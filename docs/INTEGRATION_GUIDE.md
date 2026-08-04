@@ -630,6 +630,39 @@ the `accessory` category (roof rack, light bar, rock sliders); "Accessories" swi
 using the mismatched label. Not fixed here — it's the other stream's UI design, not a regression
 this task introduced, and relabeling it without knowing that stream's intent risks guessing wrong.
 
+### Visual regression testing (`tests/e2e/visual.spec.ts`)
+
+Pixel-diff testing with real Playwright, against the real static export — `playwright.config.ts`'s
+`webServer` runs `scripts/preview-server.mjs`, a small `node:http` server written for this because
+nothing else in the toolchain serves `dist/client` at the sub-path GitHub Pages actually serves it
+at (`/toyota-showroom/`, `vite.config.ts`'s `base`). Serving it at the domain root instead — what a
+plain `http-server`/`serve` invocation does — 404s every stylesheet and catalog fixture, since every
+asset URL the app emits is already prefixed for that sub-path. `vinext dev` was not an option
+either: its startup `Request.cf` fetch has no network route in this sandbox and it never boots a
+single route as a result (§16 below hits the same wall for the same reason).
+
+Scope is deliberately DOM/CSS pages only — `/explore`, `/compare`, and the builder's UI chrome with
+its `.vehicle-canvas` element masked out of the diff. The builder's actual 3D content is not
+pixel-tested: camera float precision, GPU vs. software rasterization, and antialiasing differ
+enough between machines that diffing the live WebGPU/WebGL canvas would be flaky by construction,
+not a real regression signal. `SCREENSHOT_OPTIONS.maxDiffPixelRatio` is `0.02`, not `0` — even
+same-OS, a different Chromium *build* hints fonts a few pixels differently, and zero-tolerance
+diffing would fail this suite for reasons that have nothing to do with an actual regression.
+
+**A real, disclosed risk in the committed baselines.** They were generated in a sandboxed
+environment whose outbound network is proxied and blocks `cdn.playwright.dev`, so
+`npx playwright install` cannot fetch the Chromium build `@playwright/test`'s installed version
+actually expects; the environment has a different, pre-installed Chromium (a build ~40 revisions
+older) at a fixed path, and `playwright.config.ts`'s `launchOptions.executablePath` points at it
+*only when that path exists* — real CI (`.github/workflows/e2e.yml`) has no such path and instead
+runs `npx playwright install --with-deps chromium` for a browser matching its own resolution. If
+that CI browser renders meaningfully differently from the sandbox's older one, the very first CI
+run of this workflow may fail on a difference that reflects the browser build, not a real
+regression. The fix, if that happens, is exactly what it would be for any future legitimate visual
+change: `npm run test:e2e:update` (after `npm run build`) and commit the regenerated PNGs under
+`tests/e2e/visual.spec.ts-snapshots/` — ideally run once, in CI itself or an environment with real
+Playwright browser access, rather than assumed away.
+
 ---
 
 ## 5. Backend Endpoint Design
@@ -1204,6 +1237,8 @@ $ npm test             # 208 passed (16 files), including a CI-time check that t
 $ npm run build        # 11 routes, static export succeeds — including per-vehicle routes /4runner,
                         # /tacoma, /camry (app/[slug]/page.tsx), the /explore lineup page, and
                         # /compare
+$ npm run test:e2e     # 3 passed — real Playwright against the built static export
+                        # (tests/e2e/visual.spec.ts; needs `npm run build` first)
 ```
 
 ### Known gaps
@@ -1238,7 +1273,12 @@ $ npm run build        # 11 routes, static export succeeds — including per-veh
   without a real backend, which is the same standing dependency the D1 `database_id` placeholder
   already documents above.
 - **Calipers and donor geometry are hidden, not deleted.** The Blender source should be corrected.
-- **No visual regression testing.** Correctness here is asserted structurally, not by pixels.
+- **Visual regression (§4, "Visual regression testing") covers DOM/CSS pages only** — `/explore`,
+  `/compare`, and the builder's chrome with the 3D canvas masked out, not the canvas's own content,
+  for reasons that section explains. And its committed baselines carry a disclosed risk: generated
+  against an older Chromium build than real CI installs (that section again) — the first real CI
+  run may need `npm run test:e2e:update` and a baseline recommit if the two builds render
+  differently enough to trip `maxDiffPixelRatio`.
 - **Rate limiting is keyed on IP, not on identity.** `enforceConfigWriteRateLimit`
   (`lib/server/rateLimit.ts`) throttles POST/PATCH/DELETE at 30 writes/minute per `cf-connecting-ip`,
   which is the best available key given Task 10's anonymous, no-accounts ownership model — a NAT'd
