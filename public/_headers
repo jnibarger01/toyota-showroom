@@ -1,0 +1,34 @@
+# Cloudflare Workers Static Assets header rules (docs/INTEGRATION_GUIDE.md §17). Providing this
+# file replaces vinext's own auto-generated `_headers` entirely rather than merging with it (see
+# §17), so the `/assets/*` immutable rule below is carried forward on purpose — dropping it would
+# be a real regression, not a no-op.
+#
+# Paths not matched by any rule below keep Cloudflare's own platform default (cacheable, but
+# revalidated on every use) — correct as-is for the HTML shells and `.rsc` payloads this app emits,
+# so they are deliberately not overridden here.
+
+# Content-hashed build output (vite/vinext's own chunk naming, e.g. BuilderApp-<hash>.js): a new
+# build always produces a new hash, so these can be cached forever without a staleness risk.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Everything below is real asset weight that is NOT content-hashed (the file path never changes
+# across an edit — scripts/fix-donor-geometry.mjs and scripts/compress-glb.mjs both edit
+# public/models/*.glb in place, §1 and §15), so none of it is safe to mark `immutable`. A day's
+# cache still meaningfully cuts repeat-visit cost for what includes the single largest asset this
+# app ships (the ~28 MiB base 4Runner GLB, §15) without risking a stale asset surviving past the
+# next deploy for more than a day.
+/models/*
+  Cache-Control: public, max-age=86400, must-revalidate
+/draco/*
+  Cache-Control: public, max-age=86400, must-revalidate
+/renders/*
+  Cache-Control: public, max-age=86400, must-revalidate
+/images/*
+  Cache-Control: public, max-age=86400, must-revalidate
+
+# The static-export mirror of GET /api/v1/** (scripts/generate-static-api.ts's prebuild output,
+# served from here only on the GitHub Pages deployment target where there is no live Worker) —
+# matches the Cache-Control the real endpoints send for the same data (app/api/v1/vehicles/**).
+/catalog/*
+  Cache-Control: public, max-age=300

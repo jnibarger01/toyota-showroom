@@ -1402,6 +1402,11 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   can carry that directive; a `<meta http-equiv>` tag, the only mechanism GitHub Pages allows, can't)
   — this app has no click-jacking protection at all on that deployment target. The Worker side
   (`app/api/v1/**`) does send `X-Frame-Options: DENY` and `frame-ancestors 'none'` for real.
+- **`public/_headers`' cache rules (§17) have no live effect on either current deployment target.**
+  GitHub Pages supports no custom-header mechanism at all; the Cloudflare Worker doesn't serve
+  static assets today because the base GLB still exceeds Workers Static Assets' 25 MiB single-file
+  cap even after §15's compression (28.1 MiB). The config is real and verified against the actual
+  build output (§17); it activates with no further change once either constraint lifts.
 
 ---
 
@@ -1640,3 +1645,56 @@ this task's change specifically.
 Full local suite re-verified after: `npm test` (208/208), `npm run build`, and the full
 `npm run test:e2e` (7/7, including both real-GLB `build-and-restore.spec.ts` tests against the
 now-lazy-loaded canvas).
+
+---
+
+## 17. Cache Headers for Static Assets (`public/_headers`)
+
+**A real, disclosed gap first: neither of this app's two live deployment targets can serve custom
+cache headers today.** GitHub Pages (the only currently-*deployed* static host,
+`.github/workflows/pages.yml`) has no config mechanism for custom HTTP response headers at all — no
+`_headers`-file equivalent, confirmed against GitHub's own community discussions, not assumed. And
+the Cloudflare Worker (`app/api/v1/**` only) doesn't serve `dist/client` as static assets in the
+first place — `wrangler.jsonc`'s own comment already documents why: the base GLB exceeds Workers
+Static Assets' 25 MiB single-file cap, even after §15's compression (28.1 MiB, still over). So
+`public/_headers`, below, is real, correct, verified-against-the-actual-build config with **no live
+effect on any deployment this repo currently has running** — the same class of standing,
+infrastructure-gated gap as the D1 `database_id` placeholder (§1) and the staging Worker's
+credential-gated deploy (§12). It activates automatically, with no further code change, the day
+either this project's static site moves to a Cloudflare-hosted target, or the GLB drops under the
+25 MiB Workers Static Assets cap.
+
+**What it does, once live.** `public/` (copied verbatim into `dist/client` by vinext's build, same
+as `public/draco/`'s vendored decoder files) already gets one `_headers` rule generated
+automatically by vinext itself: `/assets/*` (vite's content-hashed JS/CSS chunk output) cached
+`immutable` for a year — safe, since a new build always produces a new hash. **Providing a
+hand-authored `public/_headers` replaces that generated file entirely rather than merging with
+it** — confirmed empirically, not assumed: a build with only a `/models/*` rule in
+`public/_headers` produced a `dist/client/_headers` with no `/assets/*` rule left in it at all.
+`public/_headers`'s own first rule is therefore that same `/assets/*` immutable line, carried
+forward on purpose, plus new rules for the real weight vinext's default doesn't cover — none of it
+content-hashed, since `scripts/fix-donor-geometry.mjs` and `scripts/compress-glb.mjs` (§1, §15)
+both edit `public/models/*.glb` in place rather than renaming it on change, so `immutable` would be
+wrong there: `/models/*`, `/draco/*`, `/renders/*`, and `/images/*` each get `public,
+max-age=86400, must-revalidate` — a real cache win for what includes the single largest asset this
+app ships, bounded to a day so a re-export or a re-compression is never stuck behind a stale cache
+for long. `/catalog/*` (the static-export mirror of `GET /api/v1/vehicles/**`,
+`scripts/generate-static-api.ts`'s prebuild output) matches the live endpoint's own
+`max-age=300`. Paths outside all of these — the HTML shells, the `.rsc` payloads — are left to
+Cloudflare's own platform default (cacheable, but revalidated on every use), which is already
+correct for them.
+
+**Verified two ways, since no live deployment can confirm real response headers:**
+- `tests/staticHeaders.test.ts` parses `public/_headers` and checks it against the real `public/`
+  tree: the `/assets/*` immutable rule is present with the exact expected value; every other rule
+  uses a bounded `max-age` rather than `immutable`; every rule's path resolves to a real directory
+  under `public/`; and every top-level `public/` directory has a matching rule (catches a new asset
+  folder landing with no cache policy at all, silently falling back to revalidate-always). Two
+  deliberate-bug checks before trusting it: removing the `/assets/*` rule failed the first test;
+  adding an uncovered `public/fonts/` directory failed the last one.
+- `npm run build` then `diff public/_headers dist/client/_headers` — byte-identical, confirming
+  vinext copies it verbatim rather than transforming or dropping it.
+
+Not attempted: standing up a real Cloudflare Pages/Workers Static Assets deployment in this
+environment to confirm actual HTTP response headers, since (as §1's D1 note and §12 already
+establish) this environment has no Cloudflare account credentials to deploy anything real with.
