@@ -1,0 +1,421 @@
+openapi: 3.0.3
+info:
+  title: Toyota Showroom API
+  version: 1.0.0
+  description: |
+    Static, versioned catalog fixtures and the optional Cloudflare Worker API used to persist
+    vehicle configurations. Static catalog query filtering and pagination are performed by the
+    browser SDK after loading the complete snapshot.
+servers:
+  - url: /toyota-showroom
+    description: GitHub Pages deployment
+  - url: /
+    description: Cloudflare Worker or local deployment
+tags:
+  - name: Catalog
+  - name: Configurations
+  - name: Operations
+paths:
+  /catalog/v1/vehicles.json:
+    get:
+      tags: [Catalog]
+      summary: Fetch the complete vehicle summary snapshot
+      responses:
+        "200":
+          description: Vehicle summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleSummaryEnvelope"
+  /catalog/v1/vehicles/{vehicleId}.json:
+    get:
+      tags: [Catalog]
+      summary: Fetch one complete vehicle record
+      parameters:
+        - $ref: "#/components/parameters/VehicleId"
+      responses:
+        "200":
+          description: Vehicle record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VehicleEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /catalog/v1/vehicles/{vehicleId}/media.json:
+    get:
+      tags: [Catalog]
+      summary: Fetch media and 3D configuration for one vehicle
+      parameters:
+        - $ref: "#/components/parameters/VehicleId"
+      responses:
+        "200":
+          description: Media manifest
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schemaVersion, slug, media, threeDConfig]
+                properties:
+                  schemaVersion: { type: string }
+                  slug: { type: string }
+                  media: { type: object, additionalProperties: true }
+                  threeDConfig: { type: object, additionalProperties: true }
+  /catalog/v1/vehicles/{vehicleId}/options.json:
+    get:
+      tags: [Catalog]
+      summary: Fetch the complete customization option snapshot for one vehicle
+      parameters:
+        - $ref: "#/components/parameters/VehicleId"
+      responses:
+        "200":
+          description: Customization options
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schemaVersion, vehicleId, data]
+                properties:
+                  schemaVersion: { type: string }
+                  vehicleId: { type: string }
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CustomizationOption"
+  /catalog/v1/health.json:
+    get:
+      tags: [Operations]
+      summary: Fetch build-time catalog health metadata
+      responses:
+        "200":
+          description: Static catalog health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /api/v1/configurations:
+    post:
+      tags: [Configurations]
+      summary: Create a saved vehicle configuration
+      security:
+        - {}
+        - WriteApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/WriteApiKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConfigurationInput"
+      responses:
+        "201":
+          description: Configuration created
+          headers:
+            Location:
+              schema: { type: string }
+            X-Request-Id:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/InvalidBody"
+  /api/v1/configurations/{configurationId}:
+    parameters:
+      - $ref: "#/components/parameters/ConfigurationId"
+    get:
+      tags: [Configurations]
+      summary: Fetch a saved configuration
+      responses:
+        "200":
+          description: Saved configuration
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationEnvelope"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Configurations]
+      summary: Update selections or camera state using optimistic concurrency
+      security:
+        - {}
+        - WriteApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/WriteApiKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchConfigurationInput"
+      responses:
+        "200":
+          description: Updated configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigurationEnvelope"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Revision conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "422":
+          $ref: "#/components/responses/InvalidBody"
+    delete:
+      tags: [Configurations]
+      summary: Delete a saved configuration and its revision history
+      security:
+        - {}
+        - WriteApiKey: []
+      parameters:
+        - $ref: "#/components/parameters/WriteApiKey"
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/health:
+    get:
+      tags: [Operations]
+      summary: Check catalog health in a request-aware runtime
+      responses:
+        "200":
+          description: Catalog health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /api/v1/readiness:
+    get:
+      tags: [Operations]
+      summary: Verify the Cloudflare Worker can query its D1 binding
+      responses:
+        "200":
+          description: Worker is ready for configuration writes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, database, timestamp]
+                properties:
+                  status: { type: string, enum: [ready] }
+                  database: { type: string, enum: [d1] }
+                  timestamp: { type: string, format: date-time }
+        "503":
+          description: D1 binding missing or unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+components:
+  securitySchemes:
+    WriteApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Required only when the Worker WRITE_API_KEY secret is configured.
+  parameters:
+    VehicleId:
+      name: vehicleId
+      in: path
+      required: true
+      schema: { type: string }
+    ConfigurationId:
+      name: configurationId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^cfg_[A-Za-z0-9]{1,20}$"
+    WriteApiKey:
+      name: X-API-Key
+      in: header
+      required: false
+      schema: { type: string, format: password }
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    Unauthorized:
+      description: API key required or invalid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+    InvalidBody:
+      description: Malformed or semantically invalid request body
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+  schemas:
+    SelectionMap:
+      type: object
+      additionalProperties:
+        type: array
+        uniqueItems: true
+        items: { type: string }
+    CameraState:
+      type: object
+      required: [position, target]
+      properties:
+        presetId: { type: string }
+        position:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { type: number }
+        target:
+          type: array
+          minItems: 3
+          maxItems: 3
+          items: { type: number }
+    CreateConfigurationInput:
+      type: object
+      required: [vehicleId, modelYear, gradeId]
+      additionalProperties: false
+      properties:
+        vehicleId: { type: string }
+        modelYear: { type: integer }
+        gradeId: { type: string }
+        selections:
+          $ref: "#/components/schemas/SelectionMap"
+        cameraState:
+          $ref: "#/components/schemas/CameraState"
+    PatchConfigurationInput:
+      type: object
+      additionalProperties: false
+      properties:
+        selections:
+          $ref: "#/components/schemas/SelectionMap"
+        cameraState:
+          $ref: "#/components/schemas/CameraState"
+        expectedRevision:
+          type: integer
+          minimum: 1
+    VehicleConfiguration:
+      type: object
+      required:
+        - configurationId
+        - vehicleId
+        - modelYear
+        - model
+        - gradeId
+        - selections
+        - revision
+        - schemaVersion
+        - createdAt
+        - updatedAt
+      properties:
+        configurationId: { type: string }
+        vehicleId: { type: string }
+        modelYear: { type: integer }
+        model: { type: string }
+        gradeId: { type: string }
+        selections:
+          $ref: "#/components/schemas/SelectionMap"
+        cameraState:
+          $ref: "#/components/schemas/CameraState"
+        revision: { type: integer, minimum: 1 }
+        schemaVersion: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ConfigurationEnvelope:
+      type: object
+      required: [schemaVersion, data, pricing]
+      properties:
+        schemaVersion: { type: string }
+        data:
+          $ref: "#/components/schemas/VehicleConfiguration"
+        pricing:
+          type: object
+          required: [optionsTotal]
+          properties:
+            optionsTotal: { type: number }
+    VehicleSummaryEnvelope:
+      type: object
+      required: [schemaVersion, data]
+      properties:
+        schemaVersion: { type: string }
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/VehicleSummary"
+    VehicleEnvelope:
+      type: object
+      required: [schemaVersion, data]
+      properties:
+        schemaVersion: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+    VehicleSummary:
+      type: object
+      additionalProperties: true
+      required: [slug, year, model]
+      properties:
+        slug: { type: string }
+        year: { type: integer }
+        model: { type: string }
+    CustomizationOption:
+      type: object
+      additionalProperties: true
+      required: [id, category, compatibleVehicleIds]
+      properties:
+        id: { type: string }
+        category: { type: string }
+        compatibleVehicleIds:
+          type: array
+          items: { type: string }
+        priceDelta: { type: number }
+    Health:
+      type: object
+      required: [status, schemaVersion, vehicleCount, timestamp]
+      properties:
+        status: { type: string, enum: [ok] }
+        schemaVersion: { type: string }
+        vehicleCount: { type: integer, minimum: 0 }
+        timestamp: { type: string, format: date-time }
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, status, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - not_found
+                - invalid_query
+                - invalid_body
+                - validation_failed
+                - revision_conflict
+                - unauthorized
+                - rate_limited
+                - service_unavailable
+                - network_error
+                - request_failed
+                - local_persistence_failed
+            status: { type: integer }
+            message: { type: string }
