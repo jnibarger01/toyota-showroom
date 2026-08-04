@@ -578,6 +578,24 @@ previously inert "Explore" nav button now navigates here.
 
 `/` and `/[slug]` are unchanged — this is an additive route, not a redesign of the existing ones.
 
+**Pagination (Task 26, added later).** The full-catalog fetch above is unchanged — still needed so
+the body-style chips show every style regardless of the current page — but the rendered grid no
+longer maps over the entire filtered result. A second, independent `paginateAndFilter(filtered, {},
+{ page, pageSize: DEFAULT_PAGE_SIZE })` pass (its own filter argument is `{}`, a no-op; only the
+page math is used) slices the current page out client-side, with Previous/Next controls that only
+render when `totalPages > 1`. Switching the body-style filter resets to page 1 — done during render
+(comparing `bodyStyle` against a `prevBodyStyle` state value, React's own documented pattern for
+"adjusting state when a prop changes"), not in a `useEffect`, which
+`eslint-plugin-react-hooks`'s `set-state-in-effect` rule (the same rule this section's "Vehicle
+comparison" note and §13's compare-page hydration fix both already reference) correctly flagged
+when first written that way — an effect here would commit the stale page once, then commit again
+to fix it. With the real production catalog (3 vehicles, well
+under `DEFAULT_PAGE_SIZE`) this is invisible in normal use, same as before — `tests/components/
+ExplorePage.test.tsx` ships its own 14-vehicle fixture specifically to exercise the controls the
+real catalog can't yet, verified with a deliberate-bug check (reverting the wiring correctly fails
+all three of that file's tests) and confirmed not to change anything about the real 3-vehicle build
+via the full Playwright suite, including `visual.spec.ts`'s `/explore` screenshot.
+
 ### Vehicle comparison (`app/compare/page.tsx`)
 
 Also built on groundwork that predates this task: `lib/api/client.ts`'s `compareVehicles(slugs)`
@@ -1384,11 +1402,6 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   "Lighting" opens the `accessory` category, "Accessories" opens `decal` (§4, "Component tests").
   Discovered while writing `BuilderApp.test.tsx`, not introduced by it; the mismatch predates this
   task, in the same parallel work stream that added the single-category redesign.
-- **The `/explore` lineup page (§4, "Vehicle lineup") fetches the whole catalog and filters client-side
-  without pagination UI.** `lib/api/query.ts`'s `paginateAndFilter`/`queryVehicles` already support it
-  and `MAX_PAGE_SIZE` is used defensively, but with three vehicles today a page-2 control has nothing
-  to page to. Wiring pagination (or virtualizing the grid) once the catalog is large enough to need it
-  is planned work.
 - **This branch merged a substantial parallel work stream from `main`** (commit range `ee6d097..f5c67a7`):
   garage save/share (`lib/showroom/buildTools.ts`), terrain/lighting scene controls, a single-category
   builder view, authored wheel/tire glTFs replacing the 4Runner's baked-in running gear, a locally

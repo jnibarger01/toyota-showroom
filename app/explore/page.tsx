@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { GitCompare, Loader2, Truck } from "lucide-react";
+import { ChevronLeft, ChevronRight, GitCompare, Loader2, Truck } from "lucide-react";
 import { listVehicles, pageUrl, MAX_COMPARE } from "../../lib/api/client";
-import { matchesFilters, MAX_PAGE_SIZE } from "../../lib/api/query";
+import { matchesFilters, paginateAndFilter, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../../lib/api/query";
 import type { BodyStyle, VehicleSummary } from "../../lib/types/vehicle";
 
 const BODY_STYLE_LABELS: Record<BodyStyle, string> = {
@@ -27,6 +27,7 @@ export default function ExplorePage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [bodyStyle, setBodyStyle] = useState<BodyStyle | null>(null);
   const [compareSlugs, setCompareSlugs] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +58,23 @@ export default function ExplorePage() {
       ),
     [allSummaries, bodyStyle],
   );
+
+  // A filter change can leave `page` pointing past the new, smaller result set (e.g. on page 3 of
+  // "All", then switching to a body style with only one page) — reset during render rather than in
+  // an effect (React's own recommended "adjusting state when a prop changes" pattern: an effect
+  // here would let a stale page briefly render, then commit a second time to fix it).
+  const [prevBodyStyle, setPrevBodyStyle] = useState(bodyStyle);
+  if (bodyStyle !== prevBodyStyle) {
+    setPrevBodyStyle(bodyStyle);
+    setPage(1);
+  }
+
+  // Filtering happens above, over the full catalog (needed so the body-style chips always show
+  // every style the lineup offers — see the fetch effect's own comment). Pagination is a second,
+  // independent pass over the already-filtered result: `paginateAndFilter`'s own filter step is a
+  // no-op here (`{}`), only its page-math is used, so changing the filter and changing the page
+  // never fight over what "page 2" means.
+  const paged = useMemo(() => paginateAndFilter(filtered, {}, { page, pageSize: DEFAULT_PAGE_SIZE }), [filtered, page]);
 
   const toggleCompare = (slug: string) => {
     setCompareSlugs((current) => {
@@ -117,7 +135,7 @@ export default function ExplorePage() {
       ) : null}
 
       <div className="vehicle-grid">
-        {filtered.map((summary) => {
+        {paged.data.map((summary) => {
           const checked = compareSlugs.includes(summary.slug);
           return (
             <a key={summary.slug} className="vehicle-card" href={pageUrl(summary.slug)}>
@@ -153,6 +171,20 @@ export default function ExplorePage() {
           );
         })}
       </div>
+
+      {paged.totalPages > 1 ? (
+        <nav className="explore-pagination" aria-label="Lineup pages">
+          <button onClick={() => setPage((current) => current - 1)} disabled={paged.page <= 1}>
+            <ChevronLeft size={16} /> Previous
+          </button>
+          <span>
+            Page {paged.page} of {paged.totalPages}
+          </span>
+          <button onClick={() => setPage((current) => current + 1)} disabled={paged.page >= paged.totalPages}>
+            Next <ChevronRight size={16} />
+          </button>
+        </nav>
+      ) : null}
 
       {compareSlugs.length > 0 ? (
         <div className="compare-bar">
