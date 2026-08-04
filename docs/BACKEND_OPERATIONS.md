@@ -53,13 +53,13 @@ curl -i http://localhost:3000/api/v1/readiness
 
 Merging to `main` triggers `.github/workflows/deploy-worker.yml`. It runs typecheck, tests, and the
 production build; applies all D1 migrations; configures the optional write secret; then deploys with
-the native vinext Cloudflare adapter.
+the repository's installed vinext adapter.
 
 A manual deployment uses the same order:
 
 ```bash
 npx wrangler d1 migrations apply DB --remote
-npx @vinext/cloudflare@0.0.50 deploy
+npx vinext deploy
 ```
 
 ## Rollback
