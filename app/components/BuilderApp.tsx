@@ -43,7 +43,7 @@ const VEHICLE_SLUG = "4runner";
 const DEFAULT_GRADE = "trd-pro";
 const STORAGE_KEY = "toyota-showroom:configurationId";
 type Terrain = "Studio" | "Trail" | "Night";
-type SceneMood = "Day" | "Golden hour" | "Night";
+type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 
 const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Paint",
@@ -74,7 +74,7 @@ export function BuilderApp() {
   const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [lift, setLift] = useState(2);
   const [terrain, setTerrain] = useState<Terrain>("Studio");
-  const [sceneMood, setSceneMood] = useState<SceneMood>("Day");
+  const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>("Daytime");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
   const controllerRef = useRef<VehicleSceneController | null>(null);
@@ -162,6 +162,7 @@ export function BuilderApp() {
       await configurationStore.attachScene(controllerRef.current, fresh, catalog);
     }
     setLift(2);
+    setEnvironmentPreset("Daytime");
     setPreset(bootstrap.vehicle.threeDConfig.cameraPresets[0] ?? null);
   };
 
@@ -313,7 +314,7 @@ export function BuilderApp() {
             cameraPreset={preset}
             lift={lift}
             terrain={terrain}
-            sceneMood={sceneMood}
+            environmentPreset={environmentPreset}
             onReady={handleSceneReady}
             onError={handleSceneError}
           />
@@ -366,8 +367,19 @@ export function BuilderApp() {
           <section className="control-section scene-controls">
             <label><Map size={14} /> Terrain preview</label>
             <div className="segmented">{(["Studio", "Trail", "Night"] as Terrain[]).map((item) => <button key={item} className={terrain === item ? "active" : ""} onClick={() => setTerrain(item)}>{item}</button>)}</div>
-            <label><CloudSun size={14} /> Lighting</label>
-            <div className="segmented">{(["Day", "Golden hour", "Night"] as SceneMood[]).map((item) => <button key={item} className={sceneMood === item ? "active" : ""} onClick={() => setSceneMood(item)}>{item}</button>)}</div>
+            <label><CloudSun size={14} /> Environment</label>
+            <div className="segmented environment-presets">
+              {(["Daytime", "Sunset", "Night"] as EnvironmentPreset[]).map((item) => (
+                <button
+                  key={item}
+                  className={environmentPreset === item ? "active" : ""}
+                  aria-pressed={environmentPreset === item}
+                  onClick={() => setEnvironmentPreset(item)}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
           </section>
           <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>${startingMsrp(vehicle).toLocaleString()}</b></p><p><span>Configured upgrades</span><b>+${(estimatedTotal - startingMsrp(vehicle)).toLocaleString()}</b></p><p className="total"><span>Estimated total</span><b>${estimatedTotal.toLocaleString()}</b></p></section>
         </aside>

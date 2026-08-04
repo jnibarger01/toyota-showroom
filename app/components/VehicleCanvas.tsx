@@ -20,7 +20,7 @@ export type CameraPreset = {
 };
 
 export type Terrain = "Studio" | "Trail" | "Night";
-export type SceneMood = "Day" | "Golden hour" | "Night";
+export type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 
 type Props = {
   threeDConfig: Vehicle3DConfig;
@@ -30,7 +30,7 @@ type Props = {
   /** Ride-height offset in inches; not a catalog category, so it stays a plain prop. */
   lift: number;
   terrain: Terrain;
-  sceneMood: SceneMood;
+  environmentPreset: EnvironmentPreset;
   /**
    * Fired once the model is loaded, cleaned up, and verified. The controller is the caller's
    * handle for every subsequent scene mutation — the canvas itself never applies an option.
@@ -39,7 +39,7 @@ type Props = {
   onError: (message: string) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, sceneMood, onReady, onError }: Props) {
+export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, onReady, onError }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -119,7 +119,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       scene.add(grid);
       const environment = { scene, floor, grid, hemi, key, rim };
       environmentRef.current = environment;
-      applyEnvironment(environment, terrain, sceneMood);
+      applyEnvironment(environment, terrain, environmentPreset);
 
       let root: THREE.Object3D;
       try {
@@ -230,8 +230,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   }, [cameraPreset]);
 
   useEffect(() => {
-    if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, sceneMood);
-  }, [terrain, sceneMood]);
+    if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, environmentPreset);
+  }, [terrain, environmentPreset]);
 
   return <div ref={hostRef} className="vehicle-canvas" />;
 }
@@ -245,19 +245,20 @@ type EnvironmentRefs = {
   rim: THREE.DirectionalLight;
 };
 
-function applyEnvironment(environment: EnvironmentRefs, terrain: Terrain, sceneMood: SceneMood): void {
-  const mood = terrain === "Night" || sceneMood === "Night" ? "Night" : sceneMood;
-  const palette = mood === "Night"
-    ? { bg: "#050813", floor: "#070a13", sky: "#33436c", ground: "#080a12", key: 1.2, rim: 3.5 }
-    : mood === "Golden hour"
-      ? { bg: "#21140f", floor: "#17100d", sky: "#ffd3a1", ground: "#5e3023", key: 3.4, rim: 2.2 }
-      : { bg: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#17150e" : "#080a0d", sky: "#edf5ff", ground: "#18100b", key: 4.5, rim: 2.7 };
+function applyEnvironment(environment: EnvironmentRefs, terrain: Terrain, preset: EnvironmentPreset): void {
+  const palette = preset === "Night"
+    ? { bg: "#050813", floor: "#070a13", sky: "#33436c", ground: "#080a12", keyColor: "#b8c9ff", rimColor: "#4169ff", key: 1.2, rim: 3.5 }
+    : preset === "Sunset"
+      ? { bg: "#21140f", floor: "#17100d", sky: "#ffd3a1", ground: "#5e3023", keyColor: "#ffb36b", rimColor: "#ff5a36", key: 3.4, rim: 2.2 }
+      : { bg: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#17150e" : "#080a0d", sky: "#edf5ff", ground: "#18100b", keyColor: "#ffffff", rimColor: "#4169ff", key: 4.5, rim: 2.7 };
   environment.scene.background = new THREE.Color(palette.bg);
   environment.scene.fog = new THREE.Fog(palette.bg, terrain === "Trail" ? 10 : 16, terrain === "Trail" ? 25 : 32);
   environment.floor.material.color.set(palette.floor);
   environment.hemi.color.set(palette.sky);
   environment.hemi.groundColor.set(palette.ground);
+  environment.key.color.set(palette.keyColor);
   environment.key.intensity = palette.key;
+  environment.rim.color.set(palette.rimColor);
   environment.rim.intensity = palette.rim;
   environment.grid.visible = terrain === "Studio";
 }

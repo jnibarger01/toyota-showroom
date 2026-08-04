@@ -160,6 +160,7 @@ button { font: inherit; color: inherit; }
 .segmented { display: grid; grid-auto-flow: column; gap: 5px; }
 .segmented button { height: 34px; border-radius: 8px; border: 1px solid #2c343e; background: #151a21; color: #929ca9; font-size: 11px; }
 .segmented button.active { border-color: #7a2f34; background: #2a171a; color: white; }
+.environment-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-flow: initial; }
 .toggle-row {
   width: 100%; display: flex; align-items: center; justify-content: space-between; text-align: left;
   padding: 14px 0; border: 0; border-top: 1px solid #222a33; background: transparent;
