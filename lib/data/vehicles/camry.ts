@@ -119,7 +119,6 @@ export const camry: Vehicle = {
     ],
     paintableMaterialNames: ["body.carmain"],
     wheelMountNames: [],
-    wheelVariants: [],
     interiorMaterialNames: [],
   },
 };

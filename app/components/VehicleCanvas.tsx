@@ -8,7 +8,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
-import { getGltfLoader, disposeSubtree } from "../../lib/three/assets";
+import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 
@@ -19,6 +19,9 @@ export type CameraPreset = {
   target: [number, number, number];
 };
 
+export type Terrain = "Studio" | "Trail" | "Night";
+export type SceneMood = "Day" | "Golden hour" | "Night";
+
 type Props = {
   threeDConfig: Vehicle3DConfig;
   /** Full server catalog. Only the options this GLB can satisfy are handed back via `onReady`. */
@@ -26,6 +29,8 @@ type Props = {
   cameraPreset: CameraPreset;
   /** Ride-height offset in inches; not a catalog category, so it stays a plain prop. */
   lift: number;
+  terrain: Terrain;
+  sceneMood: SceneMood;
   /**
    * Fired once the model is loaded, cleaned up, and verified. The controller is the caller's
    * handle for every subsequent scene mutation — the canvas itself never applies an option.
@@ -34,7 +39,7 @@ type Props = {
   onError: (message: string) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onReady, onError }: Props) {
+export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, sceneMood, onReady, onError }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -47,6 +52,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
+  const environmentRef = useRef<EnvironmentRefs | null>(null);
 
   // Latest-value refs: the setup effect must run exactly once (loading a 57 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
@@ -99,7 +105,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
       controls.target.set(...cameraPreset.target);
       controlsRef.current = controls;
 
-      scene.add(new THREE.HemisphereLight("#edf5ff", "#18100b", 2.5));
+      const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 2.5);
+      scene.add(hemi);
 
       const key = new THREE.DirectionalLight("#ffffff", 4.5);
       key.position.set(6, 9, 7);
@@ -122,6 +129,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
       const grid = new THREE.GridHelper(36, 36, "#26303a", "#151a20");
       grid.position.y = 0.002;
       scene.add(grid);
+      const environment = { scene, floor, grid, hemi, key, rim };
+      environmentRef.current = environment;
+      applyEnvironment(environment, terrain, sceneMood);
 
       let root: THREE.Object3D;
       try {
@@ -136,6 +146,13 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
         return;
       }
 
+      try {
+        await installWheelAndTireAssets(root, threeDConfig);
+      } catch (error) {
+        // Replacement running gear is additive enhancement; retain the complete base model if an
+        // optional glTF cannot be fetched or decoded.
+        console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
+      }
       prepareVehicleRoot(root, threeDConfig);
       buildProceduralAccessories(root);
       scene.add(root);
@@ -237,7 +254,37 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
     });
   }, [cameraPreset]);
 
+  useEffect(() => {
+    if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, sceneMood);
+  }, [terrain, sceneMood]);
+
   return <div ref={hostRef} className="vehicle-canvas" />;
+}
+
+type EnvironmentRefs = {
+  scene: THREE.Scene;
+  floor: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
+  grid: THREE.GridHelper;
+  hemi: THREE.HemisphereLight;
+  key: THREE.DirectionalLight;
+  rim: THREE.DirectionalLight;
+};
+
+function applyEnvironment(environment: EnvironmentRefs, terrain: Terrain, sceneMood: SceneMood): void {
+  const mood = terrain === "Night" || sceneMood === "Night" ? "Night" : sceneMood;
+  const palette = mood === "Night"
+    ? { bg: "#050813", floor: "#070a13", sky: "#33436c", ground: "#080a12", key: 1.2, rim: 3.5 }
+    : mood === "Golden hour"
+      ? { bg: "#21140f", floor: "#17100d", sky: "#ffd3a1", ground: "#5e3023", key: 3.4, rim: 2.2 }
+      : { bg: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#17150e" : "#080a0d", sky: "#edf5ff", ground: "#18100b", key: 4.5, rim: 2.7 };
+  environment.scene.background = new THREE.Color(palette.bg);
+  environment.scene.fog = new THREE.Fog(palette.bg, terrain === "Trail" ? 10 : 16, terrain === "Trail" ? 25 : 32);
+  environment.floor.material.color.set(palette.floor);
+  environment.hemi.color.set(palette.sky);
+  environment.hemi.groundColor.set(palette.ground);
+  environment.key.intensity = palette.key;
+  environment.rim.intensity = palette.rim;
+  environment.grid.visible = terrain === "Studio";
 }
 
 type RendererLike = {
@@ -272,6 +319,60 @@ async function loadVehicleRoot(threeDConfig: Vehicle3DConfig): Promise<THREE.Obj
   if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
   const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl);
   return gltf.scene;
+}
+
+/**
+ * Mounts the supplied standalone running-gear assets at the authored wheel mounts. The original
+ * meshes are removed (not merely hidden) so the catalog's exact node-name contract resolves to
+ * the replacements and the scene never renders duplicate wheels or tyres.
+ */
+async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Vehicle3DConfig): Promise<void> {
+  const config = threeDConfig.wheelAndTireAssets;
+  if (!config) return;
+
+  const mounts = threeDConfig.wheelMountNames.map((name) => root.getObjectByName(name));
+  if (mounts.some((mount) => !mount)) {
+    console.warn("[customization] supplied wheel and tyre glTFs were not mounted: wheel mounts are missing.");
+    return;
+  }
+
+  const [wheelSource, tireSource] = await Promise.all([loadAsset(config.wheelUrl), loadAsset(config.tireUrl)]);
+
+  for (let index = 0; index < mounts.length; index += 1) {
+    const wheelNodeName = config.wheelNodeNames[index]!;
+    const tireNodeName = config.tireNodeNames[index]!;
+
+    // Remove the model's baked-in pair before naming replacements, avoiding duplicate matches in
+    // `getObjectByName` as well as duplicate visible geometry.
+    removeNode(root.getObjectByName(wheelNodeName));
+    removeNode(root.getObjectByName(tireNodeName));
+
+    const assembly = new THREE.Group();
+    assembly.name = `AUTHORED_RUNNING_GEAR_${index}`;
+
+    const tire = instantiateAsset(tireSource);
+    tire.name = tireNodeName;
+    const wheel = instantiateAsset(wheelSource);
+    wheel.name = wheelNodeName;
+    renameMaterials(wheel, index < 2 ? "wheel.metal" : "wheel.metal.001");
+
+    assembly.add(tire, wheel);
+    attachToMount(mounts[index]!, assembly, "authored-wheel-and-tire");
+    assembly.scale.setScalar(config.scale ?? 1);
+  }
+}
+
+function removeNode(node: THREE.Object3D | undefined): void {
+  node?.parent?.remove(node);
+}
+
+function renameMaterials(root: THREE.Object3D, name: string): void {
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      material.name = name === "wheel.metal.001" && material.name === "wheel.metal" ? name : material.name;
+    }
+  });
 }
 
 /**

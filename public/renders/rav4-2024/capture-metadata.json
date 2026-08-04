@@ -1,0 +1,245 @@
+{
+  "capture": {
+    "sourceBuild": "https://www.modsnation.com/builds/7416-2024-toyota-limited",
+    "modelId": 481,
+    "capturedAt": "2026-08-03T19:16:18.891Z"
+  },
+  "modelDelivery": {
+    "endpoint": "https://api.modsnation.com/files/DataController.DataServices/GetModelFile",
+    "format": "gRPC-Web protobuf response containing a Base64-wrapped opaque main payload and separate Base64-wrapped opaque buffers payload",
+    "files": [
+      "rav4_2024_limited_main.base64",
+      "rav4_2024_limited_buffers.base64"
+    ],
+    "note": "No direct .glb or .gltf URL was delivered. The decoded first Base64 layer is opaque rather than JSON or GLB, so a mesh/material inventory cannot be truthfully extracted from the delivered bytes alone."
+  },
+  "renderer": {
+    "environmentHDR": "cold_photography_studio_1k.hdr",
+    "floorAlphaKTX2": "floor_alpha_2.ktx2",
+    "basisTranscoder": {
+      "javascript": "basis_transcoder.js",
+      "webAssembly": "basis_transcoder.wasm"
+    },
+    "dracoDecoder": {
+      "javascript": "draco_decoder.js",
+      "version": "1.5.7"
+    },
+    "observedNetworkTypes": {
+      "hdr": "application/octet-stream",
+      "ktx2": "image/ktx2",
+      "basisWasm": "application/wasm",
+      "dracoJs": "text/javascript"
+    },
+    "cachePolicy": "Renderer dependencies were served with public, immutable cache directives."
+  },
+  "previews": [
+    "preview_da673605-ddcf-4b02-b0cc-63177bdd925d.webp",
+    "preview_09d8b750-6000-4dd2-8520-b9212768cf3f.webp",
+    "preview_d62db901-0a18-4480-9a53-bee64792d507.webp",
+    "preview_fa8d43d5-263f-42c9-a3eb-65c3ebc20b0f.webp",
+    "preview_9dba9b2b-3dfb-4a5b-9a86-f8c489f172ea.webp"
+  ],
+  "files": [
+    {
+      "name": "rav4_2024_limited_main.base64",
+      "bytes": 15916,
+      "sha256": "07fdfb8f69c282304a5bf42691a2ccd618917d2105f854ad198ffdb50a7f0bbd"
+    },
+    {
+      "name": "rav4_2024_limited_buffers.base64",
+      "bytes": 5732972,
+      "sha256": "1f362265b97b553ef6feeac6de8be4f16b9057cc0c80a1b6de56c32365fe20bc"
+    },
+    {
+      "name": "cold_photography_studio_1k.hdr",
+      "bytes": 32830,
+      "sha256": "b87751832e76b156b6f1a26c390c6e5e422a892e99fac2451f3a17f0b75697d7"
+    },
+    {
+      "name": "floor_alpha_2.ktx2",
+      "bytes": 811,
+      "sha256": "399874212f8f11fbed957c0a11d07780b522e0c5a7474c6066f4746ef2d15387"
+    },
+    {
+      "name": "basis_transcoder.js",
+      "bytes": 57529,
+      "sha256": "8478b5b6d6b74e7d3082b89f6417321d8d1dc0307f2b30d4484bb11b441696a1"
+    },
+    {
+      "name": "basis_transcoder.wasm",
+      "bytes": 527333,
+      "sha256": "6cf17dc889352c42e9acf8897107978d127005fe3386c36a0e3845e27967630a"
+    },
+    {
+      "name": "draco_decoder.js",
+      "bytes": 720148,
+      "sha256": "5656ccaf1f50300e3c318e15c3313430483f3866cd9c25f22fbf9d6f229e6728"
+    },
+    {
+      "name": "preview_da673605-ddcf-4b02-b0cc-63177bdd925d.webp",
+      "bytes": 20870,
+      "sha256": "079a8102d1eb7517bac944cf8bb03d29dd214f81522f923ff5e89bf70dcdbc02"
+    },
+    {
+      "name": "preview_09d8b750-6000-4dd2-8520-b9212768cf3f.webp",
+      "bytes": 4764,
+      "sha256": "8d12196eb82fcb6d2b3eb25fa314aba3b1643858ecc8108300071ab45e9a6fea"
+    },
+    {
+      "name": "preview_d62db901-0a18-4480-9a53-bee64792d507.webp",
+      "bytes": 28610,
+      "sha256": "b4adbf7d721f21dd6008b09da12c7fd3468545d724e280e5f517aa1740c6075e"
+    },
+    {
+      "name": "preview_fa8d43d5-263f-42c9-a3eb-65c3ebc20b0f.webp",
+      "bytes": 42462,
+      "sha256": "8dca29bcc28f7450fc605f799ee182fddfee8eb3b7e0d738ebbe1bc945f07cd1"
+    },
+    {
+      "name": "preview_9dba9b2b-3dfb-4a5b-9a86-f8c489f172ea.webp",
+      "bytes": 16096,
+      "sha256": "10cfc9f7d3de4837415cebe3f84c8dc33a553456b90df09ec0183f565ee3ef72"
+    },
+    {
+      "name": "rendered-rav4-viewport.png",
+      "bytes": 158313,
+      "sha256": "634beb5159a8492a703367babffd2431bb547cc01076e7d0690de644732e0640"
+    }
+  ],
+  "decodedModel": {
+    "status": "decoded using the site client decoder in the authenticated browser session",
+    "files": [
+      "rav4_2024_limited_decoded.gltf",
+      "rav4_2024_limited_decoded.bin"
+    ],
+    "asset": {
+      "generator": "Khronos glTF Blender I/O v3.6.28",
+      "version": "2.0"
+    },
+    "summary": {
+      "scenes": 1,
+      "nodes": 8,
+      "meshes": 1,
+      "primitives": 10,
+      "materials": 10,
+      "textures": 5,
+      "images": 5,
+      "accessors": 50,
+      "bufferViews": 15,
+      "bufferBytes": 3224724,
+      "extensionsUsed": [
+        "KHR_draco_mesh_compression",
+        "KHR_materials_clearcoat",
+        "KHR_materials_emissive_strength"
+      ],
+      "extensionsRequired": [
+        "KHR_draco_mesh_compression"
+      ],
+      "dracoCompressedPrimitives": 10
+    },
+    "materialNames": [
+      {
+        "index": 0,
+        "name": "body.carmain",
+        "alphaMode": "OPAQUE",
+        "doubleSided": false
+      },
+      {
+        "index": 1,
+        "name": "metal.chrome",
+        "alphaMode": "OPAQUE",
+        "doubleSided": true
+      },
+      {
+        "index": 2,
+        "name": "glass.windows",
+        "alphaMode": "BLEND",
+        "doubleSided": false
+      },
+      {
+        "index": 3,
+        "name": "glass.windows.windshield",
+        "alphaMode": "BLEND",
+        "doubleSided": false
+      },
+      {
+        "index": 4,
+        "name": "glass.windows.rear.windshield",
+        "alphaMode": "BLEND",
+        "doubleSided": false
+      },
+      {
+        "index": 5,
+        "name": "plastik.all",
+        "alphaMode": "OPAQUE",
+        "doubleSided": false
+      },
+      {
+        "index": 6,
+        "name": "glass.light",
+        "alphaMode": "BLEND",
+        "doubleSided": true
+      },
+      {
+        "index": 7,
+        "name": "emissive.foglight",
+        "alphaMode": "BLEND",
+        "doubleSided": true
+      },
+      {
+        "index": 8,
+        "name": "emissive.brakelights",
+        "alphaMode": "BLEND",
+        "doubleSided": true
+      },
+      {
+        "index": 9,
+        "name": "emissive.turnsignal",
+        "alphaMode": "BLEND",
+        "doubleSided": true
+      }
+    ],
+    "nodeNames": [
+      {
+        "index": 0,
+        "name": "MOUNT_LICENSE_PLATE_FRONT",
+        "mesh": null
+      },
+      {
+        "index": 1,
+        "name": "MOUNT_LICENSE_PLATE_REAR",
+        "mesh": null
+      },
+      {
+        "index": 2,
+        "name": "MOUNT_SOUND_EXHAUST",
+        "mesh": null
+      },
+      {
+        "index": 3,
+        "name": "MOUNT_WHEEL_FRONT_LEFT",
+        "mesh": null
+      },
+      {
+        "index": 4,
+        "name": "MOUNT_WHEEL_FRONT_RIGHT",
+        "mesh": null
+      },
+      {
+        "index": 5,
+        "name": "MOUNT_WHEEL_REAR_LEFT",
+        "mesh": null
+      },
+      {
+        "index": 6,
+        "name": "MOUNT_WHEEL_REAR_RIGHT",
+        "mesh": null
+      },
+      {
+        "index": 7,
+        "name": "BODY",
+        "mesh": 0
+      }
+    ]
+  }
+}

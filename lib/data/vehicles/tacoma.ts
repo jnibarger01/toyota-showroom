@@ -125,7 +125,6 @@ export const tacoma: Vehicle = {
     ],
     paintableMaterialNames: ["body.carmain"],
     wheelMountNames: [],
-    wheelVariants: [],
     interiorMaterialNames: [],
   },
 };
