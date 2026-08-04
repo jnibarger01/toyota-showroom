@@ -15,6 +15,16 @@ import { describe, expect, it } from "vitest";
 const HEADERS_PATH = path.resolve(__dirname, "../public/_headers");
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 
+/**
+ * `public/catalog/` is `.gitignore`d — generated at build/dev time by
+ * `scripts/generate-static-api.ts` (the `prebuild`/`predev` npm hooks), not checked into the repo.
+ * A fresh checkout has no such directory until one of those hooks has run, which CI's `verify` job
+ * (`npm test` before `npm run build`) never does — this failed there for real (existsSync false on
+ * a clean checkout) despite passing locally, where a prior `npm run build` had already generated
+ * it. Exempted from the on-disk existence check below for that reason, same as `/assets/*`.
+ */
+const GENERATED_AT_BUILD_TIME = new Set(["/assets/*", "/catalog/*"]);
+
 type Rule = { pattern: string; headers: Record<string, string> };
 
 function parseHeadersFile(contents: string): Rule[] {
@@ -55,9 +65,10 @@ describe("public/_headers", () => {
     // max-age instead.
     for (const rule of rules) {
       expect(rule.headers["Cache-Control"], `rule for ${rule.pattern}`).toBeDefined();
-      if (rule.pattern === "/assets/*") continue; // hashed output only exists post-build, not under public/
+      if (rule.pattern === "/assets/*") continue; // content-hashed, so genuinely immutable
       expect(rule.headers["Cache-Control"]).not.toMatch(/immutable/);
 
+      if (GENERATED_AT_BUILD_TIME.has(rule.pattern)) continue; // not on disk in a fresh checkout
       const dir = rule.pattern.replace(/\/\*$/, "");
       const onDisk = path.join(PUBLIC_DIR, dir);
       expect(existsSync(onDisk), `${rule.pattern} should resolve under public/${dir}`).toBe(true);
