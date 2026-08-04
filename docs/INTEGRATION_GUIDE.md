@@ -556,6 +556,32 @@ Tacoma has `max_towing_lbs`; only Camry has `hybrid_battery_warranty_years_miles
 per-vehicle listing would misalign rows. A vehicle missing a given key renders `—` in that column
 rather than the row being dropped.
 
+### Share configuration (`lib/showroom/buildTools.ts`)
+
+Landed as part of the parallel work stream this branch merged (§11's "Known gaps" documents the
+merge itself); recorded here because it was still undocumented and untested against a real backend
+at the time.
+
+`BuilderApp.tsx`'s `share()` builds a URL from `createConfigurationShareUrl(origin, pathname,
+configurationId)` — `#configuration=<id>`, not a query parameter, so the fragment never reaches the
+server and can't be logged or leaked by a proxy — and copies it via `navigator.clipboard`, falling
+back to `window.prompt` when the Clipboard API is unavailable (an insecure context, or a browser
+without permission granted). `pathname` is read from `window.location` at share time, which already
+includes the vehicle's own route segment (`/4runner/`), so the link opens back on the right vehicle's
+builder rather than the default one.
+
+On load, `safeReadStoredId` checks `readSharedConfigurationId(window.location.hash)` **before**
+falling back to this browser's own remembered configuration id for that vehicle
+(`storageKeyFor(vehicleSlug)`) — a shared link always wins over whatever the visitor was last
+working on. `readSharedConfigurationId` validates the id against `/^[a-zA-Z0-9_-]+$/` before
+returning it, so a malformed or path-traversal-shaped fragment (`#configuration=../../bad`, tested
+in `tests/buildTools.test.ts`) is rejected rather than handed to `getConfiguration`.
+
+Reading a configuration by id has never required the owner token (§5's "Ownership" — only
+`PATCH`/`DELETE` do), so a shared link is inherently a read-only capability: opening one lets a
+visitor view and then freely re-customize the build in their own session, but never overwrites the
+original unless they also hold its owner token.
+
 ---
 
 ## 5. Backend Endpoint Design
@@ -1152,6 +1178,14 @@ $ npm run build        # 11 routes, static export succeeds — including per-veh
 - **Owner tokens have no recovery path.** Losing the token (clearing localStorage, switching
   browsers) permanently locks out further writes to that configuration; only reads keep working.
   Acceptable for the anonymous, no-accounts v1 this implements — revisit if user accounts land.
+- **A shared link (§4, "Share configuration") only resolves cross-browser when a real backend is
+  live.** `localConfigurationTransport` — the fallback `lib/api/configurations.ts` uses once it
+  detects there's no request-aware backend (e.g. the plain GitHub Pages export, §8's deployment
+  note) — persists to `window.localStorage`, so a link shared from that deployment only opens
+  correctly in the same browser that created it. On the Cloudflare Worker + D1 deployment (§5,
+  "Persistence"), the configuration is server-side and the link works everywhere. Not fixable
+  without a real backend, which is the same standing dependency the D1 `database_id` placeholder
+  already documents above.
 - **Calipers and donor geometry are hidden, not deleted.** The Blender source should be corrected.
 - **No visual regression testing.** Correctness here is asserted structurally, not by pixels.
 - **Rate limiting is keyed on IP, not on identity.** `enforceConfigWriteRateLimit`
