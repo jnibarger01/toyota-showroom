@@ -1,5 +1,7 @@
 :root {
   color-scheme: dark;
+
+  /* Toyota design system (goal 16) — dark surfaces (default/active) */
   --bg: #090c10;
   --surface: #11161c;
   --surface-2: #171d24;
@@ -7,16 +9,63 @@
   --border: #29313b;
   --text: #f4f7fa;
   --muted: #8f99a7;
-  --accent: #e02b31;
-  --accent-2: #ff4349;
+
+  /* Toyota red accent */
+  --accent: #eb0a1e;
+  --accent-2: #ff3b4a;
+
+  /* Typography scale */
+  --font-family-base: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-size-xs: 0.6875rem;
+  --font-size-sm: 0.75rem;
+  --font-size-md: 0.8125rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.375rem;
+  --font-size-2xl: 1.75rem;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-bold: 700;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Radius + shadow */
+  --radius-sm: 7px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --shadow-elevated: 0 18px 45px rgba(0, 0, 0, 0.4);
+
+  /* Motion */
+  --duration-fast: 150ms;
+  --duration-base: 300ms;
+  --duration-slow: 450ms;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Light surfaces — opt-in today via [data-theme="light"]; not yet toggled by the UI. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #eef0f3;
+  --surface-3: #e2e5ea;
+  --border: #d6dae0;
+  --text: #14181f;
+  --muted: #5b6572;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
-body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
+body { font-family: var(--font-family-base); overflow: hidden; }
 button { font: inherit; color: inherit; }
 
 .builder-shell { min-height: 100vh; background: radial-gradient(circle at 45% 10%, #18202a 0, #0b0f14 38%, #07090c 100%); }
+.builder-status { display: grid; place-items: center; color: var(--muted); font-size: 14px; }
 .topbar {
   height: 72px; display: grid; grid-template-columns: 260px 1fr auto; align-items: center;
   padding: 0 18px; border-bottom: 1px solid #202731; background: rgba(7, 10, 14, .92);
@@ -136,6 +185,32 @@ button { font: inherit; color: inherit; }
 .comparison-card .total b { color: #ff5a60; }
 .stage:fullscreen { background: #080b0f; padding: 0; }
 .stage:fullscreen .vehicle-canvas { inset-bottom: 84px; }
+
+/* Customization controls rendered from the verified option catalog. */
+.chip-row { display: flex; flex-wrap: wrap; gap: 7px; }
+.option-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 11px; border-radius: 8px;
+  border: 1px solid #2c343e; background: #151a21; color: #b6bec9; font-size: 11px; text-align: left;
+}
+.option-chip.active { border-color: #7a2f34; background: #2a171a; color: #fff; }
+.option-chip small { color: #7d8794; font-size: 10px; }
+.option-chip.active small { color: #d5a3a6; }
+.option-chip:disabled, .paint-row button:disabled { opacity: .55; cursor: progress; }
+.paint-row button { display: grid; place-items: center; color: #fff; }
+
+.panel-empty { color: #747f8d; font-size: 12px; padding: 10px 0; }
+
+.config-error {
+  display: flex; align-items: center; gap: 9px; padding: 9px 16px; font-size: 12px;
+  background: #2a171a; border-bottom: 1px solid #772d32; color: #ffb4b8;
+}
+.config-error button {
+  margin-left: auto; border: 1px solid #772d32; background: transparent; color: inherit;
+  border-radius: 6px; padding: 4px 9px; font-size: 11px;
+}
+
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1050px) {
   .workspace { grid-template-columns: 200px minmax(0, 1fr); }

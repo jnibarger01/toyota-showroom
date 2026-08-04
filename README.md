@@ -23,14 +23,33 @@ This project integrates the uploaded `modsnation_7416_assets_assembled.glb` as t
 
 The runtime does not add duplicate replacement wheels. Paint, camera, lift, and procedural accessory controls remain available.
 
+## Customization integration
+
+Customization options, the Three.js scene, and configuration persistence are wired through a single
+contract: a React control calls `configurationStore.selectOption(option)`, which updates state,
+mutates the scene via `VehicleSceneController`, and persists the selection by option id.
+
+See **[`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md)** for the schema, the GLB node and
+material naming contract, endpoint design, and the restoration flow.
+
 ## Run
 
 ```bash
 npm install
-npx next dev -p 3004
+npm run dev -- -p 3004
 ```
 
 Open `http://127.0.0.1:3004/`.
+
+```bash
+npm test        # 88 unit tests (vitest)
+npm run typecheck
+npm run build
+```
+
+Configuration writes need a request-aware runtime (the Cloudflare Worker build). Under the static
+GitHub Pages export those routes do not exist, so the client detects their absence once and
+persists configurations in the browser instead, running the same validators the server does.
 
 ## Final packaged assets
 

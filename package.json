@@ -8,9 +8,14 @@
   },
   "scripts": {
     "dev": "vinext dev",
+    "predev": "tsx scripts/generate-static-api.ts",
+    "prebuild": "tsx scripts/generate-static-api.ts",
     "build": "vinext build",
     "start": "vinext start",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
@@ -36,9 +41,11 @@
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "4.2.1",
+    "tsx": "4.23.5",
     "typescript": "5.9.3",
     "vinext": "0.0.50",
     "vite": "8.0.13",
+    "vitest": "^3.2.7",
     "wrangler": "4.92.0"
   }
 }
