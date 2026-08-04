@@ -1425,6 +1425,10 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
 
 ## 12. Deployment
 
+For the operational step-by-step (first-time D1/Worker setup, routine deploys, post-deploy
+verification, rollback) see `docs/DEPLOYMENT_RUNBOOK.md`. This section explains why the setup
+looks the way it does; the runbook is for actually doing it.
+
 Two independent targets, matching §5's "Deployment note": `.github/workflows/pages.yml` deploys the
 static export (`dist/client`) to GitHub Pages on every push to `main`; the Worker (`dist/server`,
 the dynamic `/api/v1/configurations/**` routes) is deployed separately, by hand today —
