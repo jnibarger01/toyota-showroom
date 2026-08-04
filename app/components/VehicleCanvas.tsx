@@ -19,6 +19,9 @@ export type CameraPreset = {
   target: [number, number, number];
 };
 
+export type Terrain = "Studio" | "Trail" | "Night";
+export type SceneMood = "Day" | "Golden hour" | "Night";
+
 type Props = {
   threeDConfig: Vehicle3DConfig;
   /** Full server catalog. Only the options this GLB can satisfy are handed back via `onReady`. */
@@ -26,6 +29,8 @@ type Props = {
   cameraPreset: CameraPreset;
   /** Ride-height offset in inches; not a catalog category, so it stays a plain prop. */
   lift: number;
+  terrain: Terrain;
+  sceneMood: SceneMood;
   /**
    * Fired once the model is loaded, cleaned up, and verified. The controller is the caller's
    * handle for every subsequent scene mutation — the canvas itself never applies an option.
@@ -34,11 +39,12 @@ type Props = {
   onError: (message: string) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onReady, onError }: Props) {
+export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, sceneMood, onReady, onError }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const rootRef = useRef<THREE.Object3D | null>(null);
+  const environmentRef = useRef<EnvironmentRefs | null>(null);
 
   // Latest-value refs: the setup effect must run exactly once (loading a 57 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
@@ -87,7 +93,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
       controls.target.set(...cameraPreset.target);
       controlsRef.current = controls;
 
-      scene.add(new THREE.HemisphereLight("#edf5ff", "#18100b", 2.5));
+      const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 2.5);
+      scene.add(hemi);
 
       const key = new THREE.DirectionalLight("#ffffff", 4.5);
       key.position.set(6, 9, 7);
@@ -110,6 +117,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
       const grid = new THREE.GridHelper(36, 36, "#26303a", "#151a20");
       grid.position.y = 0.002;
       scene.add(grid);
+      const environment = { scene, floor, grid, hemi, key, rim };
+      environmentRef.current = environment;
+      applyEnvironment(environment, terrain, sceneMood);
 
       let root: THREE.Object3D;
       try {
@@ -226,7 +236,37 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
     });
   }, [cameraPreset]);
 
+  useEffect(() => {
+    if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, sceneMood);
+  }, [terrain, sceneMood]);
+
   return <div ref={hostRef} className="vehicle-canvas" />;
+}
+
+type EnvironmentRefs = {
+  scene: THREE.Scene;
+  floor: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
+  grid: THREE.GridHelper;
+  hemi: THREE.HemisphereLight;
+  key: THREE.DirectionalLight;
+  rim: THREE.DirectionalLight;
+};
+
+function applyEnvironment(environment: EnvironmentRefs, terrain: Terrain, sceneMood: SceneMood): void {
+  const mood = terrain === "Night" || sceneMood === "Night" ? "Night" : sceneMood;
+  const palette = mood === "Night"
+    ? { bg: "#050813", floor: "#070a13", sky: "#33436c", ground: "#080a12", key: 1.2, rim: 3.5 }
+    : mood === "Golden hour"
+      ? { bg: "#21140f", floor: "#17100d", sky: "#ffd3a1", ground: "#5e3023", key: 3.4, rim: 2.2 }
+      : { bg: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#17150e" : "#080a0d", sky: "#edf5ff", ground: "#18100b", key: 4.5, rim: 2.7 };
+  environment.scene.background = new THREE.Color(palette.bg);
+  environment.scene.fog = new THREE.Fog(palette.bg, terrain === "Trail" ? 10 : 16, terrain === "Trail" ? 25 : 32);
+  environment.floor.material.color.set(palette.floor);
+  environment.hemi.color.set(palette.sky);
+  environment.hemi.groundColor.set(palette.ground);
+  environment.key.intensity = palette.key;
+  environment.rim.intensity = palette.rim;
+  environment.grid.visible = terrain === "Studio";
 }
 
 type RendererLike = {

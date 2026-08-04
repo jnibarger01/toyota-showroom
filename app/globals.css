@@ -184,7 +184,7 @@ button { font: inherit; color: inherit; }
 .comparison-card .total { border-top: 1px solid #303946; padding-top: 10px; color: #e7ebef; font-size: 12px; }
 .comparison-card .total b { color: #ff5a60; }
 .stage:fullscreen { background: #080b0f; padding: 0; }
-.stage:fullscreen .vehicle-canvas { inset-bottom: 84px; }
+.stage:fullscreen .vehicle-canvas { bottom: 84px; }
 
 /* Customization controls rendered from the verified option catalog. */
 .chip-row { display: flex; flex-wrap: wrap; gap: 7px; }
