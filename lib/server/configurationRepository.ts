@@ -1,14 +1,15 @@
 import { CUSTOMIZATION_SCHEMA_VERSION, type VehicleConfiguration } from "../types/customization";
 import type { ValidatedConfigurationInput, ValidatedPatch } from "../validation/configuration";
 import { notFound, revisionConflict } from "../api/errors";
+import { getD1Binding } from "./cloudflareEnv";
+import { D1ConfigurationRepository } from "./d1ConfigurationRepository";
 
 /**
  * Persistence boundary for configurations.
  *
  * Route handlers depend on this interface, never on Drizzle directly, so the same handlers run
- * against D1 in the deployed Worker and against the in-memory store in `npm run dev` and in tests.
- * Revision bumping and history appending live here rather than in the handlers, so no caller can
- * write a configuration without also recording its revision.
+ * against D1 in the deployed Worker and against the in-memory store in Node/Vitest. Revision
+ * bumping and history appending live here rather than in handlers.
  */
 export interface ConfigurationRepository {
   create(input: ValidatedConfigurationInput): Promise<VehicleConfiguration>;
@@ -93,17 +94,28 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
   }
 }
 
-let repository: ConfigurationRepository = new InMemoryConfigurationRepository();
-
-export function getConfigurationRepository(): ConfigurationRepository {
-  return repository;
-}
+let repository: ConfigurationRepository | undefined;
+let repositoryPromise: Promise<ConfigurationRepository> | undefined;
 
 /**
- * Swap in the D1-backed implementation from the Worker entry point once a binding is available.
- * Left as an explicit call rather than environment sniffing so tests and dev never accidentally
- * bind to a real database.
+ * Resolve the production repository lazily inside a request. Cloudflare bindings cannot perform
+ * I/O during isolate initialization, and Node/Vitest does not provide `cloudflare:workers`.
  */
+export function getConfigurationRepository(): Promise<ConfigurationRepository> {
+  if (repository) return Promise.resolve(repository);
+
+  repositoryPromise ??= getD1Binding().then((binding) => {
+    repository = binding
+      ? new D1ConfigurationRepository(binding)
+      : new InMemoryConfigurationRepository();
+    return repository;
+  });
+
+  return repositoryPromise;
+}
+
+/** Explicit test/dev override. */
 export function setConfigurationRepository(next: ConfigurationRepository): void {
   repository = next;
+  repositoryPromise = Promise.resolve(next);
 }
