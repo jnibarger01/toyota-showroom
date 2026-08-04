@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { VehicleCanvas, type CameraPreset } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
-import { getVehicle } from "../../lib/api/client";
+import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
@@ -306,7 +306,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </div>
         <nav>
           <button className="active">Build</button>
-          <button>Explore</button>
+          <button onClick={() => window.location.assign(pageUrl("explore"))}>Explore</button>
           <button onClick={() => void saveToGarage()}>Garage</button>
         </nav>
         <div className="top-actions">

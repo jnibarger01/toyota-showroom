@@ -511,6 +511,23 @@ doesn't actually offer it. `configurationStore.attachScene(controller, fresh, fo
 before replaying what survived — so a dropped selection can never linger visually after the grade
 that justified it is gone.
 
+### Vehicle lineup (`app/explore/page.tsx`)
+
+The browse/lineup page a parallel work stream had already laid the groundwork for:
+`lib/types/vehicle.ts`'s `VehicleSummary`/`toVehicleSummary`/`VehicleQueryFacts`, `lib/api/query.ts`'s
+`matchesFilters`/`paginateAndFilter`/`queryVehicles`, and `lib/api/client.ts`'s `listVehicles` were all
+present, tested indirectly through `GET /api/v1/vehicles` (`app/api/v1/vehicles/route.ts`), but nothing
+in `app/` rendered them. `app/explore/page.tsx` is that consumer: a client component that fetches the
+full catalog once (`listVehicles({}, { page: 1, pageSize: MAX_PAGE_SIZE })`) into local state, then
+filters client-side with the same `matchesFilters` the server uses for its own filtering — so a
+body-style chip and a `?bodyStyle=` query parameter can never disagree about what counts as a match.
+Each card links to `pageUrl(slug)` (new export in `lib/api/client.ts`), which prefixes the vehicle's
+own `/[slug]/` route the same way every other asset URL in this SDK is prefixed — required for the
+link to resolve once GitHub Pages serves the site under `/toyota-showroom/`. `BuilderApp.tsx`'s
+previously inert "Explore" nav button now navigates here.
+
+`/` and `/[slug]` are unchanged — this is an additive route, not a redesign of the existing ones.
+
 ---
 
 ## 5. Backend Endpoint Design
@@ -1073,14 +1090,14 @@ All twelve steps are done and tested on this branch.
 ```
 $ npm run lint         # clean (eslint.config.js added; catches real react-hooks issues, not noise)
 $ npm run typecheck    # clean
-$ npm test             # 169 passed (12 files), including a CI-time check that the catalog resolves
+$ npm test             # 175 passed (13 files), including a CI-time check that the catalog resolves
                         # against the real, checked-in GLB (tests/glbContract.test.ts), 13 tests of
                         # D1ConfigurationRepository against a real local D1 instance, 7 tests of the
                         # write rate limiter against both a fake and a real local binding, and 9 tests
                         # proving the Tacoma/Camry catalogs resolve against the real procedural
                         # fallback vehicle they actually render with
-$ npm run build        # 9 routes, static export succeeds — including per-vehicle routes /4runner,
-                        # /tacoma, /camry (app/[slug]/page.tsx)
+$ npm run build        # 10 routes, static export succeeds — including per-vehicle routes /4runner,
+                        # /tacoma, /camry (app/[slug]/page.tsx) and the /explore lineup page
 ```
 
 ### Known gaps
@@ -1113,7 +1130,20 @@ $ npm run build        # 9 routes, static export succeeds — including per-vehi
   which is the best available key given Task 10's anonymous, no-accounts ownership model — a NAT'd
   office or a mobile carrier's shared egress IP shares one budget. Revisit if user accounts land.
 - **`BuilderApp.tsx` has no dedicated component test suite yet**, including the grade selector's
-  `changeGrade` (§4, "Grade switching"). It is exercised indirectly today — `validation.test.ts`
-  covers grade-gating rules server-side, `d1ConfigurationRepository.test.ts` and `transport.test.ts`
-  cover creating a configuration with a given `gradeId` — but there is no test that clicks a grade
-  button and asserts the scene resets. Real component tests for `BuilderApp` are planned work.
+  `changeGrade` (§4, "Grade switching") and the garage/share/terrain controls merged in from a
+  parallel work stream (below). It is exercised indirectly today — `validation.test.ts` covers
+  grade-gating rules server-side, `d1ConfigurationRepository.test.ts` and `transport.test.ts` cover
+  creating a configuration with a given `gradeId` — but there is no test that clicks a grade button
+  and asserts the scene resets. Real component tests for `BuilderApp` are planned work.
+- **The `/explore` lineup page (§4, "Vehicle lineup") fetches the whole catalog and filters client-side
+  without pagination UI.** `lib/api/query.ts`'s `paginateAndFilter`/`queryVehicles` already support it
+  and `MAX_PAGE_SIZE` is used defensively, but with three vehicles today a page-2 control has nothing
+  to page to. Wiring pagination (or virtualizing the grid) once the catalog is large enough to need it
+  is planned work.
+- **This branch merged a substantial parallel work stream from `main`** (commit range `ee6d097..f5c67a7`):
+  garage save/share (`lib/showroom/buildTools.ts`), terrain/lighting scene controls, a single-category
+  builder view, authored wheel/tire glTFs replacing the 4Runner's baked-in running gear, a locally
+  vendored Draco decoder (`public/draco/`), and a new RAV4 render asset set (`public/renders/rav4-2024/`,
+  not yet wired into `lib/data/vehicles` — no `rav4` entry exists in `VEHICLES` yet). The merge commit
+  documents the conflict resolution for the three files both streams touched
+  (`BuilderApp.tsx`, `VehicleCanvas.tsx`, `lib/data/vehicles/4runner.ts`).

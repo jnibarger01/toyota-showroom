@@ -19,6 +19,16 @@ function catalogUrl(path: string): string {
 }
 
 /**
+ * `href` for an internal page — `/[slug]/`, `/explore/`, etc. Root-relative internal links need
+ * the same sub-path prefix as every other asset URL this SDK hands out, or they 404 under the
+ * GitHub Pages deployment. `trailingSlash: true` in `next.config.mjs` means the static export's
+ * own routes are directories, so callers pass a bare slug/segment, not a leading or trailing `/`.
+ */
+export function pageUrl(segment: string = ""): string {
+  return `${basePath}/${segment}${segment ? "/" : ""}`;
+}
+
+/**
  * Catalog data stores root-relative asset URLs (e.g. "/images/hero.png"); under the GitHub
  * Pages deployment the whole site is mounted at a sub-path (`vite.config.ts` `base`), so every
  * asset URL a consumer receives from this SDK needs the same prefix the 3D model loader uses.

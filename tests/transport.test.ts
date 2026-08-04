@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../lib/api/errors";
-import { getVehicle } from "../lib/api/client";
+import { getVehicle, pageUrl } from "../lib/api/client";
 import {
   createConfiguration,
   getConfiguration,
@@ -73,6 +73,22 @@ describe("catalog reads", () => {
     expect(vehicle.threeDConfig.modelUrl).toBe(`${basePath}/models/modsnation_7416_assets_assembled.glb`);
     expect(vehicle.threeDConfig.wheelAndTireAssets?.wheelUrl).toBe(`${basePath}/models/4runner-2024/ModsNation_7416_wheel_a.gltf`);
     expect(vehicle.threeDConfig.wheelAndTireAssets?.tireUrl).toBe(`${basePath}/models/4runner-2024/ModsNation_7416_tire.gltf`);
+  });
+});
+
+describe("pageUrl", () => {
+  const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  it("prefixes a vehicle slug with the sub-path and a trailing slash, matching next.config.mjs's trailingSlash: true", () => {
+    expect(pageUrl("4runner")).toBe(`${basePath}/4runner/`);
+  });
+
+  it("prefixes a bare segment name the same way", () => {
+    expect(pageUrl("explore")).toBe(`${basePath}/explore/`);
+  });
+
+  it("resolves the site root when called with no segment", () => {
+    expect(pageUrl()).toBe(`${basePath}/`);
   });
 });
 
