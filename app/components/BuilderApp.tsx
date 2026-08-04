@@ -25,11 +25,13 @@ import { CustomizationButton } from "./CustomizationButton";
 import { getVehicle } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
+import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
   CATEGORY_APPLY_ORDER,
   type CustomizationCategory,
   type CustomizationOption,
+  type SelectionMap,
   type VehicleConfiguration,
 } from "../../lib/types/customization";
 import type { VehicleSceneController } from "../../lib/three/sceneController";
@@ -81,7 +83,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [lift, setLift] = useState(2);
+  const [gradeChanging, setGradeChanging] = useState(false);
   const controllerRef = useRef<VehicleSceneController | null>(null);
+  // The full, grade-independent set of options this GLB can satisfy — captured once from
+  // `onReady` (§ handleSceneReady) so a grade switch can recompute which options apply without
+  // reloading the model or re-running `verifyNodeContract`.
+  const fullApplicableRef = useRef<CustomizationOption[]>([]);
 
   const { configuration, catalog, status, error } = useConfiguration();
 
@@ -104,8 +111,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           ? DEFAULT_GRADE
           : (vehicle.grades[0]?.id ?? DEFAULT_GRADE);
 
+        // Ungraded: the full catalog, not filtered to `gradeId`. This is what gets handed to
+        // `VehicleCanvas` for node-contract verification, so the scene controller it builds knows
+        // about every option this GLB can satisfy across every grade — required for `changeGrade`
+        // below to switch grades without reloading the model.
         const [options, configuration] = await Promise.all([
-          configurationsApi.listVehicleOptions(vehicleSlug, gradeId),
+          configurationsApi.listVehicleOptions(vehicleSlug),
           resumeOrCreateConfiguration(vehicle, gradeId),
         ]);
 
@@ -129,13 +140,61 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const handleSceneReady = useCallback(
     (controller: VehicleSceneController, applicable: CustomizationOption[]) => {
       controllerRef.current = controller;
+      fullApplicableRef.current = applicable;
       if (!bootstrap) return;
-      void configurationStore.attachScene(controller, bootstrap.configuration, applicable);
+      const forGrade = applicable.filter((option) =>
+        isOptionAvailableForGrade(option, bootstrap.configuration.gradeId),
+      );
+      void configurationStore.attachScene(controller, bootstrap.configuration, forGrade);
     },
     [bootstrap],
   );
 
   const handleSceneError = useCallback((message: string) => setLoadError(message), []);
+
+  /**
+   * Switches the active grade. `gradeId` is immutable on a persisted configuration (the server
+   * only accepts it at creation — see `docs/INTEGRATION_GUIDE.md` §5), so this creates a new
+   * configuration rather than patching the current one, the same way `reset()` does.
+   *
+   * Selections that are no longer compatible with the new grade (a TRD Pro-only paint, a
+   * Limited-only interior) are dropped before the new configuration is created; `attachScene`'s
+   * `applyConfiguration` then resets every writable slot on the live scene and replays only what
+   * survived, so the 3D view can never show a selection the new grade doesn't actually offer.
+   */
+  const changeGrade = async (gradeId: string) => {
+    if (!bootstrap || !controllerRef.current || !configuration) return;
+    if (gradeId === configuration.gradeId) return;
+
+    setGradeChanging(true);
+    try {
+      const forGrade = fullApplicableRef.current.filter((option) =>
+        isOptionAvailableForGrade(option, gradeId),
+      );
+      const forGradeIds = new Set(forGrade.map((option) => option.id));
+
+      const carried: SelectionMap = {};
+      for (const category of CATEGORY_APPLY_ORDER) {
+        const ids = (configuration.selections[category] ?? []).filter((id) => forGradeIds.has(id));
+        if (ids.length > 0) carried[category] = ids;
+      }
+
+      const fresh = await configurationsApi.createConfiguration({
+        vehicleId: bootstrap.vehicle.slug,
+        modelYear: bootstrap.vehicle.year,
+        gradeId,
+        selections: carried,
+        cameraState: configuration.cameraState,
+      });
+      rememberConfigurationId(vehicleSlug, fresh.configurationId);
+      setBootstrap({ ...bootstrap, configuration: fresh });
+      await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGradeChanging(false);
+    }
+  };
 
   // Persist any pending batch before the tab goes away, so a refresh cannot lose the last click.
   useEffect(() => {
@@ -153,6 +212,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         options: catalog.filter((option) => option.category === category),
       })).filter((group) => group.options.length > 0),
     [catalog],
+  );
+
+  const selectedGrade = useMemo(
+    () => bootstrap?.vehicle.grades.find((grade) => grade.id === configuration?.gradeId),
+    [bootstrap, configuration],
   );
 
   const installedCount = useMemo(() => {
@@ -247,7 +311,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <div className="vehicle-title">
             <span>{vehicle.year} TOYOTA</span>
             <h1>{vehicle.model}</h1>
-            <p>Starting at ${startingMsrp(vehicle).toLocaleString()}</p>
+            <p>
+              {selectedGrade ? `${selectedGrade.name} · $${selectedGrade.msrp.toLocaleString()}` : `Starting at $${startingMsrp(vehicle).toLocaleString()}`}
+            </p>
           </div>
 
           <div className="summary">
@@ -263,6 +329,21 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <span>Revision</span>
               <strong>{configuration?.revision ?? "—"}</strong>
             </div>
+          </div>
+
+          <div className="section-label">Grade</div>
+          <div className="grade-row">
+            {vehicle.grades.map((grade) => (
+              <button
+                key={grade.id}
+                className={grade.id === configuration?.gradeId ? "grade-item active" : "grade-item"}
+                disabled={gradeChanging || !configuration}
+                onClick={() => void changeGrade(grade.id)}
+              >
+                <span>{grade.name}</span>
+                <small>${grade.msrp.toLocaleString()}</small>
+              </button>
+            ))}
           </div>
 
           <div className="section-label">Systems</div>

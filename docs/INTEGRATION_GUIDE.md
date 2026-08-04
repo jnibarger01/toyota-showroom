@@ -483,6 +483,34 @@ React 19 ships `useSyncExternalStore`; the store is ~60 lines and needs no depen
 reaches past `selectOption` / `flush` / `attachScene`, so swapping in Zustand's `create()` over the
 same actions is like-for-like.
 
+### Grade switching
+
+`app/components/BuilderApp.tsx`'s `changeGrade`. `gradeId` is immutable on a persisted
+configuration — the server only accepts it at `POST /api/v1/configurations`, never on `PATCH` (§5)
+— so switching grades creates a new configuration rather than editing the current one, the same
+pattern `reset()` already used.
+
+This has to run without reloading the GLB, so the bootstrap effect fetches the vehicle's full,
+*ungraded* catalog (`listVehicleOptions(vehicleSlug)`, no `gradeId`) and hands it to `VehicleCanvas`.
+`verifyNodeContract` therefore resolves every option the model can satisfy across every grade in one
+pass, and the `VehicleSceneController` it constructs holds that same full set internally — grade
+membership is never encoded into the controller or the loaded scene, only into which options the
+store exposes to the UI at a given moment. `handleSceneReady` keeps a ref to this full, verified list
+(`fullApplicableRef`) precisely so `changeGrade` can re-filter it by `isOptionAvailableForGrade`
+without touching Three.js at all:
+
+```ts
+const forGrade = fullApplicableRef.current.filter((option) => isOptionAvailableForGrade(option, gradeId));
+```
+
+Selections that don't survive that filter (a TRD Pro-only paint, a Limited-only interior) are
+dropped before the new configuration is created — carrying them forward would either be rejected by
+server validation (§5, "What validation enforces") or, worse, accepted and shown on a grade that
+doesn't actually offer it. `configurationStore.attachScene(controller, fresh, forGrade)` then calls
+`controller.applyConfiguration(fresh.selections)`, which resets every writable slot on the live scene
+before replaying what survived — so a dropped selection can never linger visually after the grade
+that justified it is gone.
+
 ---
 
 ## 5. Backend Endpoint Design
@@ -1084,3 +1112,8 @@ $ npm run build        # 9 routes, static export succeeds — including per-vehi
   (`lib/server/rateLimit.ts`) throttles POST/PATCH/DELETE at 30 writes/minute per `cf-connecting-ip`,
   which is the best available key given Task 10's anonymous, no-accounts ownership model — a NAT'd
   office or a mobile carrier's shared egress IP shares one budget. Revisit if user accounts land.
+- **`BuilderApp.tsx` has no dedicated component test suite yet**, including the grade selector's
+  `changeGrade` (§4, "Grade switching"). It is exercised indirectly today — `validation.test.ts`
+  covers grade-gating rules server-side, `d1ConfigurationRepository.test.ts` and `transport.test.ts`
+  cover creating a configuration with a given `gradeId` — but there is no test that clicks a grade
+  button and asserts the scene resets. Real component tests for `BuilderApp` are planned work.

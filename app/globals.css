@@ -109,6 +109,17 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 11px; padding: 0 12px; color: #aeb6c1; margin-bottom: 4px; font-size: 13px;
 }
 .rail-item.active { border-color: #743036; background: #24171a; color: white; }
+.grade-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
+.grade-item {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; text-align: left;
+  padding: 9px 12px; border: 1px solid #2c343e; border-radius: 9px; background: #151a21; color: #aeb6c1;
+  font-size: 12px;
+}
+.grade-item span { color: inherit; }
+.grade-item small { color: var(--muted); font-size: 11px; }
+.grade-item.active { border-color: #743036; background: #24171a; color: white; }
+.grade-item.active small { color: #cbb0b2; }
+.grade-item:disabled { opacity: .55; cursor: progress; }
 .tech-stack { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 6px; }
 .tech-stack span { padding: 5px 7px; border-radius: 6px; background: #171d24; color: #83909f; font-size: 10px; }
 
