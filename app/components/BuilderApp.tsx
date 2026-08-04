@@ -6,14 +6,18 @@ import {
   Box,
   Camera,
   Check,
+  ClipboardCheck,
+  CloudSun,
   CircleGauge,
   Cog,
   Expand,
   Lightbulb,
   Loader2,
   Mountain,
+  Map,
   PaintBucket,
   RotateCcw,
+  Save,
   Settings2,
   Share2,
   SlidersHorizontal,
@@ -33,10 +37,13 @@ import {
   type VehicleConfiguration,
 } from "../../lib/types/customization";
 import type { VehicleSceneController } from "../../lib/three/sceneController";
+import { createConfigurationShareUrl, estimateBuildTotal, readSharedConfigurationId } from "../../lib/showroom/buildTools";
 
 const VEHICLE_SLUG = "4runner";
 const DEFAULT_GRADE = "trd-pro";
 const STORAGE_KEY = "toyota-showroom:configurationId";
+type Terrain = "Studio" | "Trail" | "Night";
+type SceneMood = "Day" | "Golden hour" | "Night";
 
 const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Paint",
@@ -66,7 +73,12 @@ export function BuilderApp() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [lift, setLift] = useState(2);
+  const [terrain, setTerrain] = useState<Terrain>("Studio");
+  const [sceneMood, setSceneMood] = useState<SceneMood>("Day");
+  const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
+  const [garageMessage, setGarageMessage] = useState("Changes save automatically");
   const controllerRef = useRef<VehicleSceneController | null>(null);
+  const stageRef = useRef<HTMLElement>(null);
 
   const { configuration, catalog, status, error } = useConfiguration();
 
@@ -136,6 +148,7 @@ export function BuilderApp() {
     if (!configuration) return 0;
     return (configuration.selections.accessory ?? []).length + (configuration.selections.decal ?? []).length;
   }, [configuration]);
+  const estimatedTotal = useMemo(() => estimateBuildTotal(startingMsrp(bootstrap?.vehicle ?? null), catalog, configuration), [bootstrap, catalog, configuration]);
 
   const reset = async () => {
     if (!bootstrap) return;
@@ -150,6 +163,28 @@ export function BuilderApp() {
     }
     setLift(2);
     setPreset(bootstrap.vehicle.threeDConfig.cameraPresets[0] ?? null);
+  };
+
+  const saveToGarage = async () => {
+    await configurationStore.flush();
+    setGarageMessage("Build saved to your local garage");
+  };
+
+  const share = async () => {
+    if (!configuration) return;
+    const url = createConfigurationShareUrl(window.location.origin, window.location.pathname, configuration.configurationId);
+    try {
+      await navigator.clipboard.writeText(url);
+      setGarageMessage("Share link copied to clipboard");
+    } catch {
+      window.prompt("Copy this build link", url);
+      setGarageMessage("Share link ready to copy");
+    }
+  };
+
+  const toggleFullscreen = async () => {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await stageRef.current?.requestFullscreen();
   };
 
   if (loadError && !bootstrap) {
@@ -184,14 +219,14 @@ export function BuilderApp() {
         <nav>
           <button className="active">Build</button>
           <button>Explore</button>
-          <button>Garage</button>
+          <button onClick={() => void saveToGarage()}>Garage</button>
         </nav>
         <div className="top-actions">
           <button className="ghost" onClick={() => void reset()}>
             <RotateCcw size={16} /> Reset
           </button>
           <SaveIndicator status={status} />
-          <button className="primary">
+          <button className="primary" onClick={() => void share()}>
             <Share2 size={16} /> Share
           </button>
         </div>
@@ -210,7 +245,7 @@ export function BuilderApp() {
           <div className="vehicle-title">
             <span>{vehicle.year} TOYOTA</span>
             <h1>{vehicle.model}</h1>
-            <p>Starting at ${startingMsrp(vehicle).toLocaleString()}</p>
+            <p>Estimated ${estimatedTotal.toLocaleString()}</p>
           </div>
 
           <div className="summary">
@@ -229,12 +264,14 @@ export function BuilderApp() {
           </div>
 
           <div className="section-label">Systems</div>
-          <button className="rail-item active"><PaintBucket size={18} /> Exterior</button>
-          <button className="rail-item"><CircleGauge size={18} /> Wheels &amp; Tires</button>
-          <button className="rail-item"><SlidersHorizontal size={18} /> Suspension</button>
-          <button className="rail-item"><Lightbulb size={18} /> Lighting</button>
-          <button className="rail-item"><Cog size={18} /> Performance</button>
-          <button className="rail-item"><Box size={18} /> Accessories</button>
+          <button className={`rail-item ${activeCategory === "paint" ? "active" : ""}`} onClick={() => setActiveCategory("paint")}><PaintBucket size={18} /> Exterior</button>
+          <button className={`rail-item ${activeCategory === "wheels" ? "active" : ""}`} onClick={() => setActiveCategory("wheels")}><CircleGauge size={18} /> Wheels &amp; Tires</button>
+          <button className={`rail-item ${activeCategory === "trim" ? "active" : ""}`} onClick={() => setActiveCategory("trim")}><SlidersHorizontal size={18} /> Suspension</button>
+          <button className={`rail-item ${activeCategory === "accessory" ? "active" : ""}`} onClick={() => setActiveCategory("accessory")}><Lightbulb size={18} /> Lighting</button>
+          <button className={`rail-item ${activeCategory === "panel" ? "active" : ""}`} onClick={() => setActiveCategory("panel")}><Cog size={18} /> Performance</button>
+          <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Accessories</button>
+
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small><button onClick={() => void saveToGarage()}>Save build</button></div>
 
           <div className="tech-stack">
             <span>Next.js</span><span>React</span><span>Three.js</span>
@@ -242,7 +279,7 @@ export function BuilderApp() {
           </div>
         </aside>
 
-        <section className="stage">
+        <section className="stage" ref={stageRef}>
           <div className="stage-toolbar">
             <div className="camera-group">
               <Camera size={16} />
@@ -266,7 +303,7 @@ export function BuilderApp() {
             <div className="viewport-actions">
               <button title="Zoom"><ZoomIn size={17} /></button>
               <button title="Settings"><Settings2 size={17} /></button>
-              <button title="Fullscreen"><Expand size={17} /></button>
+              <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
             </div>
           </div>
 
@@ -275,6 +312,8 @@ export function BuilderApp() {
             catalog={bootstrap.catalog}
             cameraPreset={preset}
             lift={lift}
+            terrain={terrain}
+            sceneMood={sceneMood}
             onReady={handleSceneReady}
             onError={handleSceneError}
           />
@@ -287,7 +326,7 @@ export function BuilderApp() {
 
         <aside className="right-panel">
           <div className="panel-title">
-            <div><span>Configuration</span><h2>Exterior</h2></div>
+            <div><span>Configuration</span><h2>{CATEGORY_LABELS[activeCategory]}</h2></div>
             <Mountain size={22} />
           </div>
 
@@ -295,7 +334,7 @@ export function BuilderApp() {
             <p className="panel-empty">Preparing customization options&hellip;</p>
           ) : null}
 
-          {grouped.map(({ category, options }) => (
+          {grouped.filter(({ category }) => category === activeCategory).map(({ category, options }) => (
             <section className="control-section" key={category}>
               <label>{CATEGORY_LABELS[category]}</label>
               <div className={category === "paint" ? "paint-row" : "chip-row"}>
@@ -324,6 +363,13 @@ export function BuilderApp() {
               ))}
             </div>
           </section>
+          <section className="control-section scene-controls">
+            <label><Map size={14} /> Terrain preview</label>
+            <div className="segmented">{(["Studio", "Trail", "Night"] as Terrain[]).map((item) => <button key={item} className={terrain === item ? "active" : ""} onClick={() => setTerrain(item)}>{item}</button>)}</div>
+            <label><CloudSun size={14} /> Lighting</label>
+            <div className="segmented">{(["Day", "Golden hour", "Night"] as SceneMood[]).map((item) => <button key={item} className={sceneMood === item ? "active" : ""} onClick={() => setSceneMood(item)}>{item}</button>)}</div>
+          </section>
+          <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>${startingMsrp(vehicle).toLocaleString()}</b></p><p><span>Configured upgrades</span><b>+${(estimatedTotal - startingMsrp(vehicle)).toLocaleString()}</b></p><p className="total"><span>Estimated total</span><b>${estimatedTotal.toLocaleString()}</b></p></section>
         </aside>
       </section>
     </main>
@@ -343,7 +389,8 @@ function SaveIndicator({ status }: { status: string }) {
   return <button className="ghost" disabled><Check size={16} /> Up to date</button>;
 }
 
-function startingMsrp(vehicle: Vehicle): number {
+function startingMsrp(vehicle: Vehicle | null): number {
+  if (!vehicle) return 0;
   return Math.min(vehicle.pricing.baseMsrp, ...vehicle.grades.map((grade) => grade.msrp));
 }
 
@@ -386,7 +433,7 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
 
 function safeReadStoredId(): string | null {
   try {
-    return window.localStorage.getItem(STORAGE_KEY);
+    return readSharedConfigurationId(window.location.hash) ?? window.localStorage.getItem(STORAGE_KEY);
   } catch {
     return null;
   }
