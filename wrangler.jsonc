@@ -3,7 +3,12 @@
   "name": "toyota-showroom-worker",
   "compatibility_date": "2026-08-04",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "vinext/server/fetch-handler",
+  "main": "vinext/server/app-router-entry",
+  "assets": {
+    "directory": "dist/client",
+    "not_found_handling": "none",
+    "binding": "ASSETS"
+  },
   "observability": {
     "enabled": true
   },
