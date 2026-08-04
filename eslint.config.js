@@ -12,6 +12,8 @@ export default [
       ".wrangler/**",
       "public/catalog/**",
       "public/models/**",
+      "public/draco/**",
+      "public/renders/**",
       "db/migrations/**",
       "next-env.d.ts",
       "*.config.js",
