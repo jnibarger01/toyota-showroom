@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 /**
  * Legacy prototype tables. Superseded by `configurations` below, which stores selections as
@@ -15,7 +15,7 @@ export const builds = sqliteTable("builds", {
   roofRack: integer("roof_rack", { mode: "boolean" }).notNull().default(false),
   lightBar: integer("light_bar", { mode: "boolean" }).notNull().default(false),
   sliders: integer("sliders", { mode: "boolean" }).notNull().default(false),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull()
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const cameraPresets = sqliteTable("camera_presets", {
@@ -23,7 +23,7 @@ export const cameraPresets = sqliteTable("camera_presets", {
   buildId: text("build_id").notNull(),
   name: text("name").notNull(),
   position: text("position", { mode: "json" }).notNull(),
-  target: text("target", { mode: "json" }).notNull()
+  target: text("target", { mode: "json" }).notNull(),
 });
 
 /**
@@ -53,7 +53,10 @@ export const configurations = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (table) => [index("configurations_vehicle_idx").on(table.vehicleId)],
+  (table) => [
+    index("configurations_vehicle_idx").on(table.vehicleId),
+    index("configurations_updated_at_idx").on(table.updatedAt),
+  ],
 );
 
 /**
@@ -67,8 +70,14 @@ export const configurationRevisions = sqliteTable(
     configurationId: text("configuration_id").notNull(),
     revision: integer("revision").notNull(),
     selections: text("selections", { mode: "json" }).notNull().$type<Record<string, string[]>>(),
-    cameraState: text("camera_state", { mode: "json" }),
+    cameraState: text("camera_state", { mode: "json" }).$type<{
+      presetId?: string;
+      position: [number, number, number];
+      target: [number, number, number];
+    } | null>(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (table) => [index("configuration_revisions_config_idx").on(table.configurationId, table.revision)],
+  (table) => [
+    uniqueIndex("configuration_revisions_unique_idx").on(table.configurationId, table.revision),
+  ],
 );
