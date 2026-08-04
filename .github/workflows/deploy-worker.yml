@@ -42,14 +42,18 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           import { readFile, writeFile } from "node:fs/promises";
-          const source = await readFile("wrangler.jsonc", "utf8");
-          const rendered = source.replace("__CLOUDFLARE_D1_DATABASE_ID__", process.env.CLOUDFLARE_D1_DATABASE_ID);
-          await writeFile("/tmp/wrangler.production.jsonc", rendered);
+          const path = "wrangler.jsonc";
+          const source = await readFile(path, "utf8");
+          const rendered = source.replace(
+            "00000000-0000-0000-0000-000000000000",
+            process.env.CLOUDFLARE_D1_DATABASE_ID,
+          );
+          await writeFile(path, rendered);
           NODE
       - name: Apply D1 migrations
-        run: npx wrangler d1 migrations apply DB --remote --config /tmp/wrangler.production.jsonc
+        run: npx wrangler d1 migrations apply DB --remote --config wrangler.jsonc
       - name: Configure optional write API key
         if: env.WRITE_API_KEY != ''
-        run: printf '%s' "$WRITE_API_KEY" | npx wrangler secret put WRITE_API_KEY --config /tmp/wrangler.production.jsonc
+        run: printf '%s' "$WRITE_API_KEY" | npx wrangler secret put WRITE_API_KEY --config wrangler.jsonc
       - name: Deploy Worker
-        run: npx wrangler deploy --config /tmp/wrangler.production.jsonc
+        run: npx --yes @vinext/cloudflare@0.0.50 deploy --skip-build
