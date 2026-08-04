@@ -43,7 +43,19 @@ function normalizeMedia(media: MediaManifest): MediaManifest {
 }
 
 function normalizeThreeDConfig(config: Vehicle3DConfig): Vehicle3DConfig {
-  return config.modelUrl ? { ...config, modelUrl: withBasePath(config.modelUrl) } : config;
+  return {
+    ...config,
+    ...(config.modelUrl ? { modelUrl: withBasePath(config.modelUrl) } : {}),
+    ...(config.wheelAndTireAssets
+      ? {
+          wheelAndTireAssets: {
+            ...config.wheelAndTireAssets,
+            wheelUrl: withBasePath(config.wheelAndTireAssets.wheelUrl),
+            tireUrl: withBasePath(config.wheelAndTireAssets.tireUrl),
+          },
+        }
+      : {}),
+  };
 }
 
 function normalizeVehicle(vehicle: Vehicle): Vehicle {

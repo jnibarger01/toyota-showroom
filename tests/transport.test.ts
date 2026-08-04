@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../lib/api/errors";
+import { getVehicle } from "../lib/api/client";
 import {
   createConfiguration,
   getConfiguration,
@@ -8,6 +9,7 @@ import {
   updateConfiguration,
 } from "../lib/api/configurations";
 import { fourRunnerOptions } from "../lib/data/options/4runner";
+import { fourRunner } from "../lib/data/vehicles/4runner";
 
 /** Minimal `window.localStorage` so the local transport can run under the node test environment. */
 function installLocalStorage(): void {
@@ -59,6 +61,17 @@ describe("catalog reads", () => {
 
     expect(sr5.map((o) => o.id)).not.toContain("paint-0r2-solar-octane");
     expect(trdPro.map((o) => o.id)).toContain("paint-0r2-solar-octane");
+  });
+
+  it("prefixes every running-gear URL for a sub-path static deployment", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ data: fourRunner })));
+
+    const vehicle = await getVehicle("4runner");
+    const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+    expect(vehicle.threeDConfig.modelUrl).toBe(`${basePath}/models/modsnation_7416_assets_assembled.glb`);
+    expect(vehicle.threeDConfig.wheelAndTireAssets?.wheelUrl).toBe(`${basePath}/models/4runner-2024/ModsNation_7416_wheel_a.gltf`);
+    expect(vehicle.threeDConfig.wheelAndTireAssets?.tireUrl).toBe(`${basePath}/models/4runner-2024/ModsNation_7416_tire.gltf`);
   });
 });
 
