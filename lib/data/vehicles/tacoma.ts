@@ -116,7 +116,6 @@ export const tacoma: Vehicle = {
     cameraPresets: [],
     paintableMaterialNames: [],
     wheelMountNames: [],
-    wheelVariants: [],
     interiorMaterialNames: [],
   },
 };

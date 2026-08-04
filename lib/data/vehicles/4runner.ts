@@ -144,18 +144,12 @@ export const fourRunner: Vehicle = {
       "MOUNT_WHEEL_REAR_LEFT",
       "MOUNT_WHEEL_REAR_RIGHT",
     ],
-    wheelVariants: [
-      { id: "stock", label: "Stock", scale: 0.9 },
-      { id: "trail", label: "Trail", scale: 1 },
-      { id: "beadlock", label: "Beadlock", scale: 1.08 },
-    ],
-
     // Replace the assembled model's baked-in running gear with the supplied authored glTFs.
     // The node names deliberately match the configuration catalog, so wheel-finish and tyre-sidewall
     // controls continue to target the newly mounted meshes.
     wheelAndTireAssets: {
-      wheelUrl: "/renders/4runner-2024/ModsNation_7416_wheel_a.gltf",
-      tireUrl: "/renders/4runner-2024/ModsNation_7416_tire.gltf",
+      wheelUrl: "/models/4runner-2024/ModsNation_7416_wheel_a.gltf",
+      tireUrl: "/models/4runner-2024/ModsNation_7416_tire.gltf",
       // The standalone source assets are 0.553 units across, while the vehicle uses metre-scale
       // dimensions. This yields an approximately 0.80 m (31.5 in) outside tyre diameter.
       scale: 1.45,

@@ -123,12 +123,6 @@ export interface CameraPresetConfig {
   target: [number, number, number];
 }
 
-export interface WheelVariantConfig {
-  id: string;
-  label: string;
-  scale: number;
-}
-
 /** Authored wheel and tyre glTFs mounted over the base vehicle's original running gear. */
 export interface WheelAndTireAssetConfig {
   wheelUrl: string;
@@ -149,7 +143,6 @@ export interface Vehicle3DConfig {
   cameraPresets: CameraPresetConfig[];
   paintableMaterialNames: string[];
   wheelMountNames: string[];
-  wheelVariants: WheelVariantConfig[];
   /** Optional replacement running gear loaded from standalone glTF assets. */
   wheelAndTireAssets?: WheelAndTireAssetConfig;
   interiorMaterialNames: string[];

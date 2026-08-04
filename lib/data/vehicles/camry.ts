@@ -112,7 +112,6 @@ export const camry: Vehicle = {
     cameraPresets: [],
     paintableMaterialNames: [],
     wheelMountNames: [],
-    wheelVariants: [],
     interiorMaterialNames: [],
   },
 };
