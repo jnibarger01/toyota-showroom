@@ -111,6 +111,10 @@ button { font: inherit; color: inherit; }
 .rail-item.active { border-color: #743036; background: #24171a; color: white; }
 .tech-stack { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 6px; }
 .tech-stack span { padding: 5px 7px; border-radius: 6px; background: #171d24; color: #83909f; font-size: 10px; }
+.garage-card { margin-top: 24px; padding: 12px; border: 1px solid #29313b; border-radius: 10px; background: #11171e; }
+.garage-card div { display: flex; gap: 8px; align-items: center; color: #d7dde4; font-size: 12px; }
+.garage-card small { display: block; margin: 8px 0; color: var(--muted); font-size: 10px; }
+.garage-card button { width: 100%; border: 1px solid #3b4652; border-radius: 7px; padding: 7px; background: #1c242d; font-size: 10px; }
 
 .stage { min-width: 0; position: relative; display: grid; grid-template-rows: 1fr auto; background: #0c1015; }
 .vehicle-canvas { position: absolute; inset: 0 0 84px; }
@@ -148,6 +152,8 @@ button { font: inherit; color: inherit; }
 .panel-title h2 { margin: 3px 0 0; font-size: 20px; }
 .control-section { padding: 14px 0; border-top: 1px solid #222a33; }
 .control-section label { display: block; font-size: 12px; margin-bottom: 10px; color: #cfd5dc; }
+.control-section label small { float: right; color: #84909d; font-size: 10px; }
+.control-help { margin: 10px 0 0; color: #87919e; font-size: 11px; }
 .paint-row { display: flex; gap: 9px; }
 .paint-row button { width: 29px; height: 29px; border-radius: 50%; border: 2px solid #343d48; box-shadow: inset 0 0 0 2px #11161c; }
 .paint-row button.active { outline: 2px solid #f2f5f8; outline-offset: 2px; }
@@ -168,6 +174,17 @@ button { font: inherit; color: inherit; }
   width: 100%; height: 42px; border: 0; border-radius: 9px; background: var(--accent); display: flex;
   justify-content: center; align-items: center; gap: 8px; margin-top: 16px; font-size: 12px;
 }
+.scene-controls label { display: flex; align-items: center; gap: 7px; margin-top: 14px; }
+.scene-controls label:first-child { margin-top: 0; }
+.comparison-card { margin-top: 18px; padding: 13px; border: 1px solid #313945; border-radius: 10px; background: linear-gradient(135deg, #151c25, #11161c); }
+.comparison-card > div { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.comparison-card > div svg { color: #f04c52; }
+.comparison-card p { display: flex; justify-content: space-between; margin: 10px 0 0; color: #99a3af; font-size: 11px; }
+.comparison-card p b { color: #dce2e9; font-weight: 600; }
+.comparison-card .total { border-top: 1px solid #303946; padding-top: 10px; color: #e7ebef; font-size: 12px; }
+.comparison-card .total b { color: #ff5a60; }
+.stage:fullscreen { background: #080b0f; padding: 0; }
+.stage:fullscreen .vehicle-canvas { inset-bottom: 84px; }
 
 /* Customization controls rendered from the verified option catalog. */
 .chip-row { display: flex; flex-wrap: wrap; gap: 7px; }
