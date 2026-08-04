@@ -24,7 +24,17 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
+  // GitHub Actions' standard ubuntu-latest runners are 2-core; tests/e2e/build-and-restore.spec.ts
+  // loads a real ~57 MiB GLB per test (already run serially within that file — see its own
+  // `test.describe.configure`), and two of those loading at once from separate spec files was
+  // enough contention in this sandbox to make one time out for reasons that had nothing to do
+  // with the app. Locally, uncapped is fine.
+  workers: process.env.CI ? 1 : undefined,
   reporter: [["list"], ["html", { open: "never" }]],
+  // tests/e2e/build-and-restore.spec.ts loads a real ~57 MiB GLB before its catalog buttons exist
+  // at all — the default 5s per-assertion timeout is tuned for DOM-only pages, not a full
+  // Three.js scene load, and is too tight for that test on a loaded CI runner.
+  expect: { timeout: 15_000 },
   use: {
     baseURL: BASE_URL,
     trace: "on-first-retry",

@@ -639,7 +639,8 @@ at (`/toyota-showroom/`, `vite.config.ts`'s `base`). Serving it at the domain ro
 plain `http-server`/`serve` invocation does — 404s every stylesheet and catalog fixture, since every
 asset URL the app emits is already prefixed for that sub-path. `vinext dev` was not an option
 either: its startup `Request.cf` fetch has no network route in this sandbox and it never boots a
-single route as a result (§16 below hits the same wall for the same reason).
+single route as a result — "Build-and-restore E2E test" below hits the same wall for the same
+reason, and reuses this same server.
 
 Scope is deliberately DOM/CSS pages only — `/explore`, `/compare`, and the builder's UI chrome with
 its `.vehicle-canvas` element masked out of the diff. The builder's actual 3D content is not
@@ -662,6 +663,38 @@ regression. The fix, if that happens, is exactly what it would be for any future
 change: `npm run test:e2e:update` (after `npm run build`) and commit the regenerated PNGs under
 `tests/e2e/visual.spec.ts-snapshots/` — ideally run once, in CI itself or an environment with real
 Playwright browser access, rather than assumed away.
+
+### Build-and-restore E2E test (`tests/e2e/build-and-restore.spec.ts`)
+
+The actual product promise the whole persistence layer (§5, §7) exists for, checked end to end
+against a real browser instead of assumed from unit coverage: select an option, reload the tab, get
+the same build back. Runs the same way the visual tests do — real static export, real
+`scripts/preview-server.mjs` — with no backend present, so it exercises exactly what a real GitHub
+Pages visitor gets: `lib/api/configurations.ts` detects there's no request-aware backend and falls
+back to `localConfigurationTransport` (browser `localStorage`), same as §5's "Deployment note".
+
+Two tests, each a real GLB load (`public/models/modsnation_7416_assets_assembled.glb`, ~57 MiB) —
+not mocked, unlike `tests/components/BuilderApp.test.tsx`'s stubbed `VehicleCanvas`, because the
+whole point here is proving the real scene restores a real selection, not just that
+`configurationStore`'s state does:
+
+1. Select a paint color, wait for the debounced save to clear ("Saving" disappearing), reload,
+   confirm the same swatch is still `aria-pressed`.
+2. Select an accessory the same way, but also change lift height first. Lift height does **not**
+   survive the reload — this was the actual, correct discovery while writing this test, not a bug:
+   `lift` is plain `useState(2)` in `BuilderApp.tsx`, not a field in `VehicleConfiguration`
+   (`lib/types/customization.ts`) at all, so it's a page-local ride-height preview rather than a
+   saved customization. The test asserts that real behavior (lift resets to `2"` on reload)
+   instead of the wrong assumption it started from.
+
+Both tests run `test.describe.configure({ mode: "serial" })`, and `playwright.config.ts` caps
+`workers` to `1` in CI specifically: two Chromium instances each loading a 57 MiB GLB at once was
+enough resource contention in the sandbox this was built in to make the second one time out for
+reasons that had nothing to do with the app — GitHub Actions' standard runners are similarly
+modest (2-core). Verified with the deliberate-bug technique used throughout this project: forcing
+`safeReadStoredId` to always return `null` (simulating a browser that never finds its own stored
+configuration id) turns the paint-restoration test red, confirming it actually catches that class
+of regression, then reverted.
 
 ---
 
@@ -1237,8 +1270,9 @@ $ npm test             # 208 passed (16 files), including a CI-time check that t
 $ npm run build        # 11 routes, static export succeeds — including per-vehicle routes /4runner,
                         # /tacoma, /camry (app/[slug]/page.tsx), the /explore lineup page, and
                         # /compare
-$ npm run test:e2e     # 3 passed — real Playwright against the built static export
-                        # (tests/e2e/visual.spec.ts; needs `npm run build` first)
+$ npm run test:e2e     # 5 passed — real Playwright against the built static export
+                        # (visual regression + a real-browser build-and-restore flow across a
+                        # page reload; needs `npm run build` first)
 ```
 
 ### Known gaps
@@ -1279,6 +1313,11 @@ $ npm run test:e2e     # 3 passed — real Playwright against the built static e
   against an older Chromium build than real CI installs (that section again) — the first real CI
   run may need `npm run test:e2e:update` and a baseline recommit if the two builds render
   differently enough to trip `maxDiffPixelRatio`.
+- **Lift height doesn't survive a reload or a share link.** Confirmed while writing
+  `tests/e2e/build-and-restore.spec.ts` (§4): `lift` is `BuilderApp.tsx`'s own `useState(2)`, never
+  written into `VehicleConfiguration`. Intentional as far as the schema goes (`lib/types/
+  customization.ts` has no field for it) — recorded here because a visitor reloading a shared link
+  would reasonably expect a chosen ride height to come back with everything else.
 - **Rate limiting is keyed on IP, not on identity.** `enforceConfigWriteRateLimit`
   (`lib/server/rateLimit.ts`) throttles POST/PATCH/DELETE at 30 writes/minute per `cf-connecting-ip`,
   which is the best available key given Task 10's anonymous, no-accounts ownership model — a NAT'd
