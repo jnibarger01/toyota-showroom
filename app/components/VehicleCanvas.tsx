@@ -17,6 +17,9 @@ export type BuildState = {
   wheels: string;
 };
 
+export type Terrain = "Studio" | "Trail" | "Night";
+export type SceneMood = "Day" | "Golden hour" | "Night";
+
 export type CameraPreset = {
   id: string;
   label: string;
@@ -27,6 +30,8 @@ export type CameraPreset = {
 type Props = {
   build: BuildState;
   cameraPreset: CameraPreset;
+  terrain: Terrain;
+  sceneMood: SceneMood;
 };
 
 type SceneRefs = {
@@ -51,13 +56,23 @@ type RendererLike = {
   toneMappingExposure: number;
 };
 
+type EnvironmentRefs = {
+  scene: THREE.Scene;
+  floor: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
+  grid: THREE.GridHelper;
+  hemi: THREE.HemisphereLight;
+  key: THREE.DirectionalLight;
+  rim: THREE.DirectionalLight;
+};
+
 const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-export function VehicleCanvas({ build, cameraPreset }: Props) {
+export function VehicleCanvas({ build, cameraPreset, terrain, sceneMood }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const refs = useRef<SceneRefs | null>(null);
+  const environmentRef = useRef<EnvironmentRefs | null>(null);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -96,7 +111,8 @@ export function VehicleCanvas({ build, cameraPreset }: Props) {
       controls.target.set(...cameraPreset.target);
       controlsRef.current = controls;
 
-      scene.add(new THREE.HemisphereLight("#edf5ff", "#18100b", 2.5));
+      const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 2.5);
+      scene.add(hemi);
 
       const key = new THREE.DirectionalLight("#ffffff", 4.5);
       key.position.set(6, 9, 7);
@@ -124,6 +140,9 @@ export function VehicleCanvas({ build, cameraPreset }: Props) {
       const grid = new THREE.GridHelper(36, 36, "#26303a", "#151a20");
       grid.position.y = 0.002;
       scene.add(grid);
+      const environment = { scene, floor, grid, hemi, key, rim };
+      environmentRef.current = environment;
+      applyEnvironment(environment, terrain, sceneMood);
 
       const model = await loadVehicleModel();
       if (cancelled) return;
@@ -202,7 +221,28 @@ export function VehicleCanvas({ build, cameraPreset }: Props) {
     });
   }, [cameraPreset]);
 
+  useEffect(() => {
+    if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, sceneMood);
+  }, [terrain, sceneMood]);
+
   return <div ref={hostRef} className="vehicle-canvas" />;
+}
+
+function applyEnvironment(environment: EnvironmentRefs, terrain: Terrain, sceneMood: SceneMood) {
+  const mood = sceneMood === "Night" || terrain === "Night" ? "Night" : sceneMood;
+  const palette = mood === "Night"
+    ? { background: "#050813", fog: "#050813", floor: "#070a13", sky: "#33436c", ground: "#080a12", key: 1.2, rim: 3.5 }
+    : mood === "Golden hour"
+      ? { background: "#21140f", fog: "#21140f", floor: "#17100d", sky: "#ffd3a1", ground: "#5e3023", key: 3.4, rim: 2.2 }
+      : { background: terrain === "Trail" ? "#152017" : "#0b0f14", fog: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#17150e" : "#080a0d", sky: "#edf5ff", ground: "#18100b", key: 4.5, rim: 2.7 };
+  environment.scene.background = new THREE.Color(palette.background);
+  environment.scene.fog = new THREE.Fog(palette.fog, terrain === "Trail" ? 10 : 16, terrain === "Trail" ? 25 : 32);
+  environment.floor.material.color.set(palette.floor);
+  environment.hemi.color.set(palette.sky);
+  environment.hemi.groundColor.set(palette.ground);
+  environment.key.intensity = palette.key;
+  environment.rim.intensity = palette.rim;
+  environment.grid.visible = terrain === "Studio";
 }
 
 async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu" | "webgl2" }> {
