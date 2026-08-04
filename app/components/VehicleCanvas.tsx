@@ -50,13 +50,17 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, onRea
 
   // Latest-value refs: the setup effect must run exactly once (loading a 57 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
-  // rather than listing them as dependencies.
+  // rather than listing them as dependencies. The assignment happens in an effect, not inline during
+  // render — writing to `ref.current` while rendering is an impure side effect React disallows (the
+  // render function may run more than once before committing); an effect runs only after commit.
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
   const catalogRef = useRef(catalog);
-  onReadyRef.current = onReady;
-  onErrorRef.current = onError;
-  catalogRef.current = catalog;
+  useEffect(() => {
+    onReadyRef.current = onReady;
+    onErrorRef.current = onError;
+    catalogRef.current = catalog;
+  });
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
