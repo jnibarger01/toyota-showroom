@@ -3,8 +3,19 @@ const SECURITY_HEADERS = {
   "Referrer-Policy": "strict-origin-when-cross-origin",
 } as const;
 
+const generatedRequestIds = new WeakMap<Request, string>();
+
 export function requestIdFor(request?: Request): string {
-  return request?.headers.get("cf-ray") ?? request?.headers.get("x-request-id") ?? crypto.randomUUID();
+  const forwarded = request?.headers.get("cf-ray") ?? request?.headers.get("x-request-id");
+  if (forwarded) return forwarded;
+  if (!request) return crypto.randomUUID();
+
+  const existing = generatedRequestIds.get(request);
+  if (existing) return existing;
+
+  const generated = crypto.randomUUID();
+  generatedRequestIds.set(request, generated);
+  return generated;
 }
 
 export function responseHeaders(
