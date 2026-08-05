@@ -14,12 +14,15 @@ export type CustomizationCategory =
   | "panel"
   | "decal"
   | "trim"
-  | "accessory";
+  | "accessory"
+  | "interior";
 
 /**
  * Deterministic application order. Later categories may depend on nodes introduced by earlier
  * ones (a decal targets a panel; paint must repaint whatever hood is currently mounted), so
  * restoration always walks this list rather than object key order, which is insertion-dependent.
+ * `interior` sits beside `paint` — both are colour/material choices with no dependency on, or
+ * from, any other category.
  */
 export const CATEGORY_APPLY_ORDER: readonly CustomizationCategory[] = [
   "trim",
@@ -27,6 +30,7 @@ export const CATEGORY_APPLY_ORDER: readonly CustomizationCategory[] = [
   "hood",
   "wheels",
   "paint",
+  "interior",
   "decal",
   "accessory",
 ];
@@ -75,6 +79,15 @@ export interface CustomizationOption {
    */
   targetMaterials?: string[];
   operation: CustomizationOperation;
+  /**
+   * Sub-group within a category that shares the category's cardinality independently.
+   *
+   * A category is too coarse a unit on its own: `trim` covers both grille finish and tyre lettering,
+   * which are separately configurable. Without a group, choosing a grille would evict the tyre
+   * selection from state while its material stayed applied to the scene. Defaults to the category,
+   * so options that don't need sub-grouping are unaffected.
+   */
+  selectionGroup?: string;
   /** Server-resolved. Populated from the trusted asset map; never accepted from a client. */
   assetUrl?: string;
   materialConfig?: MaterialConfig;
@@ -126,21 +139,46 @@ export function selectedIds(configuration: VehicleConfiguration): string[] {
   return CATEGORY_APPLY_ORDER.flatMap((category) => configuration.selections[category] ?? []);
 }
 
+/** The unit that single-select cardinality applies to. Defaults to the category. */
+export function selectionGroupOf(
+  option: Pick<CustomizationOption, "category" | "selectionGroup">,
+): string {
+  return option.selectionGroup ?? option.category;
+}
+
 /**
  * Applies one option to a selection map without mutating the input, honouring single- versus
  * multi-select semantics. Shared by the client store and the server so both compute identical
  * results from the same inputs.
+ *
+ * A single-select choice evicts only the other members of its own `selectionGroup`, so picking a
+ * grille does not silently drop an unrelated tyre-lettering selection filed under the same category.
+ * Resolving the group needs the rest of the catalog, which is why the whole option list is passed.
  */
 export function withOptionSelected(
   selections: SelectionMap,
-  option: Pick<CustomizationOption, "id" | "category">,
+  option: Pick<CustomizationOption, "id" | "category" | "selectionGroup">,
+  catalog: readonly CustomizationOption[] = [],
 ): SelectionMap {
   const current = selections[option.category] ?? [];
-  if (!isMultiSelect(option.category)) {
-    return { ...selections, [option.category]: [option.id] };
+  if (current.includes(option.id)) {
+    return isMultiSelect(option.category) ? selections : { ...selections, [option.category]: [option.id] };
   }
-  if (current.includes(option.id)) return selections;
-  return { ...selections, [option.category]: [...current, option.id] };
+
+  if (isMultiSelect(option.category)) {
+    return { ...selections, [option.category]: [...current, option.id] };
+  }
+
+  const group = selectionGroupOf(option);
+  const byId = new Map(catalog.map((entry) => [entry.id, entry]));
+  const kept = current.filter((id) => {
+    const existing = byId.get(id);
+    // An id the catalog cannot resolve is dropped: it is either stale or from another vehicle,
+    // and keeping it would let an unverifiable selection survive indefinitely.
+    return existing ? selectionGroupOf(existing) !== group : false;
+  });
+
+  return { ...selections, [option.category]: [...kept, option.id] };
 }
 
 export function withOptionDeselected(

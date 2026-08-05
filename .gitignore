@@ -10,3 +10,9 @@ public/api/
 public/catalog/
 
 /public/renders/
+
+# Playwright (tests/e2e) — baseline screenshots under tests/e2e/*-snapshots/ ARE committed;
+# only the per-run output is not.
+/test-results/
+/playwright-report/
+/blob-report/

@@ -117,6 +117,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   {
     id: "trim-tire-letters-raised-white",
     category: "trim",
+    selectionGroup: "trim-tire-letters",
     label: "Raised White Letters",
     operation: "material-update",
     targetNodes: TIRE_NODES,
@@ -127,6 +128,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   {
     id: "trim-tire-letters-blackwall",
     category: "trim",
+    selectionGroup: "trim-tire-letters",
     label: "Blackwall",
     operation: "material-update",
     targetNodes: TIRE_NODES,
@@ -137,6 +139,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   {
     id: "trim-grille-blackout",
     category: "trim",
+    selectionGroup: "trim-grille",
     label: "Blackout Grille",
     operation: "material-update",
     targetNodes: ["Tun_GRILLE"],
@@ -148,6 +151,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   {
     id: "trim-grille-chrome",
     category: "trim",
+    selectionGroup: "trim-grille",
     label: "Chrome Grille",
     operation: "material-update",
     targetNodes: ["Tun_GRILLE"],
@@ -221,5 +225,31 @@ export const fourRunnerOptions: CustomizationOption[] = [
     materialConfig: { textureUrl: "/textures/decals/trd-side-stripe.png" },
     priceDelta: 540,
     compatibleVehicleIds: VEHICLE,
+  },
+
+  // Matches lib/data/vehicles/4runner.ts's interiorColors exactly (code, name, hex, material,
+  // grade gating) — same pattern as the paint options above, gated for the same reason as the
+  // hood/decal entries: the current GLB is exterior-only, with no seat geometry to target yet.
+  {
+    id: "interior-fa20-black",
+    category: "interior",
+    label: "Black Softex",
+    operation: "material-update",
+    targetNodes: ["SEATS"],
+    targetMaterials: ["interior.seat"],
+    materialConfig: { color: "#1a1a1a", roughness: 0.65, metalness: 0 },
+    compatibleVehicleIds: VEHICLE,
+  },
+  {
+    id: "interior-lf10-red",
+    category: "interior",
+    label: "Red Leather",
+    operation: "material-update",
+    targetNodes: ["SEATS"],
+    targetMaterials: ["interior.seat"],
+    materialConfig: { color: "#4a1113", roughness: 0.35, metalness: 0 },
+    priceDelta: 1250,
+    compatibleVehicleIds: VEHICLE,
+    compatibleGradeIds: ["limited"],
   },
 ];

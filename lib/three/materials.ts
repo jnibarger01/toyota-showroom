@@ -180,8 +180,11 @@ export class MaterialWriter {
   }
 
   dispose(): void {
-    for (const slot of this.slots.values()) slot.clone.dispose();
-    this.slots.clear();
+    // Reinstall the originals rather than only dropping the clones. A caller's subsequent
+    // `disposeSubtree` walks the scene's *current* materials; if the meshes still pointed at
+    // discarded clones, the GLB-supplied originals would be unreachable and their GPU resources
+    // would leak every time a customized canvas unmounts.
+    this.restoreOriginals();
     for (const texture of this.ownedTextures) texture.dispose();
     this.ownedTextures.clear();
     this.textures.clear();

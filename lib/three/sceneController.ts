@@ -53,9 +53,18 @@ export class VehicleSceneController {
     if (option.operation === "mesh-replacement") {
       const { found } = resolveNodes(this.root, option.mountNodes ?? []);
       for (const mount of found) detachFromMount(mount);
+      // Bring back whatever the replacement stood in for. Without this, deselecting leaves neither
+      // the replacement nor the original in the scene — a missing wheel rather than a stock one.
+      this.restoreDisplaced(option);
       return found.length > 0;
     }
     return this.setVisibility(option, false);
+  }
+
+  /** Re-shows the nodes an option hid, used when that option is reversed. */
+  private restoreDisplaced(option: CustomizationOption): void {
+    const { found } = resolveNodes(this.root, option.hidesNodes ?? []);
+    for (const node of found) node.visible = true;
   }
 
   private applyMaterialUpdate(option: CustomizationOption): boolean {
@@ -72,13 +81,25 @@ export class VehicleSceneController {
     if (meshes.length === 0) return false;
 
     const written = await this.writer.applyTexture(meshes, option.targetMaterials, textureUrl);
-    if (written > 0 && option.materialConfig) {
+    if (written === 0) return false;
+
+    if (option.materialConfig) {
       this.writer.applyMaterialConfig(meshes, option.targetMaterials, {
         ...option.materialConfig,
         textureUrl: undefined,
       });
     }
-    return written > 0;
+
+    // Decals are an accumulating category, so `applyConfiguration` hides every decal node before
+    // replaying the selected ones. Applying a texture therefore has to make its own nodes visible
+    // again, or a saved decal would silently stay hidden after restoration.
+    const { found } = resolveNodes(this.root, option.targetNodes ?? []);
+    for (const node of found) node.visible = true;
+
+    const { found: displaced } = resolveNodes(this.root, option.hidesNodes ?? []);
+    for (const node of displaced) node.visible = false;
+
+    return true;
   }
 
   /**

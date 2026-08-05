@@ -166,29 +166,23 @@ export const fourRunner: Vehicle = {
         "PLACED_KO3_rear_right",
       ],
     },
-    interiorMaterialNames: [],
+    // Forward-declared, matching the naming contract (docs/INTEGRATION_GUIDE.md §3): the current
+    // GLB is exterior-only (body, wheels, lights, exhaust, grille) with no seat/dash geometry, so
+    // "interior.seat" names an expected future material, not one that exists yet — the interior
+    // options in lib/data/options/4runner.ts are correspondingly gated, same as hood/decal.
+    interiorMaterialNames: ["interior.seat"],
 
-    // Donor geometry retained by the Blender export, all sitting at the world origin: two WEISU
-    // wheels, one KO2 tyre, two brake assemblies, and a 2 m paint-swatch sphere ("Jet Black").
-    // The four PLACED_AOOA_caliper_* nodes are also at the origin rather than at their wheels —
-    // an authoring defect noted in docs/INTEGRATION_GUIDE.md §3; they contribute nothing visible
-    // from outside the body and are hidden here until the source file is corrected.
-    hiddenNodeNames: [
-      "322-1790(MD010)",
-      "322-1790(MD010).001",
-      "BFGoodrich_ALL_Terrain_TA_KO2",
-      "FRONT_BRAKES",
-      "REAR_BRAKES",
-      "Jet Black",
-      "PLACED_AOOA_caliper_front_left",
-      "PLACED_AOOA_caliper_front_right",
-      "PLACED_AOOA_caliper_rear_left",
-      "PLACED_AOOA_caliper_rear_right",
-    ],
+    // No hiddenNodeNames: both defects docs/INTEGRATION_GUIDE.md §3 used to describe here are
+    // fixed at the source (scripts/fix-donor-geometry.mjs) rather than hidden at runtime — the
+    // donor nodes (two WEISU wheels, a KO2 tyre, two brake assemblies, a 2 m "Jet Black" paint
+    // swatch, all previously sitting at the world origin) no longer exist in the shipped GLB, and
+    // the four PLACED_AOOA_caliper_* nodes are repositioned to their correct wheel translation
+    // instead of defaulting to BODY's own origin, so they're genuinely visible now, not junk to hide.
 
-    // Body plus the four positioned tyres. Grounding on these puts the tyres on the floor; taking
-    // the box over the whole scene instead includes the origin sphere (which reaches y = -1) and
-    // lifts the vehicle about 1.1 units into the air.
+    // Body plus the four positioned tyres. Grounding on these puts the tyres on the floor.
+    // (Historically also needed to exclude a donor "Jet Black" swatch sphere reaching y = -1 that
+    // would otherwise lift the vehicle ~1.1 units into the air — that node no longer exists in the
+    // GLB at all, see the comment above, but the explicit list is still the more precise choice.)
     groundingNodeNames: [
       "BODY",
       "PLACED_KO3_front_left",

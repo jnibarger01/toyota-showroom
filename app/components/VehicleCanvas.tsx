@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import * as THREE from "three";
 import * as THREE_WEBGPU from "three/webgpu";
@@ -44,17 +44,29 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const rootRef = useRef<THREE.Object3D | null>(null);
+  /** Grounded `position.y` from `prepareVehicleRoot`; lift is applied relative to it. */
+  const groundedYRef = useRef(0);
+  /**
+   * Bumped once the model is in the scene. The lift effect depends on it so the initial ride height
+   * is applied when the root appears — otherwise the effect runs only while the 39 MB GLB is still
+   * loading, finds no root, and never reruns because `lift` itself has not changed.
+   */
+  const [sceneRevision, setSceneRevision] = useState(0);
   const environmentRef = useRef<EnvironmentRefs | null>(null);
 
-  // Latest-value refs: the setup effect must run exactly once (loading a 57 MB GLB again on every
+  // Latest-value refs: the setup effect must run exactly once (loading a 39 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
-  // rather than listing them as dependencies.
+  // rather than listing them as dependencies. The assignment happens in an effect, not inline during
+  // render — writing to `ref.current` while rendering is an impure side effect React disallows (the
+  // render function may run more than once before committing); an effect runs only after commit.
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
   const catalogRef = useRef(catalog);
-  onReadyRef.current = onReady;
-  onErrorRef.current = onError;
-  catalogRef.current = catalog;
+  useEffect(() => {
+    onReadyRef.current = onReady;
+    onErrorRef.current = onError;
+    catalogRef.current = catalog;
+  });
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -145,6 +157,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       buildProceduralAccessories(root);
       scene.add(root);
       rootRef.current = root;
+      groundedYRef.current = root.position.y;
+      setSceneRevision((revision) => revision + 1);
 
       if (import.meta.env.DEV) {
         (window as unknown as Record<string, unknown>).__dumpVehicleHierarchy = () => logHierarchy(root);
@@ -212,8 +226,12 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
 
   useEffect(() => {
     const root = rootRef.current;
-    if (root) gsap.to(root.position, { y: lift * 0.045, duration: 0.35, ease: "power2.out" });
-  }, [lift]);
+    if (!root) return;
+    // Lift is an offset from the grounded baseline, not an absolute position: writing `lift * 0.045`
+    // straight into `position.y` would discard the grounding offset computed at load and drop the
+    // vehicle through the floor.
+    gsap.to(root.position, { y: groundedYRef.current + lift * 0.045, duration: 0.35, ease: "power2.out" });
+  }, [lift, sceneRevision]);
 
   useEffect(() => {
     const camera = cameraRef.current;

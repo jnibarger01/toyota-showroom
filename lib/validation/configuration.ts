@@ -4,6 +4,7 @@ import { getVehicleBySlug } from "../data/vehicles";
 import {
   CATEGORY_APPLY_ORDER,
   isMultiSelect,
+  selectionGroupOf,
   type CameraState,
   type CustomizationCategory,
   type CustomizationOption,
@@ -99,9 +100,6 @@ export function validateSelections(
     seenCategories.add(typed);
     const ids = value as string[];
 
-    if (!isMultiSelect(typed) && ids.length > 1) {
-      throw invalidBody(`Category "${category}" accepts a single option, received ${ids.length}.`);
-    }
     if (new Set(ids).size !== ids.length) {
       throw invalidBody(`Category "${category}" contains duplicate option ids.`);
     }
@@ -117,6 +115,22 @@ export function validateSelections(
       }
       if (!isOptionAvailableForGrade(option, gradeId)) {
         throw invalidBody(`Option "${id}" is not available on grade "${gradeId}".`);
+      }
+    }
+
+    // Cardinality applies per selection group, not per category: `trim` legitimately carries one
+    // grille *and* one tyre-lettering choice, but never two grilles.
+    if (!isMultiSelect(typed)) {
+      const seenGroups = new Map<string, string>();
+      for (const id of ids) {
+        const group = selectionGroupOf(getOptionById(vehicleId, id)!);
+        const clash = seenGroups.get(group);
+        if (clash) {
+          throw invalidBody(
+            `Selection group "${group}" accepts a single option; received both "${clash}" and "${id}".`,
+          );
+        }
+        seenGroups.set(group, id);
       }
     }
 

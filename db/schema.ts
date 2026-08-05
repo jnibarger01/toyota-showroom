@@ -1,32 +1,6 @@
 import { integer, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
 
 /**
- * Legacy prototype tables. Superseded by `configurations` below, which stores selections as
- * catalog option ids rather than as one column per feature — adding a customization category no
- * longer requires a migration. Retained until the prototype builds are migrated across.
- */
-export const builds = sqliteTable("builds", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  year: integer("year").notNull(),
-  trim: text("trim").notNull(),
-  paint: text("paint").notNull(),
-  lift: integer("lift").notNull().default(0),
-  roofRack: integer("roof_rack", { mode: "boolean" }).notNull().default(false),
-  lightBar: integer("light_bar", { mode: "boolean" }).notNull().default(false),
-  sliders: integer("sliders", { mode: "boolean" }).notNull().default(false),
-  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull()
-});
-
-export const cameraPresets = sqliteTable("camera_presets", {
-  id: text("id").primaryKey(),
-  buildId: text("build_id").notNull(),
-  name: text("name").notNull(),
-  position: text("position", { mode: "json" }).notNull(),
-  target: text("target", { mode: "json" }).notNull()
-});
-
-/**
  * Persisted vehicle configurations.
  *
  * `selections` holds a category-keyed map of stable option ids. Nothing derived from the 3D
@@ -41,6 +15,13 @@ export const configurations = sqliteTable(
     modelYear: integer("model_year").notNull(),
     model: text("model").notNull(),
     gradeId: text("grade_id").notNull(),
+    /**
+     * SHA-256 of the capability token returned to the creator once, at POST time
+     * (lib/shared/ownerToken.ts). Never the plaintext token — a leaked database export must not
+     * itself grant write access to every configuration in it. PATCH/DELETE require the caller to
+     * present the plaintext; GET stays open so the sharing feature keeps working unauthenticated.
+     */
+    ownerTokenHash: text("owner_token_hash").notNull(),
     selections: text("selections", { mode: "json" }).notNull().$type<Record<string, string[]>>(),
     cameraState: text("camera_state", { mode: "json" }).$type<{
       presetId?: string;

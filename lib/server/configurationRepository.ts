@@ -1,38 +1,42 @@
 import { CUSTOMIZATION_SCHEMA_VERSION, type VehicleConfiguration } from "../types/customization";
 import type { ValidatedConfigurationInput, ValidatedPatch } from "../validation/configuration";
-import { notFound, revisionConflict } from "../api/errors";
+import { forbidden, notFound, revisionConflict } from "../api/errors";
+import { generateOwnerToken, hashOwnerToken, verifyOwnerToken } from "../shared/ownerToken";
+import { newId } from "../shared/id";
 
 /**
  * Persistence boundary for configurations.
  *
  * Route handlers depend on this interface, never on Drizzle directly, so the same handlers run
  * against D1 in the deployed Worker and against the in-memory store in `npm run dev` and in tests.
- * Revision bumping and history appending live here rather than in the handlers, so no caller can
- * write a configuration without also recording its revision.
+ * Revision bumping, history appending, and owner-token verification all live here rather than in the
+ * handlers, so no caller can write a configuration without also recording its revision, and no
+ * implementation can accidentally skip the ownership check on a write path.
  */
 export interface ConfigurationRepository {
-  create(input: ValidatedConfigurationInput): Promise<VehicleConfiguration>;
+  /** Returns the created record plus its plaintext capability token — the only time it is ever seen. */
+  create(input: ValidatedConfigurationInput): Promise<{ configuration: VehicleConfiguration; ownerToken: string }>;
+  /** Unauthenticated by design: reads are what the sharing feature depends on. */
   get(configurationId: string): Promise<VehicleConfiguration | null>;
-  update(configurationId: string, patch: ValidatedPatch): Promise<VehicleConfiguration>;
-  delete(configurationId: string): Promise<boolean>;
+  /** Throws `forbidden()` if `ownerToken` doesn't match the record's stored hash. */
+  update(configurationId: string, patch: ValidatedPatch, ownerToken: string): Promise<VehicleConfiguration>;
+  /** Throws `forbidden()` if `ownerToken` doesn't match; returns `false` only for a genuinely missing id. */
+  delete(configurationId: string, ownerToken: string): Promise<boolean>;
   listRevisions(configurationId: string): Promise<VehicleConfiguration[]>;
 }
 
-function newId(prefix: string): string {
-  const random =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2);
-  return `${prefix}_${random.replace(/-/g, "").slice(0, 20)}`;
+interface StoredRecord {
+  configuration: VehicleConfiguration;
+  ownerTokenHash: string;
 }
 
 export class InMemoryConfigurationRepository implements ConfigurationRepository {
-  private readonly records = new Map<string, VehicleConfiguration>();
+  private readonly records = new Map<string, StoredRecord>();
   private readonly history = new Map<string, VehicleConfiguration[]>();
 
-  async create(input: ValidatedConfigurationInput): Promise<VehicleConfiguration> {
+  async create(input: ValidatedConfigurationInput): Promise<{ configuration: VehicleConfiguration; ownerToken: string }> {
     const now = new Date().toISOString();
-    const record: VehicleConfiguration = {
+    const configuration: VehicleConfiguration = {
       configurationId: newId("cfg"),
       vehicleId: input.vehicleId,
       modelYear: input.modelYear,
@@ -45,19 +49,28 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
       createdAt: now,
       updatedAt: now,
     };
-    this.records.set(record.configurationId, record);
-    this.history.set(record.configurationId, [record]);
-    return record;
+
+    const ownerToken = generateOwnerToken();
+    const ownerTokenHash = await hashOwnerToken(ownerToken);
+
+    this.records.set(configuration.configurationId, { configuration, ownerTokenHash });
+    this.history.set(configuration.configurationId, [configuration]);
+    return { configuration, ownerToken };
   }
 
   async get(configurationId: string): Promise<VehicleConfiguration | null> {
-    return this.records.get(configurationId) ?? null;
+    return this.records.get(configurationId)?.configuration ?? null;
   }
 
-  async update(configurationId: string, patch: ValidatedPatch): Promise<VehicleConfiguration> {
-    const existing = this.records.get(configurationId);
-    if (!existing) throw notFound(`No configuration found with id "${configurationId}".`);
+  async update(configurationId: string, patch: ValidatedPatch, ownerToken: string): Promise<VehicleConfiguration> {
+    const stored = this.records.get(configurationId);
+    if (!stored) throw notFound(`No configuration found with id "${configurationId}".`);
 
+    if (!(await verifyOwnerToken(ownerToken, stored.ownerTokenHash))) {
+      throw forbidden(`Owner token missing or does not match for configuration "${configurationId}".`);
+    }
+
+    const existing = stored.configuration;
     if (patch.expectedRevision !== undefined && patch.expectedRevision !== existing.revision) {
       throw revisionConflict(
         `Configuration "${configurationId}" is at revision ${existing.revision}, not ${patch.expectedRevision}. Reload before retrying.`,
@@ -72,12 +85,19 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
       updatedAt: new Date().toISOString(),
     };
 
-    this.records.set(configurationId, next);
+    this.records.set(configurationId, { configuration: next, ownerTokenHash: stored.ownerTokenHash });
     this.history.get(configurationId)?.push(next);
     return next;
   }
 
-  async delete(configurationId: string): Promise<boolean> {
+  async delete(configurationId: string, ownerToken: string): Promise<boolean> {
+    const stored = this.records.get(configurationId);
+    if (!stored) return false;
+
+    if (!(await verifyOwnerToken(ownerToken, stored.ownerTokenHash))) {
+      throw forbidden(`Owner token missing or does not match for configuration "${configurationId}".`);
+    }
+
     this.history.delete(configurationId);
     return this.records.delete(configurationId);
   }
