@@ -6,7 +6,7 @@ import { log } from "../../../../lib/server/log";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/v1/readiness — verifies that the Worker can execute a D1 query. */
+/** GET /api/v1/readiness — verifies that the required D1 schema is usable. */
 export async function GET(request: NextRequest) {
   const binding = await getD1Binding();
   if (!binding) {
@@ -18,16 +18,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await binding.prepare("SELECT 1 AS ready").first();
+    await binding.prepare("SELECT id, revision FROM configurations LIMIT 1").first();
+    await binding.prepare("SELECT configuration_id, revision FROM configuration_revisions LIMIT 1").first();
     return NextResponse.json(
-      { status: "ready", database: "d1", timestamp: new Date().toISOString() },
+      { status: "ready", database: "d1", schema: "configurations", timestamp: new Date().toISOString() },
       { headers: responseHeaders(request) },
     );
   } catch (cause) {
     log("error", "readiness.d1_failed", request, {
       error: cause instanceof Error ? cause.message : String(cause),
     });
-    const error = serviceUnavailable("The D1 binding is configured but did not answer the readiness query.");
+    const error = serviceUnavailable("The D1 binding is configured, but the required configuration schema is unavailable.");
     return NextResponse.json(toErrorBody(error), {
       status: error.status,
       headers: responseHeaders(request),
