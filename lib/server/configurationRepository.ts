@@ -1,7 +1,7 @@
 import { CUSTOMIZATION_SCHEMA_VERSION, type VehicleConfiguration } from "../types/customization";
 import type { ValidatedConfigurationInput, ValidatedPatch } from "../validation/configuration";
-import { notFound, revisionConflict } from "../api/errors";
-import { getD1Binding } from "./cloudflareEnv";
+import { notFound, revisionConflict, serviceUnavailable } from "../api/errors";
+import { getD1Binding, getWorkerEnv } from "./cloudflareEnv";
 import { D1ConfigurationRepository } from "./d1ConfigurationRepository";
 
 /**
@@ -104,10 +104,17 @@ let repositoryPromise: Promise<ConfigurationRepository> | undefined;
 export function getConfigurationRepository(): Promise<ConfigurationRepository> {
   if (repository) return Promise.resolve(repository);
 
-  repositoryPromise ??= getD1Binding().then((binding) => {
-    repository = binding
-      ? new D1ConfigurationRepository(binding)
-      : new InMemoryConfigurationRepository();
+  repositoryPromise ??= Promise.all([getWorkerEnv(), getD1Binding()]).then(([workerEnv, binding]) => {
+    if (binding) {
+      repository = new D1ConfigurationRepository(binding);
+      return repository;
+    }
+
+    if (workerEnv) {
+      throw serviceUnavailable("The D1 binding is required for configuration persistence in the Worker runtime.");
+    }
+
+    repository = new InMemoryConfigurationRepository();
     return repository;
   });
 
