@@ -37,14 +37,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
   } catch (cause) {
-    // Network-level failure never reaches the UI as a raw TypeError.
     throw new ApiError(0, "network_error", "Could not reach the configuration service.", { cause });
   }
 
   if (!response.ok) {
-    // An error body is not guaranteed to carry the `{ error: {...} }` envelope — a static host
-    // serving a bare 404 page, or a proxy, will not. Reading it defensively keeps the failure a
-    // reportable ApiError instead of a TypeError thrown from the error path itself.
     const body = (await response.json().catch(() => null)) as Partial<ApiErrorBody> | null;
     throw new ApiError(
       response.status,
@@ -57,20 +53,13 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-/**
- * Whether the request-aware backend is reachable.
- *
- * `null` until proven either way. It latches to `false` the first time a *write* fails in a way
- * only a host without the route can fail — a network error, a 405, or a 404 on POST/PATCH, which
- * is precisely what the static GitHub Pages export returns. A 404 on GET is left alone, because
- * against a live API it means the configuration genuinely does not exist.
- */
 let remoteAvailable: boolean | null = null;
 
 function indicatesMissingBackend(error: unknown, method: "GET" | "WRITE"): boolean {
   if (!(error instanceof ApiError)) return false;
   if (error.code === "network_error" || error.status === 405 || error.status === 501) return true;
-  return method === "WRITE" && error.status === 404;
+  if (method === "WRITE" && (error.status === 401 || error.status === 403 || error.status === 404)) return true;
+  return false;
 }
 
 async function withFallback<T>(
@@ -88,7 +77,7 @@ async function withFallback<T>(
     if (indicatesMissingBackend(error, method)) {
       remoteAvailable = false;
       console.info(
-        "[configurations] No request-aware backend detected; persisting configurations in this browser instead.",
+        "[configurations] Remote configuration writes are unavailable or protected; persisting configurations in this browser instead.",
       );
       return local();
     }
@@ -107,15 +96,9 @@ export interface CreateConfigurationInput {
 export interface UpdateConfigurationInput {
   selections?: SelectionMap;
   cameraState?: CameraState;
-  /** Optimistic concurrency: the revision the client believes it is editing. */
   expectedRevision?: number;
 }
 
-/**
- * The customization catalog is static data and is read from the generated snapshot, the same way
- * `lib/api/client.ts` reads vehicles. Grade filtering happens here because a static host cannot
- * vary a file by query string.
- */
 export async function listVehicleOptions(vehicleId: string, gradeId?: string): Promise<CustomizationOption[]> {
   const { data } = await request<{ data: CustomizationOption[] }>(
     catalogUrl(`/vehicles/${encodeURIComponent(vehicleId)}/options`),
@@ -179,7 +162,6 @@ export async function deleteConfiguration(configurationId: string): Promise<void
   );
 }
 
-/** Test hook: forget the detected transport so each case starts from an unknown state. */
 export function resetTransportDetection(): void {
   remoteAvailable = null;
 }
