@@ -4,6 +4,7 @@ import {
   withOptionDeselected,
   withOptionSelected,
   type CustomizationOption,
+  type SelectionMap,
   type VehicleConfiguration,
 } from "../types/customization";
 import type { VehicleSceneController } from "../three/sceneController";
@@ -104,6 +105,28 @@ export class ConfigurationStore {
 
     const applied = await this.applyToScene(option, !alreadyOn);
     if (applied) this.queueFlush();
+  }
+
+  async replaceSelections(selections: SelectionMap): Promise<void> {
+    const current = this.state.configuration;
+    if (!current) return;
+
+    const next: VehicleConfiguration = {
+      ...current,
+      selections,
+      updatedAt: new Date().toISOString(),
+    };
+    this.mutationVersion += 1;
+    this.setState({ configuration: next, status: "saving", error: null, pending: new Set() });
+
+    if (this.controller) {
+      const { failed } = await this.controller.applyConfiguration(selections);
+      if (failed.length > 0) {
+        await this.rollback(`Could not apply options: ${failed.join(", ")}`);
+        return;
+      }
+    }
+    this.queueFlush();
   }
 
   private async applyToScene(option: CustomizationOption, enable: boolean): Promise<boolean> {
