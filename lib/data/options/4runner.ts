@@ -8,9 +8,8 @@ import type { CustomizationOption } from "../../types/customization";
  * the dump utility). They are exact `Object3D.name` / `Material.name` strings — nothing here
  * depends on child order or traversal position.
  *
- * Options whose nodes are not present in the loaded GLB are filtered out at runtime by
- * `verifyNodeContract`, so a forward-declared option (hood/decal/panel, which need a Blender
- * re-export) never renders a button that would do nothing.
+ * Every exported catalog entry is enforced against the shipped GLB in CI. Definitions awaiting
+ * authored geometry live in `plannedFourRunnerOptions` below and are not served to clients.
  */
 
 const VEHICLE = ["4runner"];
@@ -191,12 +190,17 @@ export const fourRunnerOptions: CustomizationOption[] = [
     priceDelta: 890,
     compatibleVehicleIds: VEHICLE,
   },
+];
 
-  // ------------------------------------------------- forward-declared (gated)
-  // These describe the intended contract for assets that do not exist in the current GLB.
-  // `verifyNodeContract` reports them as unsatisfied and the store drops them from the catalog,
-  // so no dead buttons reach the UI. Delivering the Blender re-export described in guide §3
-  // activates them with no code change.
+/**
+ * Future definitions retained for asset-authoring and low-level controller tests.
+ *
+ * These are deliberately not part of `fourRunnerOptions`: the nodes and materials do not exist in
+ * the shipped GLB, so serving them in the active catalog would violate the CI-enforced asset
+ * contract. Move an entry into `fourRunnerOptions` only in the same change that delivers its
+ * authored geometry and makes `tests/glbContract.test.ts` pass without an exception.
+ */
+export const plannedFourRunnerOptions: CustomizationOption[] = [
   {
     id: "hood-stock",
     category: "hood",
@@ -228,8 +232,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
   },
 
   // Matches lib/data/vehicles/4runner.ts's interiorColors exactly (code, name, hex, material,
-  // grade gating) — same pattern as the paint options above, gated for the same reason as the
-  // hood/decal entries: the current GLB is exterior-only, with no seat geometry to target yet.
+  // grade gating). These remain planned because the current exterior-only GLB has no seat mesh.
   {
     id: "interior-fa20-black",
     category: "interior",

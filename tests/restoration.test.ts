@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { colorHexAt, createVehicleFixture } from "./fixtures/scene";
 import { VehicleSceneController } from "../lib/three/sceneController";
 import { verifyNodeContract } from "../lib/three/nodes";
-import { fourRunnerOptions } from "../lib/data/options/4runner";
+import { fourRunnerOptions, plannedFourRunnerOptions } from "../lib/data/options/4runner";
 import { InMemoryConfigurationRepository } from "../lib/server/configurationRepository";
-import { validateCreateConfiguration, validatePatchConfiguration } from "../lib/validation/configuration";
+import { validateCreateConfiguration } from "../lib/validation/configuration";
 import type { VehicleConfiguration } from "../lib/types/customization";
 
 /**
@@ -221,17 +221,16 @@ describe("restoration after a reload", () => {
   it("surfaces an error when a saved option cannot be applied to the current asset", async () => {
     // A configuration saved before an asset regression: the option is still valid server-side but
     // the loaded GLB no longer carries its node.
-    const configuration = await createAndRegister({
-      vehicleId: "4runner",
-      modelYear: 2024,
-      gradeId: "trd-pro",
+    const configuration = {
+      ...(await seedConfiguration()),
       selections: { hood: ["hood-sport-scoop"] },
-    });
+    };
 
     const { controller } = freshScene();
     // Hand the controller the full catalog so the option resolves but its nodes do not.
-    const permissive = new VehicleSceneController(controller.root, fourRunnerOptions);
-    await configurationStore.attachScene(permissive, configuration, fourRunnerOptions);
+    const permissiveCatalog = [...fourRunnerOptions, ...plannedFourRunnerOptions];
+    const permissive = new VehicleSceneController(controller.root, permissiveCatalog);
+    await configurationStore.attachScene(permissive, configuration, permissiveCatalog);
 
     const state = configurationStore.getSnapshot();
     expect(state.status).toBe("error");

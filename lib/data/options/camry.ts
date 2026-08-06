@@ -25,7 +25,8 @@ const WHEEL_NODES = [
   "PLACED_WEISU_rear_left",
   "PLACED_WEISU_rear_right",
 ];
-const WHEEL_MATERIALS = ["wheel.metal", "wheel.metal.001"];
+// The procedural fallback uses one shared rim material for all four wheels.
+const WHEEL_MATERIALS = ["wheel.metal"];
 const TIRE_NODES = [
   "PLACED_KO3_front_left",
   "PLACED_KO3_front_right",

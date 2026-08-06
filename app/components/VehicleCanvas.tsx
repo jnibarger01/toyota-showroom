@@ -66,7 +66,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     onReadyRef.current = onReady;
     onErrorRef.current = onError;
     catalogRef.current = catalog;
-  });
+  }, [catalog, onError, onReady]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;

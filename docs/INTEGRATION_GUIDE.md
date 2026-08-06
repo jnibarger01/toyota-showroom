@@ -208,8 +208,9 @@ dependency on any other category. It reuses the same `material-update` operation
 `SWATCH_CATEGORIES` swatch rendering as paint in `BuilderApp.tsx`; the only new thing it needed was
 the category itself and a `Vehicle.threeDConfig.interiorMaterialNames` field naming the expected
 seat material (`lib/data/vehicles/4runner.ts`). The 4Runner's GLB is exterior-only, so its two
-interior options (`interior-fa20-black`, `interior-lf10-red` in `lib/data/options/4runner.ts`,
-mirroring `interiorColors` exactly) are contract-gated like hood/decal — see "Known gaps" below.
+planned interior definitions (`interior-fa20-black`, `interior-lf10-red` in
+`lib/data/options/4runner.ts`, mirroring `interiorColors` exactly) stay outside the active catalog
+until authored seat geometry lands.
 
 ### Persisted configuration
 
@@ -385,9 +386,9 @@ dependency-free binary-chunk reader, no three.js/DOM needed — and re-derives t
 node name, a renamed material, or a swapped asset now fails the build instead of surfacing only as a
 console warning the first time someone loads the page.
 
-Options that are genuinely forward-declared (see below) are named in `KNOWN_GATED_OPTION_IDS`; the
-test asserts they *stay* unresolved, so the allowlist itself goes stale — and gets caught — the
-moment an asset delivery quietly makes one of them resolvable.
+There is no unresolved-option allowlist: every option returned by `getOptionsForVehicle` must
+resolve. Forward-looking definitions stay in `plannedFourRunnerOptions` and move into the active
+catalog only in the same change that delivers their authored nodes/materials.
 
 ### The contract is verified at load, not at click
 
@@ -400,8 +401,8 @@ rendered**, so a missing node can't reach the user as a dead button:
   { missingNodes: ["HOOD_SPORT", "HOOD_STOCK"], missingMaterials: [] }
 ```
 
-This is what lets the catalog carry forward-declared hood, panel, and decal options today: they
-activate the day the re-export lands, with no code change.
+The runtime gate remains defense in depth for unexpected delivery corruption. CI prevents known
+unresolved options from entering the shipped catalog in the first place.
 
 ---
 
@@ -1349,9 +1350,10 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
 
 ### Known gaps
 
-- **Hood, panel, decal, and interior options are contract-gated.** The current GLB has no such
-  nodes (it's exterior-only — no hood variants, no decal UVs, no seat/dash geometry); the catalog
-  records are written and tested, and activate on re-export with no code change.
+- **Hood, panel, decal, and interior definitions are planned, not shipped.** The current GLB has no
+  such nodes (it's exterior-only — no hood variants, no decal UVs, no seat/dash geometry), so these
+  definitions remain in `plannedFourRunnerOptions` outside the active catalog. Move them only with
+  the corresponding re-export; the strict GLB contract test will then verify their names/materials.
 - **D1 read-then-write isn't fully ACID.** `D1ConfigurationRepository.update()` re-checks `revision`
   in its own `WHERE` clause as a safety net, but the preceding existence/ownership read is a separate
   statement from the write batch — see §5's "Persistence" note. Acceptable for this workload; would

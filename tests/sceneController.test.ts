@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { colorHexAt, createVehicleFixture, materialAt } from "./fixtures/scene";
 import { VehicleSceneController } from "../lib/three/sceneController";
 import { verifyNodeContract } from "../lib/three/nodes";
-import { fourRunnerOptions } from "../lib/data/options/4runner";
+import { fourRunnerOptions, plannedFourRunnerOptions } from "../lib/data/options/4runner";
 import { getOptionById } from "../lib/data/options";
 import type { SelectionMap } from "../lib/types/customization";
 
@@ -11,6 +11,10 @@ function makeController() {
   const fixture = createVehicleFixture();
   const { satisfied } = verifyNodeContract(fixture.root, fourRunnerOptions);
   return { fixture, controller: new VehicleSceneController(fixture.root, satisfied) };
+}
+
+function plannedOption(id: string) {
+  return plannedFourRunnerOptions.find((option) => option.id === id)!;
 }
 
 describe("material updates", () => {
@@ -134,20 +138,20 @@ describe("visibility operations", () => {
       hood.name = name;
       fixture.root.add(hood);
     }
-    const controller = new VehicleSceneController(fixture.root, fourRunnerOptions);
+    const controller = new VehicleSceneController(fixture.root, plannedFourRunnerOptions);
 
-    await controller.applyOption(getOptionById("4runner", "hood-sport-scoop")!);
+    await controller.applyOption(plannedOption("hood-sport-scoop"));
     expect(fixture.root.getObjectByName("HOOD_SPORT")!.visible).toBe(true);
     expect(fixture.root.getObjectByName("HOOD_STOCK")!.visible).toBe(false);
 
-    await controller.applyOption(getOptionById("4runner", "hood-stock")!);
+    await controller.applyOption(plannedOption("hood-stock"));
     expect(fixture.root.getObjectByName("HOOD_STOCK")!.visible).toBe(true);
     expect(fixture.root.getObjectByName("HOOD_SPORT")!.visible).toBe(false);
   });
 
   it("reports failure instead of silently succeeding when nodes are absent", async () => {
     const { controller } = makeController();
-    const applied = await controller.applyOption(getOptionById("4runner", "hood-sport-scoop")!);
+    const applied = await controller.applyOption(plannedOption("hood-sport-scoop"));
     expect(applied).toBe(false);
   });
 });
