@@ -1,0 +1,59 @@
+name: Deploy Staging Worker
+
+# Deploys the /api/v1/** Worker (not the static site — that's .github/workflows/pages.yml, which
+# only ever deploys `main`) to a separate "staging" Cloudflare Worker + D1 database on every pull
+# request, so a change to the API can be exercised against a real Worker before it reaches
+# production. See docs/INTEGRATION_GUIDE.md §12 for what this needs to actually deploy anything.
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-worker-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Both steps below are no-ops (not failures) until CLOUDFLARE_API_TOKEN and
+      # CLOUDFLARE_ACCOUNT_ID are added as repository secrets, and wrangler.jsonc's
+      # env.staging.d1_databases[0].database_id is replaced with a real id from
+      # `wrangler d1 create toyota-showroom-staging`. Both are the same class of placeholder the
+      # top-level d1_databases block already documents for production.
+      - name: Check Cloudflare credentials are configured
+        id: creds
+        run: |
+          if [ -n "${{ secrets.CLOUDFLARE_API_TOKEN }}" ] && [ -n "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping staging deploy — CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID repository secrets are not set. See docs/INTEGRATION_GUIDE.md §12 for setup."
+          fi
+
+      - name: Apply D1 migrations to staging
+        if: steps.creds.outputs.configured == 'true'
+        run: npm run db:migrate:staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Worker to staging
+        if: steps.creds.outputs.configured == 'true'
+        run: npm run deploy:staging
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

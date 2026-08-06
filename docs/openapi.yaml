@@ -1,0 +1,620 @@
+openapi: 3.1.0
+info:
+  title: Toyota Showroom API
+  version: "1.0.0"
+  description: |
+    `/api/v1/**` — the only routes the browser's `lib/api/client.ts` (catalog reads) and
+    `lib/api/configurations.ts` (configuration writes) ever call. Hand-written against the real
+    route handlers under `app/api/v1/`, not generated — see `docs/INTEGRATION_GUIDE.md` §5 for the
+    design rationale (why option ids are the only thing a client ever sends, why validation always
+    re-checks against the server's own catalog) and §12/`docs/DEPLOYMENT_RUNBOOK.md` for where this
+    is actually reachable: the vehicle-catalog routes below (`GET /vehicles*`) are `force-static`
+    and served from both deployment targets (a static JSON snapshot on GitHub Pages,
+    `scripts/generate-static-api.ts`'s output at build time; live from the Worker where one is
+    deployed). The `configurations` routes are `force-dynamic` and only exist where a real,
+    request-aware runtime is deployed — GitHub Pages alone cannot serve them at all, which is why
+    `lib/api/configurations.ts` falls back to `localConfigurationTransport` (browser
+    `localStorage`) once it detects their absence.
+externalDocs:
+  description: Architecture and design rationale
+  url: ../INTEGRATION_GUIDE.md
+servers:
+  - url: /api/v1
+    description: Relative to wherever this Worker/dev server is deployed — see docs/DEPLOYMENT_RUNBOOK.md.
+
+security: []
+
+x-rate-limit-definition: &rateLimit
+  limit: 30
+  periodSeconds: 60
+  keyedBy: cf-connecting-ip
+  description: |
+    lib/server/rateLimit.ts. Keyed on client IP via Cloudflare's edge-verified cf-connecting-ip
+    header — there is no user-account system to key on instead (the ownership model is anonymous,
+    per-configuration capability tokens). A no-op everywhere the CONFIG_WRITE_LIMITER binding isn't
+    present (local dev, tests, a Worker deployed before wrangler.jsonc's ratelimits entry exists),
+    not a hard dependency.
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness/readiness check
+      description: |
+        Always static (`export const dynamic = "force-static"`) — reports the catalog is loaded and
+        which schema version it's on, not a database connectivity check (there is no D1 read here).
+        See docs/DEPLOYMENT_RUNBOOK.md §5 for using this as a post-deploy check.
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, enum: ["no-store"] } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, schemaVersion, vehicleCount, timestamp]
+                properties:
+                  status: { type: string, enum: ["ok"] }
+                  schemaVersion: { type: string, example: "1.0.0" }
+                  vehicleCount: { type: integer, example: 3 }
+                  timestamp: { type: string, format: date-time }
+
+  /vehicles:
+    get:
+      operationId: listVehicles
+      summary: Filtered, paginated Toyota lineup
+      description: |
+        Every filter is optional; comma-separated values are OR'd within a parameter, AND'd across
+        parameters (`bodyStyle=suv,truck&availability=in_production` → (suv OR truck) AND
+        in_production). Backed by `lib/api/query.ts`'s `matchesFilters`/`paginateAndFilter` — the
+        exact same functions `app/explore/page.tsx` (docs/INTEGRATION_GUIDE.md's "Vehicle lineup"
+        section) uses client-side, so a query here and the UI's own filtering never disagree about
+        what counts as a match.
+      parameters:
+        - name: bodyStyle
+          in: query
+          schema: { type: string }
+          description: "Comma-separated. One or more of: suv, truck, sedan, minivan, crossover, coupe, hatchback."
+        - name: category
+          in: query
+          schema: { type: string }
+          description: Comma-separated free-form category tags (`Vehicle.categories`).
+        - name: drivetrain
+          in: query
+          schema: { type: string }
+          description: "Comma-separated. One or more of: fwd, rwd, awd, 4wd."
+        - name: powertrainType
+          in: query
+          schema: { type: string }
+          description: "Comma-separated. One or more of: gas, hybrid, phev, bev."
+        - name: availability
+          in: query
+          schema: { type: string }
+          description: "Comma-separated. One or more of: in_production, coming_soon, discontinued."
+        - name: minPrice
+          in: query
+          schema: { type: number }
+        - name: maxPrice
+          in: query
+          schema: { type: number }
+        - name: minSeating
+          in: query
+          schema: { type: number }
+        - name: minTowingLbs
+          in: query
+          schema: { type: number }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 12 }
+          description: Clamped server-side to `MAX_PAGE_SIZE` (50, `lib/api/query.ts`).
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, example: "public, max-age=300" } }
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schemaVersion, data, page, pageSize, totalItems, totalPages]
+                properties:
+                  schemaVersion: { type: string }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/VehicleSummary" }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  totalItems: { type: integer }
+                  totalPages: { type: integer }
+        "400":
+          description: Invalid query parameter (unknown enum value, non-numeric page/pageSize, or non-positive integer).
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+
+  /vehicles/{slug}:
+    get:
+      operationId: getVehicle
+      summary: Full detail for one vehicle
+      parameters:
+        - $ref: "#/components/parameters/VehicleSlug"
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, example: "public, max-age=300" } }
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schemaVersion, data]
+                properties:
+                  schemaVersion: { type: string }
+                  data: { $ref: "#/components/schemas/Vehicle" }
+        "404":
+          description: No vehicle with that slug.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+
+  /vehicles/{slug}/options:
+    get:
+      operationId: getVehicleOptions
+      summary: Customization catalog for one vehicle
+      description: |
+        The only source of node names, material names, and asset URLs a client ever sees — the
+        server never accepts these back from a client on a write (see `configurations` below).
+        `gradeId`, if given, filters to options that grade actually offers; omitted, every option
+        for the vehicle across every grade is returned (this is what `BuilderApp.tsx` fetches once
+        and filters client-side per grade switch, so switching grades never needs a second request).
+      parameters:
+        - $ref: "#/components/parameters/VehicleSlug"
+        - name: gradeId
+          in: query
+          schema: { type: string }
+          description: Must be a grade id the vehicle actually offers, or a 400 is returned.
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, example: "public, max-age=300" } }
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schemaVersion, vehicleId, gradeId, data]
+                properties:
+                  schemaVersion: { type: string }
+                  vehicleId: { type: string }
+                  gradeId: { type: [string, "null"] }
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/CustomizationOption" }
+        "400":
+          description: "`gradeId` is not offered on this vehicle."
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "404":
+          description: No vehicle with that slug.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+
+  /vehicles/{slug}/media:
+    get:
+      operationId: getVehicleMedia
+      summary: Hero/gallery/thumbnail/video/3D-asset manifest for one vehicle
+      parameters:
+        - $ref: "#/components/parameters/VehicleSlug"
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, example: "public, max-age=300" } }
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schemaVersion, slug, media, threeDConfig]
+                properties:
+                  schemaVersion: { type: string }
+                  slug: { type: string }
+                  media: { $ref: "#/components/schemas/MediaManifest" }
+                  threeDConfig: { $ref: "#/components/schemas/Vehicle3DConfig" }
+        "404":
+          description: No vehicle with that slug.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+
+  /configurations:
+    post:
+      operationId: createConfiguration
+      summary: Create a configuration
+      description: |
+        `force-dynamic` — only reachable where a real backend is deployed (docs/DEPLOYMENT_RUNBOOK.md).
+        Rate-limited (see `x-rate-limit` below). The response's `ownerToken` is the *only* time the
+        plaintext capability token is ever sent — the server stores only its hash
+        (`lib/shared/ownerToken.ts`); the caller must hold onto it and present it via `X-Owner-Token`
+        on every future `PATCH`/`DELETE` to this configuration. It is not required for `GET`, which
+        stays open so a shared configuration link keeps working unauthenticated.
+      x-rate-limit: *rateLimit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateConfigurationBody" }
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location: { schema: { type: string }, description: "/api/v1/configurations/{configurationId}" }
+            Cache-Control: { schema: { type: string, enum: ["no-store"] } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigurationResponse" }
+        "400":
+          description: Body is not valid JSON.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "404":
+          description: "`vehicleId` does not name a known vehicle."
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "422":
+          description: Semantically invalid body — bad model year/grade combination, unknown option id, an option not offered on this grade, or a cardinality violation (two ids in a single-select category).
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "429":
+          description: Rate limit exceeded.
+          headers:
+            Retry-After: { schema: { type: integer }, description: Seconds, matches the rate limiter's period (60s). }
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+
+  /configurations/{configurationId}:
+    get:
+      operationId: getConfiguration
+      summary: Fetch a configuration
+      description: Unauthenticated and unthrottled — this is what a shared configuration link depends on. Reads aren't the abuse vector rate limiting exists for.
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationId"
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, enum: ["no-store"] } }
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigurationResponse" }
+        "404":
+          description: No configuration with that id.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+    patch:
+      operationId: updateConfiguration
+      summary: Update a configuration's selections, camera state, or both
+      description: |
+        Re-validates incoming selections against the *stored* vehicle and grade, not anything in
+        the request — a client cannot widen its own compatibility rules by restating them.
+        `expectedRevision`, if given, must match the record's current `revision` or the request is
+        rejected with 409 — the optimistic-concurrency guard against two tabs silently clobbering
+        each other's edits.
+      x-rate-limit: *rateLimit
+      security:
+        - ownerToken: []
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationId"
+        - $ref: "#/components/parameters/OwnerTokenHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchConfigurationBody" }
+      responses:
+        "200":
+          description: OK
+          headers:
+            Cache-Control: { schema: { type: string, enum: ["no-store"] } }
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigurationResponse" }
+        "400":
+          description: Body is not valid JSON.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "403":
+          description: Missing or non-matching `X-Owner-Token`. Only returned once existence is confirmed — a wrong token on an unknown id reports 404, not 403, so a caller can't use the 403/404 distinction to probe for valid ids.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "404":
+          description: No configuration with that id.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "409":
+          description: "`expectedRevision` no longer matches the stored record's current revision."
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "422":
+          description: Semantically invalid patch (same validation as create).
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "429":
+          description: Rate limit exceeded.
+          headers:
+            Retry-After: { schema: { type: integer } }
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+    delete:
+      operationId: deleteConfiguration
+      summary: Delete a configuration
+      description: Same `X-Owner-Token` requirement as `PATCH`.
+      x-rate-limit: *rateLimit
+      security:
+        - ownerToken: []
+      parameters:
+        - $ref: "#/components/parameters/ConfigurationId"
+        - $ref: "#/components/parameters/OwnerTokenHeader"
+      responses:
+        "204":
+          description: Deleted. No body.
+          headers:
+            Cache-Control: { schema: { type: string, enum: ["no-store"] } }
+        "403":
+          description: Missing or non-matching `X-Owner-Token`.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "404":
+          description: No configuration with that id.
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+        "429":
+          description: Rate limit exceeded.
+          headers:
+            Retry-After: { schema: { type: integer } }
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } }
+
+components:
+  parameters:
+    VehicleSlug:
+      name: slug
+      in: path
+      required: true
+      schema: { type: string }
+      example: 4runner
+    ConfigurationId:
+      name: configurationId
+      in: path
+      required: true
+      schema: { type: string }
+    OwnerTokenHeader:
+      name: X-Owner-Token
+      in: header
+      required: true
+      schema: { type: string }
+      description: The plaintext capability token returned once, in full, by `POST /configurations`'s response body.
+
+  securitySchemes:
+    ownerToken:
+      type: apiKey
+      in: header
+      name: X-Owner-Token
+      description: |
+        Not a real API-key scheme with issuance/rotation — a single-use-per-configuration capability
+        token, hashed at rest (`lib/shared/ownerToken.ts`), with no recovery path if lost
+        (docs/INTEGRATION_GUIDE.md's Known Gaps list). Documented under `apiKey` because that's the
+        closest OpenAPI 3.1 primitive to "an opaque header value that must match," not because this
+        is a general-purpose API key system.
+
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error]
+      description: Every non-2xx response from every route above matches this shape (`lib/api/errors.ts`'s `toErrorBody`).
+      properties:
+        error:
+          type: object
+          required: [code, status, message]
+          properties:
+            code:
+              type: string
+              enum: [not_found, invalid_query, invalid_body, revision_conflict, forbidden, rate_limited]
+            status: { type: integer }
+            message: { type: string }
+
+    VehicleSummary:
+      type: object
+      description: Projection of Vehicle used by list/search endpoints (`lib/types/vehicle.ts`'s `toVehicleSummary`).
+      required: [slug, year, model, bodyStyle, availability, maxSeating, maxTowingLbs, startingMsrp, thumbnail]
+      properties:
+        slug: { type: string }
+        year: { type: integer }
+        model: { type: string }
+        updatedAt: { type: string, format: date-time }
+        bodyStyle: { $ref: "#/components/schemas/BodyStyle" }
+        categories: { type: array, items: { type: string } }
+        availability: { $ref: "#/components/schemas/AvailabilityStatus" }
+        drivetrains: { type: array, items: { $ref: "#/components/schemas/DrivetrainType" } }
+        powertrainTypes: { type: array, items: { $ref: "#/components/schemas/PowertrainType" } }
+        maxSeating: { type: integer }
+        maxTowingLbs: { type: number }
+        startingMsrp: { type: number }
+        thumbnail: { $ref: "#/components/schemas/MediaAsset" }
+
+    Vehicle:
+      type: object
+      description: Full vehicle record. Superset of VehicleSummary's facts, plus grades, pricing, media, and 3D config.
+      required: [slug, year, model, bodyStyle, availability, grades, pricing, media, threeDConfig]
+      properties:
+        slug: { type: string }
+        year: { type: integer }
+        model: { type: string }
+        updatedAt: { type: string, format: date-time }
+        bodyStyle: { $ref: "#/components/schemas/BodyStyle" }
+        availability: { $ref: "#/components/schemas/AvailabilityStatus" }
+        grades:
+          type: array
+          items:
+            type: object
+            required: [id, name, msrp, seating]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              msrp: { type: number }
+              seating: { type: integer }
+        pricing:
+          type: object
+          properties:
+            baseMsrp: { type: number }
+        media: { $ref: "#/components/schemas/MediaManifest" }
+        threeDConfig: { $ref: "#/components/schemas/Vehicle3DConfig" }
+
+    MediaAsset:
+      type: object
+      required: [url, alt]
+      properties:
+        url: { type: string }
+        alt: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+
+    MediaManifest:
+      type: object
+      required: [hero, gallery, thumbnails]
+      properties:
+        hero: { $ref: "#/components/schemas/MediaAsset" }
+        gallery: { type: array, items: { $ref: "#/components/schemas/MediaAsset" } }
+        thumbnails: { type: array, items: { $ref: "#/components/schemas/MediaAsset" } }
+
+    Vehicle3DConfig:
+      type: object
+      description: GLB path, camera presets, and hasModel flag — see docs/INTEGRATION_GUIDE.md §3 for the node/material naming contract this config's GLB must satisfy.
+      properties:
+        hasModel: { type: boolean }
+        cameraPresets:
+          type: array
+          items:
+            type: object
+            required: [id, label, position, target]
+            properties:
+              id: { type: string }
+              label: { type: string }
+              position: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
+              target: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
+
+    BodyStyle: { type: string, enum: [suv, truck, sedan, minivan, crossover, coupe, hatchback] }
+    AvailabilityStatus: { type: string, enum: [in_production, coming_soon, discontinued] }
+    DrivetrainType: { type: string, enum: [fwd, rwd, awd, "4wd"] }
+    PowertrainType: { type: string, enum: [gas, hybrid, phev, bev] }
+    CustomizationCategory: { type: string, enum: [paint, wheels, hood, panel, decal, trim, accessory, interior] }
+    CustomizationOperation: { type: string, enum: [material-update, mesh-visibility, mesh-replacement, texture-update] }
+
+    CustomizationOption:
+      type: object
+      description: |
+        Server-owned catalog record (docs/INTEGRATION_GUIDE.md §3/§4). `targetNodes`,
+        `targetMaterials`, and `assetUrl` are never accepted from a client on any write below — a
+        client only ever sends the option `id`.
+      required: [id, category, label, operation, compatibleVehicleIds]
+      properties:
+        id: { type: string }
+        category: { $ref: "#/components/schemas/CustomizationCategory" }
+        label: { type: string }
+        thumbnailUrl: { type: string }
+        targetNodes: { type: array, items: { type: string } }
+        targetMaterials: { type: array, items: { type: string } }
+        operation: { $ref: "#/components/schemas/CustomizationOperation" }
+        selectionGroup: { type: string }
+        assetUrl: { type: string }
+        materialConfig:
+          type: object
+          properties:
+            color: { type: string }
+            metalness: { type: number }
+            roughness: { type: number }
+            clearcoat: { type: number }
+            clearcoatRoughness: { type: number }
+            textureUrl: { type: string }
+        hidesNodes: { type: array, items: { type: string } }
+        mountNodes: { type: array, items: { type: string } }
+        priceDelta: { type: number }
+        compatibleVehicleIds: { type: array, items: { type: string } }
+        compatibleGradeIds:
+          type: array
+          items: { type: string }
+          description: Empty/absent means every grade of a compatible vehicle.
+
+    CameraState:
+      type: object
+      required: [position, target]
+      properties:
+        presetId: { type: string }
+        position: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
+        target: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
+
+    SelectionMap:
+      type: object
+      description: Keyed by CustomizationCategory; each value is an array of option ids (at most one for a single-select category).
+      additionalProperties:
+        type: array
+        items: { type: string }
+
+    CreateConfigurationBody:
+      type: object
+      required: [vehicleId, modelYear, gradeId]
+      properties:
+        vehicleId: { type: string, example: 4runner }
+        modelYear: { type: integer, description: Must match the vehicle's own catalog year exactly. }
+        gradeId: { type: string, description: Must be a grade the vehicle actually offers. }
+        selections: { $ref: "#/components/schemas/SelectionMap" }
+        cameraState: { $ref: "#/components/schemas/CameraState" }
+
+    PatchConfigurationBody:
+      type: object
+      description: Every field is optional; only the ones present are validated and applied.
+      properties:
+        selections: { $ref: "#/components/schemas/SelectionMap" }
+        cameraState: { $ref: "#/components/schemas/CameraState" }
+        expectedRevision:
+          type: integer
+          description: If given, must equal the record's current `revision` or the request is rejected with 409.
+
+    VehicleConfiguration:
+      type: object
+      required: [configurationId, vehicleId, modelYear, model, gradeId, selections, revision, schemaVersion, createdAt, updatedAt]
+      properties:
+        configurationId: { type: string }
+        vehicleId: { type: string }
+        modelYear: { type: integer }
+        model: { type: string }
+        gradeId: { type: string }
+        selections: { $ref: "#/components/schemas/SelectionMap" }
+        cameraState: { $ref: "#/components/schemas/CameraState" }
+        revision:
+          type: integer
+          description: Bumped by the server on every accepted mutation; used for the `expectedRevision` optimistic-concurrency check.
+        schemaVersion: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ConfigurationResponse:
+      type: object
+      required: [schemaVersion, data, pricing]
+      properties:
+        schemaVersion: { type: string }
+        data: { $ref: "#/components/schemas/VehicleConfiguration" }
+        ownerToken:
+          type: string
+          description: Present only on `POST`'s 201 response — the one and only time the plaintext token is ever sent.
+        pricing:
+          type: object
+          required: [optionsTotal]
+          properties:
+            optionsTotal: { type: number }

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAllVehicleSlugs, getVehicleBySlug } from "../../../../../../lib/data/vehicles";
 import { getOptionsForVehicle, isOptionAvailableForGrade } from "../../../../../../lib/data/options";
-import { ApiError, notFound, invalidQuery, toErrorBody } from "../../../../../../lib/api/errors";
+import { ApiError, notFound, invalidQuery } from "../../../../../../lib/api/errors";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../../../../../../lib/types/customization";
+import { errorResponse } from "../../../../../../lib/server/apiResponse";
+import { withSecurityHeaders } from "../../../../../../lib/server/securityHeaders";
 
 export const dynamic = "force-static";
 
@@ -34,14 +36,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json(
       { schemaVersion: CUSTOMIZATION_SCHEMA_VERSION, vehicleId: slug, gradeId, data: options },
       {
-        headers: {
+        headers: withSecurityHeaders({
           "Cache-Control": "public, max-age=300",
           ETag: `"${slug}-options-${CUSTOMIZATION_SCHEMA_VERSION}-${options.length}"`,
-        },
+        }),
       },
     );
   } catch (err) {
-    if (err instanceof ApiError) return NextResponse.json(toErrorBody(err), { status: err.status });
+    if (err instanceof ApiError) return errorResponse(err);
     throw err;
   }
 }

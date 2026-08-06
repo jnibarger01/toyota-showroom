@@ -19,6 +19,16 @@ function catalogUrl(path: string): string {
 }
 
 /**
+ * `href` for an internal page — `/[slug]/`, `/explore/`, etc. Root-relative internal links need
+ * the same sub-path prefix as every other asset URL this SDK hands out, or they 404 under the
+ * GitHub Pages deployment. `trailingSlash: true` in `next.config.mjs` means the static export's
+ * own routes are directories, so callers pass a bare slug/segment, not a leading or trailing `/`.
+ */
+export function pageUrl(segment: string = ""): string {
+  return `${basePath}/${segment}${segment ? "/" : ""}`;
+}
+
+/**
  * Catalog data stores root-relative asset URLs (e.g. "/images/hero.png"); under the GitHub
  * Pages deployment the whole site is mounted at a sub-path (`vite.config.ts` `base`), so every
  * asset URL a consumer receives from this SDK needs the same prefix the 3D model loader uses.
@@ -43,7 +53,19 @@ function normalizeMedia(media: MediaManifest): MediaManifest {
 }
 
 function normalizeThreeDConfig(config: Vehicle3DConfig): Vehicle3DConfig {
-  return config.modelUrl ? { ...config, modelUrl: withBasePath(config.modelUrl) } : config;
+  return {
+    ...config,
+    ...(config.modelUrl ? { modelUrl: withBasePath(config.modelUrl) } : {}),
+    ...(config.wheelAndTireAssets
+      ? {
+          wheelAndTireAssets: {
+            ...config.wheelAndTireAssets,
+            wheelUrl: withBasePath(config.wheelAndTireAssets.wheelUrl),
+            tireUrl: withBasePath(config.wheelAndTireAssets.tireUrl),
+          },
+        }
+      : {}),
+  };
 }
 
 function normalizeVehicle(vehicle: Vehicle): Vehicle {
@@ -92,8 +114,8 @@ export async function getVehicleMedia(slug: string): Promise<{ media: MediaManif
   return { media: normalizeMedia(result.media), threeDConfig: normalizeThreeDConfig(result.threeDConfig) };
 }
 
-const MIN_COMPARE = 2;
-const MAX_COMPARE = 4;
+export const MIN_COMPARE = 2;
+export const MAX_COMPARE = 4;
 
 /** Groundwork for goal 10 (normalized side-by-side comparison) over the static catalog. */
 export async function compareVehicles(slugs: string[]): Promise<Vehicle[]> {

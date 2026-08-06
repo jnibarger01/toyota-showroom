@@ -113,10 +113,18 @@ export const tacoma: Vehicle = {
 
   threeDConfig: {
     hasModel: false,
-    cameraPresets: [],
-    paintableMaterialNames: [],
+    // Non-empty even without a real model: BuilderApp's bootstrap picks `cameraPresets[0]` as the
+    // default view, and an empty array left it permanently stuck on the loading screen the moment
+    // this vehicle became reachable at all (app/[slug]/page.tsx) — the procedural fallback vehicle
+    // (lib/three/proceduralParts.ts) still needs *somewhere* to point the camera at.
+    cameraPresets: [
+      { id: "hero", label: "Hero", position: [7.5, 4.0, 8.5], target: [0, 1.1, 0] },
+      { id: "front", label: "Front", position: [0, 2.2, -10], target: [0, 1.0, 0] },
+      { id: "side", label: "Side", position: [10, 2.2, 0], target: [0, 1.0, 0] },
+      { id: "rear", label: "Rear", position: [0, 2.2, 10], target: [0, 1.0, 0] },
+    ],
+    paintableMaterialNames: ["body.carmain"],
     wheelMountNames: [],
-    wheelVariants: [],
     interiorMaterialNames: [],
   },
 };

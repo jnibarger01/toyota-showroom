@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import * as THREE from "three";
 import * as THREE_WEBGPU from "three/webgpu";
@@ -8,7 +8,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
-import { getGltfLoader, disposeSubtree } from "../../lib/three/assets";
+import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 
@@ -44,17 +44,29 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const rootRef = useRef<THREE.Object3D | null>(null);
+  /** Grounded `position.y` from `prepareVehicleRoot`; lift is applied relative to it. */
+  const groundedYRef = useRef(0);
+  /**
+   * Bumped once the model is in the scene. The lift effect depends on it so the initial ride height
+   * is applied when the root appears — otherwise the effect runs only while the 39 MB GLB is still
+   * loading, finds no root, and never reruns because `lift` itself has not changed.
+   */
+  const [sceneRevision, setSceneRevision] = useState(0);
   const environmentRef = useRef<EnvironmentRefs | null>(null);
 
-  // Latest-value refs: the setup effect must run exactly once (loading a 57 MB GLB again on every
+  // Latest-value refs: the setup effect must run exactly once (loading a 39 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
-  // rather than listing them as dependencies.
+  // rather than listing them as dependencies. The assignment happens in an effect, not inline during
+  // render — writing to `ref.current` while rendering is an impure side effect React disallows (the
+  // render function may run more than once before committing); an effect runs only after commit.
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
   const catalogRef = useRef(catalog);
-  onReadyRef.current = onReady;
-  onErrorRef.current = onError;
-  catalogRef.current = catalog;
+  useEffect(() => {
+    onReadyRef.current = onReady;
+    onErrorRef.current = onError;
+    catalogRef.current = catalog;
+  });
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -134,10 +146,19 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         return;
       }
 
+      try {
+        await installWheelAndTireAssets(root, threeDConfig);
+      } catch (error) {
+        // Replacement running gear is additive enhancement; retain the complete base model if an
+        // optional glTF cannot be fetched or decoded.
+        console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
+      }
       prepareVehicleRoot(root, threeDConfig);
       buildProceduralAccessories(root);
       scene.add(root);
       rootRef.current = root;
+      groundedYRef.current = root.position.y;
+      setSceneRevision((revision) => revision + 1);
 
       if (import.meta.env.DEV) {
         (window as unknown as Record<string, unknown>).__dumpVehicleHierarchy = () => logHierarchy(root);
@@ -205,8 +226,12 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
 
   useEffect(() => {
     const root = rootRef.current;
-    if (root) gsap.to(root.position, { y: lift * 0.045, duration: 0.35, ease: "power2.out" });
-  }, [lift]);
+    if (!root) return;
+    // Lift is an offset from the grounded baseline, not an absolute position: writing `lift * 0.045`
+    // straight into `position.y` would discard the grounding offset computed at load and drop the
+    // vehicle through the floor.
+    gsap.to(root.position, { y: groundedYRef.current + lift * 0.045, duration: 0.35, ease: "power2.out" });
+  }, [lift, sceneRevision]);
 
   useEffect(() => {
     const camera = cameraRef.current;
@@ -295,6 +320,60 @@ async function loadVehicleRoot(threeDConfig: Vehicle3DConfig): Promise<THREE.Obj
   if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
   const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl);
   return gltf.scene;
+}
+
+/**
+ * Mounts the supplied standalone running-gear assets at the authored wheel mounts. The original
+ * meshes are removed (not merely hidden) so the catalog's exact node-name contract resolves to
+ * the replacements and the scene never renders duplicate wheels or tyres.
+ */
+async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Vehicle3DConfig): Promise<void> {
+  const config = threeDConfig.wheelAndTireAssets;
+  if (!config) return;
+
+  const mounts = threeDConfig.wheelMountNames.map((name) => root.getObjectByName(name));
+  if (mounts.some((mount) => !mount)) {
+    console.warn("[customization] supplied wheel and tyre glTFs were not mounted: wheel mounts are missing.");
+    return;
+  }
+
+  const [wheelSource, tireSource] = await Promise.all([loadAsset(config.wheelUrl), loadAsset(config.tireUrl)]);
+
+  for (let index = 0; index < mounts.length; index += 1) {
+    const wheelNodeName = config.wheelNodeNames[index]!;
+    const tireNodeName = config.tireNodeNames[index]!;
+
+    // Remove the model's baked-in pair before naming replacements, avoiding duplicate matches in
+    // `getObjectByName` as well as duplicate visible geometry.
+    removeNode(root.getObjectByName(wheelNodeName));
+    removeNode(root.getObjectByName(tireNodeName));
+
+    const assembly = new THREE.Group();
+    assembly.name = `AUTHORED_RUNNING_GEAR_${index}`;
+
+    const tire = instantiateAsset(tireSource);
+    tire.name = tireNodeName;
+    const wheel = instantiateAsset(wheelSource);
+    wheel.name = wheelNodeName;
+    renameMaterials(wheel, index < 2 ? "wheel.metal" : "wheel.metal.001");
+
+    assembly.add(tire, wheel);
+    attachToMount(mounts[index]!, assembly, "authored-wheel-and-tire");
+    assembly.scale.setScalar(config.scale ?? 1);
+  }
+}
+
+function removeNode(node: THREE.Object3D | undefined): void {
+  node?.parent?.remove(node);
+}
+
+function renameMaterials(root: THREE.Object3D, name: string): void {
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      material.name = name === "wheel.metal.001" && material.name === "wheel.metal" ? name : material.name;
+    }
+  });
 }
 
 /**

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Armchair,
   Box,
   Camera,
   Check,
@@ -24,24 +25,40 @@ import {
   Truck,
   ZoomIn,
 } from "lucide-react";
-import { VehicleCanvas, type CameraPreset } from "./VehicleCanvas";
+import type { CameraPreset } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
-import { getVehicle } from "../../lib/api/client";
+import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
+import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
   CATEGORY_APPLY_ORDER,
   type CustomizationCategory,
   type CustomizationOption,
+  type SelectionMap,
   type VehicleConfiguration,
 } from "../../lib/types/customization";
 import type { VehicleSceneController } from "../../lib/three/sceneController";
 import { createConfigurationShareUrl, estimateBuildTotal, readSharedConfigurationId } from "../../lib/showroom/buildTools";
 
-const VEHICLE_SLUG = "4runner";
+/**
+ * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
+ * app ships — split into its own chunk so `/explore` and `/compare`, which never render a canvas,
+ * don't pay to parse it, and so this page's own chrome (header, rail, right panel) can paint and
+ * become interactive before that chunk finishes downloading.
+ */
+const VehicleCanvas = lazy(() => import("./VehicleCanvas").then((module) => ({ default: module.VehicleCanvas })));
+
+/** Used only when no `vehicleSlug` prop is given — the root route's implicit default vehicle. */
+const DEFAULT_VEHICLE_SLUG = "4runner";
 const DEFAULT_GRADE = "trd-pro";
-const STORAGE_KEY = "toyota-showroom:configurationId";
+function storageKeyFor(vehicleSlug: string): string {
+  // Scoped per vehicle so switching vehicles doesn't clobber (or try to resume) another vehicle's
+  // remembered configuration id — each route keeps its own "last worked on" pointer independently.
+  return `toyota-showroom:configurationId:${vehicleSlug}`;
+}
+
 type Terrain = "Studio" | "Trail" | "Night";
 type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 
@@ -53,7 +70,11 @@ const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   decal: "Decals & graphics",
   trim: "Trim",
   accessory: "Accessories",
+  interior: "Interior",
 };
+
+/** Categories rendered as circular colour swatches rather than text chips. */
+const SWATCH_CATEGORIES: ReadonlySet<CustomizationCategory> = new Set(["paint", "interior"]);
 
 /**
  * Bootstrap data resolved before the scene is touched.
@@ -68,41 +89,61 @@ type Bootstrap = {
   configuration: VehicleConfiguration;
 };
 
-export function BuilderApp() {
+type Props = {
+  /** Defaults to the site's implicit default vehicle when the route doesn't name one (`/`). */
+  vehicleSlug?: string;
+};
+
+export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [lift, setLift] = useState(2);
+  const [gradeChanging, setGradeChanging] = useState(false);
   const [terrain, setTerrain] = useState<Terrain>("Studio");
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>("Daytime");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
   const controllerRef = useRef<VehicleSceneController | null>(null);
   const stageRef = useRef<HTMLElement>(null);
+  // The full, grade-independent set of options this GLB can satisfy — captured once from
+  // `onReady` (§ handleSceneReady) so a grade switch can recompute which options apply without
+  // reloading the model or re-running `verifyNodeContract`.
+  const fullApplicableRef = useRef<CustomizationOption[]>([]);
 
   const { configuration, catalog, status, error } = useConfiguration();
 
   // ------------------------------------------------------------------ step 1-4
   // Load vehicle metadata, then the option catalog, then the saved configuration. Nothing here
   // touches Three.js; the scene is only mutated once the GLB reports its node contract verified.
+  //
+  // The App Router does not remount a page component just because a route param changed under the
+  // same `[slug]` segment, so `app/[slug]/page.tsx` forces a clean remount on vehicle switches with
+  // `key={slug}` rather than this effect resetting state imperatively (setState synchronously at the
+  // top of an effect body causes an extra render pass React's own lint rules flag against). Every
+  // field this effect writes therefore starts at its `useState` initial value on each new vehicle.
   useEffect(() => {
     let cancelled = false;
 
     void (async () => {
       try {
-        const vehicle = await getVehicle(VEHICLE_SLUG);
+        const vehicle = await getVehicle(vehicleSlug);
         const gradeId = vehicle.grades.some((grade) => grade.id === DEFAULT_GRADE)
           ? DEFAULT_GRADE
           : (vehicle.grades[0]?.id ?? DEFAULT_GRADE);
 
+        // Ungraded: the full catalog, not filtered to `gradeId`. This is what gets handed to
+        // `VehicleCanvas` for node-contract verification, so the scene controller it builds knows
+        // about every option this GLB can satisfy across every grade — required for `changeGrade`
+        // below to switch grades without reloading the model.
         const [options, configuration] = await Promise.all([
-          configurationsApi.listVehicleOptions(VEHICLE_SLUG, gradeId),
+          configurationsApi.listVehicleOptions(vehicleSlug),
           resumeOrCreateConfiguration(vehicle, gradeId),
         ]);
 
         if (cancelled) return;
         setBootstrap({ vehicle, catalog: options, configuration });
-        setPreset(vehicle.threeDConfig.cameraPresets[0] ?? null);
+        setPreset(presetForConfiguration(vehicle, configuration));
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : String(err));
       }
@@ -112,7 +153,7 @@ export function BuilderApp() {
       cancelled = true;
       configurationStore.reset();
     };
-  }, []);
+  }, [vehicleSlug]);
 
   // ------------------------------------------------------------------ step 5-7
   // Called by the canvas after the base GLB loads and `verifyNodeContract` runs. Saved selections
@@ -120,17 +161,67 @@ export function BuilderApp() {
   const handleSceneReady = useCallback(
     (controller: VehicleSceneController, applicable: CustomizationOption[]) => {
       controllerRef.current = controller;
+      fullApplicableRef.current = applicable;
       if (!bootstrap) return;
-      void configurationStore.attachScene(controller, bootstrap.configuration, applicable);
+      const forGrade = applicable.filter((option) =>
+        isOptionAvailableForGrade(option, bootstrap.configuration.gradeId),
+      );
+      void configurationStore.attachScene(controller, bootstrap.configuration, forGrade);
     },
     [bootstrap],
   );
 
   const handleSceneError = useCallback((message: string) => setLoadError(message), []);
 
+  /**
+   * Switches the active grade. `gradeId` is immutable on a persisted configuration (the server
+   * only accepts it at creation — see `docs/INTEGRATION_GUIDE.md` §5), so this creates a new
+   * configuration rather than patching the current one, the same way `reset()` does.
+   *
+   * Selections that are no longer compatible with the new grade (a TRD Pro-only paint, a
+   * Limited-only interior) are dropped before the new configuration is created; `attachScene`'s
+   * `applyConfiguration` then resets every writable slot on the live scene and replays only what
+   * survived, so the 3D view can never show a selection the new grade doesn't actually offer.
+   */
+  const changeGrade = async (gradeId: string) => {
+    if (!bootstrap || !controllerRef.current || !configuration) return;
+    if (gradeId === configuration.gradeId) return;
+
+    setGradeChanging(true);
+    try {
+      const forGrade = fullApplicableRef.current.filter((option) =>
+        isOptionAvailableForGrade(option, gradeId),
+      );
+      const forGradeIds = new Set(forGrade.map((option) => option.id));
+
+      const carried: SelectionMap = {};
+      for (const category of CATEGORY_APPLY_ORDER) {
+        const ids = (configuration.selections[category] ?? []).filter((id) => forGradeIds.has(id));
+        if (ids.length > 0) carried[category] = ids;
+      }
+
+      const fresh = await configurationsApi.createConfiguration({
+        vehicleId: bootstrap.vehicle.slug,
+        modelYear: bootstrap.vehicle.year,
+        gradeId,
+        selections: carried,
+        cameraState: configuration.cameraState,
+      });
+      rememberConfigurationId(vehicleSlug, fresh.configurationId);
+      setBootstrap({ ...bootstrap, configuration: fresh });
+      await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setGradeChanging(false);
+    }
+  };
+
   // Persist any pending batch before the tab goes away, so a refresh cannot lose the last click.
   useEffect(() => {
-    const flush = () => void configurationStore.flush();
+    // `keepalive` lets the PATCH outlive the document; a plain fetch started during unload can be
+    // aborted by the browser, losing a click made inside the debounce window.
+    const flush = () => void configurationStore.flush({ keepalive: true });
     window.addEventListener("pagehide", flush);
     return () => window.removeEventListener("pagehide", flush);
   }, []);
@@ -142,6 +233,11 @@ export function BuilderApp() {
         options: catalog.filter((option) => option.category === category),
       })).filter((group) => group.options.length > 0),
     [catalog],
+  );
+
+  const selectedGrade = useMemo(
+    () => bootstrap?.vehicle.grades.find((grade) => grade.id === configuration?.gradeId),
+    [bootstrap, configuration],
   );
 
   const installedCount = useMemo(() => {
@@ -157,7 +253,7 @@ export function BuilderApp() {
       modelYear: bootstrap.vehicle.year,
       gradeId: bootstrap.configuration.gradeId,
     });
-    rememberConfigurationId(fresh.configurationId);
+    rememberConfigurationId(vehicleSlug, fresh.configurationId);
     if (controllerRef.current) {
       await configurationStore.attachScene(controllerRef.current, fresh, catalog);
     }
@@ -199,7 +295,7 @@ export function BuilderApp() {
   if (!bootstrap || !preset) {
     return (
       <main className="builder-shell builder-status">
-        <p>Loading {VEHICLE_SLUG}&hellip;</p>
+        <p>Loading {vehicleSlug}&hellip;</p>
       </main>
     );
   }
@@ -219,7 +315,7 @@ export function BuilderApp() {
         </div>
         <nav>
           <button className="active">Build</button>
-          <button>Explore</button>
+          <button onClick={() => window.location.assign(pageUrl("explore"))}>Explore</button>
           <button onClick={() => void saveToGarage()}>Garage</button>
         </nav>
         <div className="top-actions">
@@ -232,6 +328,20 @@ export function BuilderApp() {
           </button>
         </div>
       </header>
+
+      {/*
+        `loadError` is also set by VehicleCanvas *after* bootstrap — a renderer failure or a GLB
+        that fell back to the simplified model. Rendering it only in the pre-bootstrap branch would
+        leave those failures invisible, which is exactly the silent-degradation this integration is
+        meant to remove.
+      */}
+      {loadError ? (
+        <div className="config-error" role="alert">
+          <AlertTriangle size={15} />
+          <span>{loadError}</span>
+          <button onClick={() => setLoadError(null)}>Dismiss</button>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="config-error" role="alert">
@@ -246,7 +356,9 @@ export function BuilderApp() {
           <div className="vehicle-title">
             <span>{vehicle.year} TOYOTA</span>
             <h1>{vehicle.model}</h1>
-            <p>Estimated ${estimatedTotal.toLocaleString()}</p>
+            <p>
+              {selectedGrade ? `${selectedGrade.name} · ` : ""}Estimated ${estimatedTotal.toLocaleString()}
+            </p>
           </div>
 
           <div className="summary">
@@ -264,6 +376,21 @@ export function BuilderApp() {
             </div>
           </div>
 
+          <div className="section-label">Grade</div>
+          <div className="grade-row">
+            {vehicle.grades.map((grade) => (
+              <button
+                key={grade.id}
+                className={grade.id === configuration?.gradeId ? "grade-item active" : "grade-item"}
+                disabled={gradeChanging || !configuration}
+                onClick={() => void changeGrade(grade.id)}
+              >
+                <span>{grade.name}</span>
+                <small>${grade.msrp.toLocaleString()}</small>
+              </button>
+            ))}
+          </div>
+
           <div className="section-label">Systems</div>
           <button className={`rail-item ${activeCategory === "paint" ? "active" : ""}`} onClick={() => setActiveCategory("paint")}><PaintBucket size={18} /> Exterior</button>
           <button className={`rail-item ${activeCategory === "wheels" ? "active" : ""}`} onClick={() => setActiveCategory("wheels")}><CircleGauge size={18} /> Wheels &amp; Tires</button>
@@ -271,6 +398,7 @@ export function BuilderApp() {
           <button className={`rail-item ${activeCategory === "accessory" ? "active" : ""}`} onClick={() => setActiveCategory("accessory")}><Lightbulb size={18} /> Lighting</button>
           <button className={`rail-item ${activeCategory === "panel" ? "active" : ""}`} onClick={() => setActiveCategory("panel")}><Cog size={18} /> Performance</button>
           <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Accessories</button>
+          <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
           <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small><button onClick={() => void saveToGarage()}>Save build</button></div>
 
@@ -308,16 +436,18 @@ export function BuilderApp() {
             </div>
           </div>
 
-          <VehicleCanvas
-            threeDConfig={vehicle.threeDConfig}
-            catalog={bootstrap.catalog}
-            cameraPreset={preset}
-            lift={lift}
-            terrain={terrain}
-            environmentPreset={environmentPreset}
-            onReady={handleSceneReady}
-            onError={handleSceneError}
-          />
+          <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
+            <VehicleCanvas
+              threeDConfig={vehicle.threeDConfig}
+              catalog={bootstrap.catalog}
+              cameraPreset={preset}
+              lift={lift}
+              terrain={terrain}
+              environmentPreset={environmentPreset}
+              onReady={handleSceneReady}
+              onError={handleSceneError}
+            />
+          </Suspense>
 
           <div className="gpu-status">
             <span><i /> WebGPU preferred</span>
@@ -338,12 +468,12 @@ export function BuilderApp() {
           {grouped.filter(({ category }) => category === activeCategory).map(({ category, options }) => (
             <section className="control-section" key={category}>
               <label>{CATEGORY_LABELS[category]}</label>
-              <div className={category === "paint" ? "paint-row" : "chip-row"}>
+              <div className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"}>
                 {options.map((option) => (
                   <CustomizationButton
                     key={option.id}
                     option={option}
-                    variant={category === "paint" ? "swatch" : "chip"}
+                    variant={SWATCH_CATEGORIES.has(category) ? "swatch" : "chip"}
                   />
                 ))}
               </div>
@@ -406,24 +536,47 @@ function startingMsrp(vehicle: Vehicle | null): number {
   return Math.min(vehicle.pricing.baseMsrp, ...vehicle.grades.map((grade) => grade.msrp));
 }
 
-function rememberConfigurationId(configurationId: string): void {
+/**
+ * Resolves the camera a resumed configuration should open with.
+ *
+ * A saved `cameraState` is honoured over the vehicle's first preset, otherwise choosing and saving
+ * a camera angle would appear to work until the next refresh. A stored `presetId` is preferred so
+ * the matching toolbar button reads as selected; a configuration saved from a free orbit falls back
+ * to its raw position and target.
+ */
+export function presetForConfiguration(
+  vehicle: Vehicle,
+  configuration: VehicleConfiguration,
+): CameraPreset | null {
+  const presets = vehicle.threeDConfig.cameraPresets;
+  const saved = configuration.cameraState;
+  if (!saved) return presets[0] ?? null;
+
+  const matching = presets.find((preset) => preset.id === saved.presetId);
+  if (matching) return matching;
+
+  return { id: saved.presetId ?? "saved", label: "Saved", position: saved.position, target: saved.target };
+}
+
+function rememberConfigurationId(vehicleSlug: string, configurationId: string): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, configurationId);
+    window.localStorage.setItem(storageKeyFor(vehicleSlug), configurationId);
   } catch {
     // Private browsing or a full quota is not a reason to fail the build session.
   }
 }
 
 /**
- * Resumes the configuration this browser last worked on, or creates a fresh one.
+ * Resumes the configuration this browser last worked on for this vehicle, or creates a fresh one.
  *
  * Only the *id* is kept client-side; the configuration itself is re-fetched, so the server stays
  * authoritative and a build edited elsewhere shows its latest state here. A stored id that no
  * longer resolves (deleted, or a wiped dev database) falls through to creating a new record rather
- * than leaving the builder stuck on an error.
+ * than leaving the builder stuck on an error. The vehicle-id check also guards against a corrupted
+ * or hand-edited storage value pointing at the wrong vehicle.
  */
 async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): Promise<VehicleConfiguration> {
-  const storedId = safeReadStoredId();
+  const storedId = safeReadStoredId(vehicle.slug);
 
   if (storedId) {
     try {
@@ -439,13 +592,13 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
     modelYear: vehicle.year,
     gradeId,
   });
-  rememberConfigurationId(created.configurationId);
+  rememberConfigurationId(vehicle.slug, created.configurationId);
   return created;
 }
 
-function safeReadStoredId(): string | null {
+function safeReadStoredId(vehicleSlug: string): string | null {
   try {
-    return readSharedConfigurationId(window.location.hash) ?? window.localStorage.getItem(STORAGE_KEY);
+    return readSharedConfigurationId(window.location.hash) ?? window.localStorage.getItem(storageKeyFor(vehicleSlug));
   } catch {
     return null;
   }

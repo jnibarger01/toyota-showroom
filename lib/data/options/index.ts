@@ -1,5 +1,7 @@
 import type { CustomizationOption, CustomizationCategory } from "../../types/customization";
 import { fourRunnerOptions } from "./4runner";
+import { tacomaOptions } from "./tacoma";
+import { camryOptions } from "./camry";
 
 /**
  * Server-side source of truth for customization options. The browser receives these records from
@@ -8,8 +10,8 @@ import { fourRunnerOptions } from "./4runner";
  */
 const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
   "4runner": fourRunnerOptions,
-  tacoma: [],
-  camry: [],
+  tacoma: tacomaOptions,
+  camry: camryOptions,
 };
 
 export const ALL_OPTIONS: readonly CustomizationOption[] = Object.values(OPTIONS_BY_VEHICLE).flat();
