@@ -99,10 +99,10 @@ function missingMaterialNames(root: THREE.Object3D, option: CustomizationOption)
       if (material?.name) present.add(material.name);
     }
   }
-  // An option may legitimately name both `wheel.metal` and `wheel.metal.001` when the front and
-  // rear pairs differ; it is unsatisfied only when *none* of its named slots exist.
-  const anyPresent = option.targetMaterials.some((name) => present.has(name));
-  return anyPresent ? [] : [...option.targetMaterials];
+  // An option may legitimately name both `wheel.metal` and `wheel.metal.001` when front and rear
+  // pairs differ. Every declared slot must exist: accepting a partial match would silently leave
+  // some targeted meshes unchanged after an asset rename.
+  return option.targetMaterials.filter((name) => !present.has(name));
 }
 
 /**

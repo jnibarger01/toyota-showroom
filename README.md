@@ -23,6 +23,15 @@ This project integrates the uploaded `modsnation_7416_assets_assembled.glb` as t
 
 The runtime does not add duplicate replacement wheels. Paint, camera, lift, and procedural accessory controls remain available.
 
+## Additional packaged model
+
+- File: `public/models/toyota-ae86-ivofficial.glb`
+- Source: Toyota AE86 by IvOfficial (`ZEFWmOPSgh.glb`)
+
+The AE86 is included in the build output as an asset, but is not currently wired to a catalog
+vehicle or customization contract. Tacoma and Camry remain catalog entries without GLB assets until
+their source models are supplied and their node contracts are validated.
+
 ## Customization integration
 
 Customization options, the Three.js scene, and configuration persistence are wired through a single

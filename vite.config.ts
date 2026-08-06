@@ -2,13 +2,14 @@ import { defineConfig } from "vite";
 import vinext from "vinext";
 import { cloudflare } from "@cloudflare/vite-plugin";
 
-export default defineConfig({
-  base: "/toyota-showroom/",
+export default defineConfig(({ command }) => ({
+  // GitHub Pages needs the repository prefix, while vinext dev serves from the origin root.
+  base: command === "build" ? "/toyota-showroom/" : "/",
   plugins: [
     vinext(),
-    cloudflare({
-      viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-    }),
+    ...(command === "build"
+      ? [cloudflare({ viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] } })]
+      : []),
   ],
   build: {
     rolldownOptions: {
@@ -20,4 +21,4 @@ export default defineConfig({
       external: [/^cloudflare:/],
     },
   },
-});
+}));

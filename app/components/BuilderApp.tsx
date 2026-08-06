@@ -8,6 +8,7 @@ import {
   Camera,
   Check,
   ClipboardCheck,
+  Download,
   CloudSun,
   CircleGauge,
   Cog,
@@ -18,11 +19,17 @@ import {
   Map,
   PaintBucket,
   RotateCcw,
+  Search,
+  Shuffle,
   Save,
   Settings2,
   Share2,
   SlidersHorizontal,
   Truck,
+  Undo2,
+  Redo2,
+  Printer,
+  X,
   ZoomIn,
 } from "lucide-react";
 import type { CameraPreset } from "./VehicleCanvas";
@@ -40,7 +47,15 @@ import {
   type VehicleConfiguration,
 } from "../../lib/types/customization";
 import type { VehicleSceneController } from "../../lib/three/sceneController";
-import { createConfigurationShareUrl, estimateBuildTotal, readSharedConfigurationId } from "../../lib/showroom/buildTools";
+import {
+  calculateBuildProgress,
+  createConfigurationShareUrl,
+  createRandomSelections,
+  estimateBuildTotal,
+  filterBuildOptions,
+  formatBuildSummary,
+  readSharedConfigurationId,
+} from "../../lib/showroom/buildTools";
 
 /**
  * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
@@ -60,7 +75,7 @@ function storageKeyFor(vehicleSlug: string): string {
 }
 
 type Terrain = "Studio" | "Trail" | "Night";
-type SceneMood = "Day" | "Golden hour" | "Night";
+type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 
 const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Paint",
@@ -101,15 +116,24 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [lift, setLift] = useState(2);
   const [gradeChanging, setGradeChanging] = useState(false);
   const [terrain, setTerrain] = useState<Terrain>("Studio");
-  const [sceneMood, setSceneMood] = useState<SceneMood>("Day");
+  const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>("Daytime");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
+  const [optionQuery, setOptionQuery] = useState("");
+  const [selectedOnly, setSelectedOnly] = useState(false);
+  const [budget, setBudget] = useState(65_000);
+  const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
+  const [tourOpen, setTourOpen] = useState(false);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const controllerRef = useRef<VehicleSceneController | null>(null);
   const stageRef = useRef<HTMLElement>(null);
   // The full, grade-independent set of options this GLB can satisfy — captured once from
   // `onReady` (§ handleSceneReady) so a grade switch can recompute which options apply without
   // reloading the model or re-running `verifyNodeContract`.
   const fullApplicableRef = useRef<CustomizationOption[]>([]);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const undoStack = useRef<SelectionMap[]>([]);
+  const redoStack = useRef<SelectionMap[]>([]);
 
   const { configuration, catalog, status, error } = useConfiguration();
 
@@ -234,6 +258,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       })).filter((group) => group.options.length > 0),
     [catalog],
   );
+  const selectedIds = useMemo(() => new Set(Object.values(configuration?.selections ?? {}).flat()), [configuration]);
+  const visibleCatalog = useMemo(
+    () => filterBuildOptions(catalog, optionQuery, selectedIds, selectedOnly),
+    [catalog, optionQuery, selectedIds, selectedOnly],
+  );
+  const visibleGrouped = useMemo(
+    () => grouped.map((group) => ({ ...group, options: group.options.filter((option) => visibleCatalog.includes(option)) })),
+    [grouped, visibleCatalog],
+  );
 
   const selectedGrade = useMemo(
     () => bootstrap?.vehicle.grades.find((grade) => grade.id === configuration?.gradeId),
@@ -245,6 +278,75 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     return (configuration.selections.accessory ?? []).length + (configuration.selections.decal ?? []).length;
   }, [configuration]);
   const estimatedTotal = useMemo(() => estimateBuildTotal(startingMsrp(bootstrap?.vehicle ?? null), catalog, configuration), [bootstrap, catalog, configuration]);
+  const buildProgress = calculateBuildProgress(configuration);
+  const overBudget = estimatedTotal > budget;
+
+  const rememberHistory = useCallback(() => {
+    if (!configuration) return;
+    undoStack.current.push(structuredClone(configuration.selections));
+    redoStack.current = [];
+    setHistoryAvailability({ canUndo: true, canRedo: false });
+  }, [configuration]);
+
+  const restoreHistory = useCallback(async (direction: "undo" | "redo") => {
+    if (!configuration) return;
+    const source = direction === "undo" ? undoStack.current : redoStack.current;
+    const target = direction === "undo" ? redoStack.current : undoStack.current;
+    const selections = source.pop();
+    if (!selections) return;
+    target.push(structuredClone(configuration.selections));
+    setHistoryAvailability({ canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 });
+    await configurationStore.replaceSelections(selections);
+  }, [configuration]);
+
+  const surpriseMe = useCallback(async () => {
+    if (!configuration) return;
+    rememberHistory();
+    await configurationStore.replaceSelections(createRandomSelections(catalog));
+    setGarageMessage("A surprise build is ready");
+  }, [catalog, configuration, rememberHistory]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        setTourOpen(!window.localStorage.getItem("toyota-showroom:tour-seen"));
+      } catch {
+        // Storage is optional; do not interrupt the builder to show onboarding.
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const downloadSummary = useCallback(() => {
+    if (!configuration || !bootstrap) return;
+    const text = formatBuildSummary(`${bootstrap.vehicle.year} Toyota ${bootstrap.vehicle.model}`, startingMsrp(bootstrap.vehicle), catalog, configuration);
+    const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `toyota-${bootstrap.vehicle.slug}-${configuration.configurationId}.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [bootstrap, catalog, configuration]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const editing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
+      if (event.key === "/" && !editing) {
+        event.preventDefault();
+        searchRef.current?.focus();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        void restoreHistory(event.shiftKey ? "redo" : "undo");
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
+        event.preventDefault();
+        void restoreHistory("redo");
+      } else if (event.key === "Escape") {
+        setMobilePanelOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [restoreHistory]);
 
   const reset = async () => {
     if (!bootstrap) return;
@@ -258,7 +360,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       await configurationStore.attachScene(controllerRef.current, fresh, catalog);
     }
     setLift(2);
+    setEnvironmentPreset("Daytime");
     setPreset(bootstrap.vehicle.threeDConfig.cameraPresets[0] ?? null);
+    undoStack.current = [];
+    redoStack.current = [];
+    setHistoryAvailability({ canUndo: false, canRedo: false });
   };
 
   const saveToGarage = async () => {
@@ -318,6 +424,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button onClick={() => void saveToGarage()}>Garage</button>
         </nav>
         <div className="top-actions">
+          <button className="ghost icon-action" title="Undo (Ctrl/⌘ Z)" disabled={!historyAvailability.canUndo} onClick={() => void restoreHistory("undo")}><Undo2 size={16} /></button>
+          <button className="ghost icon-action" title="Redo (Ctrl/⌘ Shift Z)" disabled={!historyAvailability.canRedo} onClick={() => void restoreHistory("redo")}><Redo2 size={16} /></button>
           <button className="ghost" onClick={() => void reset()}>
             <RotateCcw size={16} /> Reset
           </button>
@@ -341,6 +449,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button onClick={() => setLoadError(null)}>Dismiss</button>
         </div>
       ) : null}
+      {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your 4Runner</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo.</p></div> : null}
 
       {error ? (
         <div className="config-error" role="alert">
@@ -374,6 +483,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <strong>{configuration?.revision ?? "—"}</strong>
             </div>
           </div>
+          <div className="build-progress"><span><b>Build progress</b><b>{buildProgress}%</b></span><i><b style={{ width: `${buildProgress}%` }} /></i></div>
 
           <div className="section-label">Grade</div>
           <div className="grade-row">
@@ -400,6 +510,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
           <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small><button onClick={() => void saveToGarage()}>Save build</button></div>
+          <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
             <span>Next.js</span><span>React</span><span>Three.js</span>
@@ -435,6 +546,18 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             </div>
           </div>
 
+          <button
+            className="mobile-config-trigger"
+            aria-controls="configuration-panel"
+            aria-expanded={mobilePanelOpen}
+            onClick={() => {
+              setTourOpen(false);
+              setMobilePanelOpen(true);
+            }}
+          >
+            <SlidersHorizontal size={16} /> Customize
+          </button>
+
           <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
             <VehicleCanvas
               threeDConfig={vehicle.threeDConfig}
@@ -442,7 +565,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               cameraPreset={preset}
               lift={lift}
               terrain={terrain}
-              sceneMood={sceneMood}
+              environmentPreset={environmentPreset}
               onReady={handleSceneReady}
               onError={handleSceneError}
             />
@@ -454,17 +577,33 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           </div>
         </section>
 
-        <aside className="right-panel">
+        {mobilePanelOpen ? (
+          <button
+            className="mobile-panel-backdrop"
+            aria-label="Close configuration panel"
+            onClick={() => setMobilePanelOpen(false)}
+          />
+        ) : null}
+
+        <aside
+          id="configuration-panel"
+          className={`right-panel ${mobilePanelOpen ? "mobile-open" : ""}`}
+          aria-label="Vehicle configuration"
+        >
           <div className="panel-title">
             <div><span>Configuration</span><h2>{CATEGORY_LABELS[activeCategory]}</h2></div>
-            <Mountain size={22} />
+            <div className="panel-actions">
+              <Mountain size={22} />
+              <button className="panel-close" aria-label="Close configuration panel" onClick={() => setMobilePanelOpen(false)}><X size={18} /></button>
+            </div>
           </div>
+          <div className="option-tools"><label><Search size={14} /><input ref={searchRef} value={optionQuery} onChange={(event) => setOptionQuery(event.target.value)} placeholder="Search options…" /></label><button className={selectedOnly ? "active" : ""} aria-pressed={selectedOnly} onClick={() => setSelectedOnly((value) => !value)}>Selected only</button></div>
 
           {catalog.length === 0 ? (
             <p className="panel-empty">Preparing customization options&hellip;</p>
           ) : null}
 
-          {grouped.filter(({ category }) => category === activeCategory).map(({ category, options }) => (
+          {visibleGrouped.filter(({ category }) => category === activeCategory).map(({ category, options }) => (
             <section className="control-section" key={category}>
               <label>{CATEGORY_LABELS[category]}</label>
               <div className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"}>
@@ -473,9 +612,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                     key={option.id}
                     option={option}
                     variant={SWATCH_CATEGORIES.has(category) ? "swatch" : "chip"}
+                    onBeforeSelect={rememberHistory}
                   />
                 ))}
               </div>
+              {options.length === 0 ? <p className="panel-empty">No matching options in this system.</p> : null}
             </section>
           ))}
 
@@ -496,10 +637,22 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <section className="control-section scene-controls">
             <label><Map size={14} /> Terrain preview</label>
             <div className="segmented">{(["Studio", "Trail", "Night"] as Terrain[]).map((item) => <button key={item} className={terrain === item ? "active" : ""} onClick={() => setTerrain(item)}>{item}</button>)}</div>
-            <label><CloudSun size={14} /> Lighting</label>
-            <div className="segmented">{(["Day", "Golden hour", "Night"] as SceneMood[]).map((item) => <button key={item} className={sceneMood === item ? "active" : ""} onClick={() => setSceneMood(item)}>{item}</button>)}</div>
+            <label><CloudSun size={14} /> Environment</label>
+            <div className="segmented environment-presets">
+              {(["Daytime", "Sunset", "Night"] as EnvironmentPreset[]).map((item) => (
+                <button
+                  key={item}
+                  className={environmentPreset === item ? "active" : ""}
+                  aria-pressed={environmentPreset === item}
+                  onClick={() => setEnvironmentPreset(item)}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
           </section>
           <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>${startingMsrp(vehicle).toLocaleString()}</b></p><p><span>Configured upgrades</span><b>+${(estimatedTotal - startingMsrp(vehicle)).toLocaleString()}</b></p><p className="total"><span>Estimated total</span><b>${estimatedTotal.toLocaleString()}</b></p></section>
+          <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={startingMsrp(vehicle)} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `$${(estimatedTotal - budget).toLocaleString()} over target` : `$${(budget - estimatedTotal).toLocaleString()} remaining`}</p></section>
         </aside>
       </section>
     </main>

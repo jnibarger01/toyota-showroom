@@ -16,14 +16,16 @@ type Props = {
   option: CustomizationOption;
   /** "swatch" renders the material colour; "chip" renders the label. */
   variant?: "swatch" | "chip";
+  onBeforeSelect?: () => void;
 };
 
-export function CustomizationButton({ option, variant = "chip" }: Props) {
+export function CustomizationButton({ option, variant = "chip", onBeforeSelect }: Props) {
   const { configuration, pending } = useConfiguration();
   const selected = (configuration?.selections[option.category] ?? []).includes(option.id);
   const busy = pending.has(option.id);
 
   const onClick = () => {
+    onBeforeSelect?.();
     void configurationStore.selectOption(option);
   };
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { createVehicleFixture } from "./fixtures/scene";
 import { requiredNodeNames, resolveMeshes, resolveNodes, verifyNodeContract } from "../lib/three/nodes";
-import { fourRunnerOptions } from "../lib/data/options/4runner";
+import { fourRunnerOptions, plannedFourRunnerOptions } from "../lib/data/options/4runner";
 import { getOptionById, getOptionsForVehicle } from "../lib/data/options";
 import { CATEGORY_APPLY_ORDER } from "../lib/types/customization";
 
@@ -54,9 +54,9 @@ describe("verifyNodeContract", () => {
     expect(satisfiedIds).toContain("accessory-roof-rack");
   });
 
-  it("rejects forward-declared options whose nodes the asset does not contain", () => {
+  it("rejects planned options whose nodes the asset does not contain", () => {
     const { root } = createVehicleFixture();
-    const report = verifyNodeContract(root, fourRunnerOptions);
+    const report = verifyNodeContract(root, plannedFourRunnerOptions);
     const unsatisfied = new Map(report.unsatisfied.map((entry) => [entry.option.id, entry]));
 
     expect(unsatisfied.get("hood-sport-scoop")?.missingNodes).toEqual(["HOOD_SPORT", "HOOD_STOCK"]);
@@ -85,12 +85,16 @@ describe("verifyNodeContract", () => {
     expect(report.unsatisfied[0].missingMaterials).toEqual(["body.doesnotexist"]);
   });
 
-  it("accepts an option naming several slots when only some are present", () => {
-    // Front wheels carry `wheel.metal` and rear wheels `wheel.metal.001`; an option naming both
-    // is satisfied, and would still be if a future export unified them.
+  it("rejects an option when any named material slot is absent", () => {
     const { root } = createVehicleFixture();
-    const report = verifyNodeContract(root, [getOptionById("4runner", "wheels-weisu-satin-black")!]);
-    expect(report.satisfied).toHaveLength(1);
+    const option = {
+      ...getOptionById("4runner", "wheels-weisu-satin-black")!,
+      targetMaterials: ["wheel.metal", "wheel.missing"],
+    };
+    const report = verifyNodeContract(root, [option]);
+
+    expect(report.satisfied).toHaveLength(0);
+    expect(report.unsatisfied[0]?.missingMaterials).toEqual(["wheel.missing"]);
   });
 });
 
@@ -131,7 +135,7 @@ describe("catalog integrity", () => {
   });
 
   it("requires every node an option needs to be listed for verification", () => {
-    const hood = getOptionById("4runner", "hood-sport-scoop")!;
+    const hood = plannedFourRunnerOptions.find((option) => option.id === "hood-sport-scoop")!;
     expect(requiredNodeNames(hood).sort()).toEqual(["HOOD_SPORT", "HOOD_STOCK"]);
   });
 });

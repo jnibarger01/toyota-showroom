@@ -45,7 +45,10 @@ afterEach(() => {
 
 describe("catalog reads", () => {
   it("reads options from the generated static snapshot", async () => {
-    const fetchMock = vi.fn(async (_url: string) => jsonResponse({ data: fourRunnerOptions }));
+    const fetchMock = vi.fn(async (url: string) => {
+      void url;
+      return jsonResponse({ data: fourRunnerOptions });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const options = await listVehicleOptions("4runner");

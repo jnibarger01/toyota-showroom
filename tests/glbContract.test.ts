@@ -25,18 +25,10 @@ const SYNTHETIC_NODE_NAMES = new Set<string>(Object.values(ACCESSORY_NODE_NAMES)
  * material, or a swapped GLB at commit/CI time. This test parses the real, checked-in asset (via
  * `inspectGlb`, no three.js/DOM dependency) and re-derives the same pass/fail the browser would see.
  *
- * Some catalog entries are *intentionally* unsatisfied — hood/decal options written in advance of a
- * Blender re-export that doesn't exist yet (see docs/INTEGRATION_GUIDE.md §3, "forward-declared").
- * Those are named here explicitly so the allowlist is itself a reviewable, greppable record of what
- * this repo is knowingly deferring — anything NOT on it must resolve, or the build fails.
+ * Every option returned by `getOptionsForVehicle` is shipped to clients and must resolve. Planned
+ * options whose authored geometry has not landed belong outside that active catalog; allowing them
+ * here would turn this check into documentation rather than an enforcement gate.
  */
-const KNOWN_GATED_OPTION_IDS = new Set([
-  "hood-stock",
-  "hood-sport-scoop",
-  "decal-trd-side-stripe",
-  "interior-fa20-black",
-  "interior-lf10-red",
-]);
 
 function missingMaterials(
   inspection: ReturnType<typeof inspectGlb>,
@@ -50,8 +42,7 @@ function missingMaterials(
       present.add(materialName);
     }
   }
-  const anyPresent = option.targetMaterials.some((name) => present.has(name));
-  return anyPresent ? [] : [...option.targetMaterials];
+  return option.targetMaterials.filter((name) => !present.has(name));
 }
 
 describe("catalog vs. shipped GLB", () => {
@@ -61,9 +52,9 @@ describe("catalog vs. shipped GLB", () => {
 
     const filePath = path.join(process.cwd(), "public", threeDConfig.modelUrl);
     if (!existsSync(filePath)) {
-      // A vehicle can declare a modelUrl before the asset lands (mirrors the forward-declared
-      // option pattern). That is a data-authoring choice, not a CI failure by itself.
-      it.skip(`${vehicle.slug}: ${threeDConfig.modelUrl} not present on disk`, () => {});
+      it(`${vehicle.slug}: has its declared GLB checked in`, () => {
+        expect(existsSync(filePath), `Missing declared model: ${threeDConfig.modelUrl}`).toBe(true);
+      });
       continue;
     }
 
@@ -80,33 +71,18 @@ describe("catalog vs. shipped GLB", () => {
 
       for (const option of options) {
         const label = `${option.id} (${option.category})`;
-        const gated = KNOWN_GATED_OPTION_IDS.has(option.id);
 
-        it(gated ? `${label} — gated, expected unresolved for now` : label, () => {
+        it(label, () => {
           const missingNodes = requiredNodeNames(option).filter(
             (name) => !inspection.nodeNames.has(name) && !SYNTHETIC_NODE_NAMES.has(name),
           );
           const missingMats = missingMaterials(inspection, option);
           const unresolved = missingNodes.length > 0 || missingMats.length > 0;
 
-          if (gated) {
-            // Not just "allowed to fail" — asserted to still be failing, so the allowlist itself
-            // goes stale the moment an asset delivery makes an entry resolvable, instead of quietly
-            // masking it forever.
-            expect(
-              unresolved,
-              `"${option.id}" is on KNOWN_GATED_OPTION_IDS but now resolves fully against ` +
-                `${threeDConfig.modelUrl} — remove it from the allowlist in tests/glbContract.test.ts.`,
-            ).toBe(true);
-            return;
-          }
-
           expect(
             unresolved,
             `Option "${option.id}" does not resolve against ${threeDConfig.modelUrl}: ` +
-              `missing nodes [${missingNodes.join(", ")}], missing materials [${missingMats.join(", ")}]. ` +
-              `If this is intentional (asset not yet delivered), add "${option.id}" to ` +
-              `KNOWN_GATED_OPTION_IDS in tests/glbContract.test.ts.`,
+              `missing nodes [${missingNodes.join(", ")}], missing materials [${missingMats.join(", ")}].`,
           ).toBe(false);
         });
       }

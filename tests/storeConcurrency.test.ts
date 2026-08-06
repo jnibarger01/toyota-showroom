@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createVehicleFixture } from "./fixtures/scene";
 import { VehicleSceneController } from "../lib/three/sceneController";
 import { verifyNodeContract } from "../lib/three/nodes";
-import { fourRunnerOptions } from "../lib/data/options/4runner";
+import { fourRunnerOptions, plannedFourRunnerOptions } from "../lib/data/options/4runner";
 import { getOptionById } from "../lib/data/options";
 import { InMemoryConfigurationRepository } from "../lib/server/configurationRepository";
 import { validateCreateConfiguration, validatePatchConfiguration } from "../lib/validation/configuration";
@@ -62,6 +62,8 @@ vi.mock("../lib/api/configurations", () => ({
 }));
 
 const { configurationStore } = await import("../lib/state/configurationStore");
+
+const plannedHood = plannedFourRunnerOptions.find((option) => option.id === "hood-sport-scoop")!;
 
 function freshScene(catalog = fourRunnerOptions) {
   const fixture = createVehicleFixture();
@@ -146,12 +148,13 @@ describe("after the scene rejects a selection", () => {
     configurationStore.reset();
 
     const scene = freshScene();
-    const permissive = new VehicleSceneController(scene.fixture.root, fourRunnerOptions);
+    const permissiveCatalog = [...fourRunnerOptions, ...plannedFourRunnerOptions];
+    const permissive = new VehicleSceneController(scene.fixture.root, permissiveCatalog);
     const stored = (await repo.get(configuration.configurationId))!;
-    await configurationStore.attachScene(permissive, stored, fourRunnerOptions);
+    await configurationStore.attachScene(permissive, stored, permissiveCatalog);
 
     const callsBefore = updateCalls;
-    await configurationStore.selectOption(getOptionById("4runner", "hood-sport-scoop")!);
+    await configurationStore.selectOption(plannedHood);
     await configurationStore.flush();
 
     // No PATCH was issued, the revision is untouched, and the failure is still on screen.
@@ -166,11 +169,12 @@ describe("after the scene rejects a selection", () => {
     configurationStore.reset();
 
     const scene = freshScene();
-    const permissive = new VehicleSceneController(scene.fixture.root, fourRunnerOptions);
+    const permissiveCatalog = [...fourRunnerOptions, ...plannedFourRunnerOptions];
+    const permissive = new VehicleSceneController(scene.fixture.root, permissiveCatalog);
     const stored = (await repo.get(configuration.configurationId))!;
-    await configurationStore.attachScene(permissive, stored, fourRunnerOptions);
+    await configurationStore.attachScene(permissive, stored, permissiveCatalog);
 
-    await configurationStore.selectOption(getOptionById("4runner", "hood-sport-scoop")!);
+    await configurationStore.selectOption(plannedHood);
 
     expect(configurationStore.getSnapshot().pending.size).toBe(0);
   });
