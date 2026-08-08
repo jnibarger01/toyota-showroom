@@ -128,7 +128,7 @@ become desirable.
 ## 5. Post-deploy verification
 
 1. **Health check:** `curl https://<worker>.workers.dev/api/v1/health` — `status: "ok"`,
-   `vehicleCount` matches `lib/data/vehicles/index.ts`'s `VEHICLES.length` (3 as of this writing).
+   `vehicleCount` matches `lib/data/vehicles/index.ts`'s `VEHICLES.length` (4 as of this writing).
 2. **A real write round-trip** (confirms the D1 binding, not just that the Worker booted):
    ```
    curl -X POST https://<worker>.workers.dev/api/v1/configurations \
