@@ -2,9 +2,10 @@ import type { Vehicle } from "../../types/vehicle";
 import { fourRunner } from "./4runner";
 import { tacoma } from "./tacoma";
 import { camry } from "./camry";
+import { ae86 } from "./ae86";
 
 /** Single source of truth for the vehicle catalog. Add new models here only. */
-export const VEHICLES: readonly Vehicle[] = [fourRunner, tacoma, camry];
+export const VEHICLES: readonly Vehicle[] = [fourRunner, tacoma, camry, ae86];
 
 export function getVehicleBySlug(slug: string): Vehicle | undefined {
   return VEHICLES.find((vehicle) => vehicle.slug === slug);
