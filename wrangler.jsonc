@@ -38,10 +38,9 @@
     {
       "binding": "DB",
       "database_name": "toyota-showroom",
-      // Placeholder — replace with the id `wrangler d1 create toyota-showroom` prints, or run
-      // `wrangler d1 create toyota-showroom --json` and copy `uuid` from the output. Not a secret;
-      // safe to commit once real (Cloudflare's D1 IDs are not credentials).
-      "database_id": "REPLACE_WITH_REAL_D1_DATABASE_ID",
+      // Real id, from `wrangler d1 create toyota-showroom` (docs/DEPLOYMENT_RUNBOOK.md §2).
+      // Not a secret — Cloudflare's D1 ids are not credentials, safe to commit.
+      "database_id": "2af4c97e-c69a-4882-9c6b-f09f32e39948",
       // Points Wrangler's own D1 migration runner (`wrangler d1 migrations apply`) at the same SQL
       // files drizzle-kit generates (`npm run db:generate` → db/migrations/*.sql), so there is one
       // migration source of truth rather than two competing migration tools.
@@ -76,11 +75,10 @@
         {
           "binding": "DB",
           "database_name": "toyota-showroom-staging",
-          // Placeholder, same as the production id above — replace with the id
-          // `wrangler d1 create toyota-showroom-staging` prints. A *separate* database from
-          // production's: staging is expected to be reset/reseeded freely, which production must
-          // never be.
-          "database_id": "REPLACE_WITH_REAL_STAGING_D1_DATABASE_ID",
+          // Real id, from `wrangler d1 create toyota-showroom-staging`. A *separate* database
+          // from production's: staging is expected to be reset/reseeded freely, which production
+          // must never be.
+          "database_id": "4acd8ec7-26f2-40c0-b2d6-31377f395089",
           "migrations_dir": "db/migrations"
         }
       ],

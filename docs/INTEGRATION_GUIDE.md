@@ -1358,10 +1358,15 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   in its own `WHERE` clause as a safety net, but the preceding existence/ownership read is a separate
   statement from the write batch — see §5's "Persistence" note. Acceptable for this workload; would
   need revisiting under real write contention.
-- **`wrangler.jsonc`'s `database_id` is still a placeholder.** Everything downstream (the repository,
-  the migration, `instrumentation.ts`'s binding logic) is implemented and verified against a real
-  local D1 instance; only `wrangler d1 create toyota-showroom` against an actual Cloudflare account
-  — which this environment has no credentials for — remains to make it live in production.
+- **`wrangler.jsonc`'s `database_id`s are real, but the databases behind them are still empty.**
+  Both `toyota-showroom` and `toyota-showroom-staging` were created for real (via the Cloudflare
+  Developer Platform MCP connector's `d1_database_create`, not the `wrangler` CLI — see
+  `docs/DEPLOYMENT_RUNBOOK.md` §2/§3), so the placeholder ids are gone. What's still open: no
+  migration has been applied to either remote database yet (`npm run db:migrate:remote` /
+  `db:migrate:staging`), and an actual `npm run deploy` still needs real `wrangler`-CLI credentials
+  (`CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`) — the MCP connector that created the databases is
+  a separate, narrower grant (D1/KV/R2/Workers resource management only, no deploy/publish tool and
+  no way to export a usable token) and does not substitute for those.
 - **Tacoma and Camry render the procedural fallback vehicle, not a real model.** Neither has a GLB in
   this repo (`threeDConfig.hasModel: false`), so both use `createProceduralVehicle()`
   (`lib/three/proceduralParts.ts`) — a low-detail stand-in, not a placeholder-only state. Their
@@ -1378,8 +1383,8 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   note) — persists to `window.localStorage`, so a link shared from that deployment only opens
   correctly in the same browser that created it. On the Cloudflare Worker + D1 deployment (§5,
   "Persistence"), the configuration is server-side and the link works everywhere. Not fixable
-  without a real backend, which is the same standing dependency the D1 `database_id` placeholder
-  already documents above.
+  without a real, deployed backend — the same standing dependency the bullet above (real D1
+  databases exist now, but nothing has migrated or deployed to them yet) already documents.
 - **Calipers were repositioned and donor geometry deleted at the GLB source** (§1, "Fixing the
   donor geometry at the source"), not just hidden at runtime anymore. What's still genuinely open:
   the calipers' own local geometry/orientation was never visually re-verified up close (no Blender,
@@ -1468,9 +1473,10 @@ own D1 database, its own rate-limiter namespace (`1002`, distinct from productio
 namespace id is account-scoped, not Worker-scoped, so reusing production's would mean a PR's
 staging traffic and production traffic drew from the same 30-writes/minute budget). Both the
 migration and deploy steps are skipped — not failed — when `CLOUDFLARE_API_TOKEN` /
-`CLOUDFLARE_ACCOUNT_ID` repository secrets aren't set, logged via `::notice::` rather than a red X,
-the same posture `wrangler.jsonc`'s placeholder `database_id`s already take toward credentials this
-environment doesn't have. To actually make this deploy something:
+`CLOUDFLARE_ACCOUNT_ID` repository secrets aren't set, logged via `::notice::` rather than a red X —
+the same posture toward credentials this environment doesn't have that §1's D1 note takes (both
+databases are real now; the `wrangler`-CLI-authenticated deploy/migrate credentials still aren't).
+To actually make this deploy something:
 
 1. `wrangler d1 create toyota-showroom-staging`, paste the id into
    `wrangler.jsonc`'s `env.staging.d1_databases[0].database_id`.
@@ -1700,10 +1706,10 @@ first place — `wrangler.jsonc`'s own comment already documents why: the base G
 Static Assets' 25 MiB single-file cap, even after §15's compression (28.1 MiB, still over). So
 `public/_headers`, below, is real, correct, verified-against-the-actual-build config with **no live
 effect on any deployment this repo currently has running** — the same class of standing,
-infrastructure-gated gap as the D1 `database_id` placeholder (§1) and the staging Worker's
-credential-gated deploy (§12). It activates automatically, with no further code change, the day
-either this project's static site moves to a Cloudflare-hosted target, or the GLB drops under the
-25 MiB Workers Static Assets cap.
+infrastructure-gated gap as the D1 databases existing but not yet migrated-to-or-deployed-against
+(§1) and the staging Worker's credential-gated deploy (§12). It activates automatically, with no
+further code change, the day either this project's static site moves to a Cloudflare-hosted target,
+or the GLB drops under the 25 MiB Workers Static Assets cap.
 
 **What it does, once live.** `public/` (copied verbatim into `dist/client` by vinext's build, same
 as `public/draco/`'s vendored decoder files) already gets one `_headers` rule generated
