@@ -12,6 +12,23 @@ export function estimateBuildTotal(baseMsrp: number, catalog: CustomizationOptio
   return baseMsrp + catalog.reduce((total, option) => total + (selected.has(option.id) ? (option.priceDelta ?? 0) : 0), 0);
 }
 
+/**
+ * Standard amortizing-loan monthly payment: M = P * r(1+r)^n / ((1+r)^n - 1), where `r` is the
+ * monthly interest rate and `n` the term in months. Falls back to a straight-line P/n split when
+ * `aprPercent` is 0, since the amortization formula divides by zero there.
+ *
+ * An estimate only — real financing terms depend on credit, lender, and incentives this catalog
+ * has no data for, same disclaimer this repo already applies to MSRP figures themselves.
+ */
+export function estimateMonthlyPayment(principal: number, aprPercent: number, termMonths: number): number {
+  if (principal <= 0 || termMonths <= 0) return 0;
+  if (aprPercent <= 0) return principal / termMonths;
+
+  const monthlyRate = aprPercent / 100 / 12;
+  const factor = Math.pow(1 + monthlyRate, termMonths);
+  return (principal * monthlyRate * factor) / (factor - 1);
+}
+
 export function createConfigurationShareUrl(origin: string, pathname: string, configurationId: string): string {
   return `${origin}${pathname}#configuration=${encodeURIComponent(configurationId)}`;
 }

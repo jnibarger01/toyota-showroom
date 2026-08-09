@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, GitCompare, Loader2, Truck } from "lucide-react";
+import { ChevronLeft, ChevronRight, GitCompare, Loader2, Truck, X } from "lucide-react";
 import { listVehicles, pageUrl, MAX_COMPARE } from "../../lib/api/client";
-import { matchesFilters, paginateAndFilter, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from "../../lib/api/query";
-import type { BodyStyle, VehicleSummary } from "../../lib/types/vehicle";
+import { matchesFilters, paginateAndFilter, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, type VehicleFilters } from "../../lib/api/query";
+import type { BodyStyle, PowertrainType, VehicleSummary } from "../../lib/types/vehicle";
 
 const BODY_STYLE_LABELS: Record<BodyStyle, string> = {
   suv: "SUV",
@@ -14,6 +14,13 @@ const BODY_STYLE_LABELS: Record<BodyStyle, string> = {
   crossover: "Crossover",
   coupe: "Coupe",
   hatchback: "Hatchback",
+};
+
+const POWERTRAIN_LABELS: Record<PowertrainType, string> = {
+  gas: "Gas",
+  hybrid: "Hybrid",
+  phev: "Plug-in Hybrid",
+  bev: "Electric",
 };
 
 const AVAILABILITY_LABELS: Record<VehicleSummary["availability"], string> = {
@@ -26,6 +33,10 @@ export default function ExplorePage() {
   const [allSummaries, setAllSummaries] = useState<VehicleSummary[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [bodyStyle, setBodyStyle] = useState<BodyStyle | null>(null);
+  const [powertrainTypes, setPowertrainTypes] = useState<PowertrainType[]>([]);
+  const [minPrice, setMinPrice] = useState<number | null>(null);
+  const [maxPrice, setMaxPrice] = useState<number | null>(null);
+  const [minSeating, setMinSeating] = useState<number | null>(null);
   const [compareSlugs, setCompareSlugs] = useState<string[]>([]);
   const [page, setPage] = useState(1);
 
@@ -51,23 +62,57 @@ export default function ExplorePage() {
     [allSummaries],
   );
 
+  const powertrainOptions = useMemo(
+    () => Array.from(new Set((allSummaries ?? []).flatMap((summary) => summary.powertrainTypes))).sort(),
+    [allSummaries],
+  );
+
+  // Combines every facet into the one `VehicleFilters` shape `matchesFilters` (lib/api/query.ts)
+  // already understands server-side — the same object the API's own query params resolve to, so a
+  // chip here and a `?minSeating=` URL param can never disagree about what counts as a match.
+  const facetFilters: VehicleFilters = useMemo(
+    () => ({
+      ...(bodyStyle ? { bodyStyle: [bodyStyle] } : {}),
+      ...(powertrainTypes.length ? { powertrainType: powertrainTypes } : {}),
+      ...(minPrice !== null ? { minPrice } : {}),
+      ...(maxPrice !== null ? { maxPrice } : {}),
+      ...(minSeating !== null ? { minSeating } : {}),
+    }),
+    [bodyStyle, powertrainTypes, minPrice, maxPrice, minSeating],
+  );
+  const hasActiveFacets = Object.keys(facetFilters).length > 0;
+
   const filtered = useMemo(
-    () =>
-      (allSummaries ?? []).filter(
-        (summary) => !bodyStyle || matchesFilters(summary, { bodyStyle: [bodyStyle] }),
-      ),
-    [allSummaries, bodyStyle],
+    () => (allSummaries ?? []).filter((summary) => matchesFilters(summary, facetFilters)),
+    [allSummaries, facetFilters],
   );
 
   // A filter change can leave `page` pointing past the new, smaller result set (e.g. on page 3 of
-  // "All", then switching to a body style with only one page) — reset during render rather than in
-  // an effect (React's own recommended "adjusting state when a prop changes" pattern: an effect
-  // here would let a stale page briefly render, then commit a second time to fix it).
-  const [prevBodyStyle, setPrevBodyStyle] = useState(bodyStyle);
-  if (bodyStyle !== prevBodyStyle) {
-    setPrevBodyStyle(bodyStyle);
+  // "All", then narrowing to a facet combination with only one page) — reset during render rather
+  // than in an effect (React's own recommended "adjusting state when a prop changes" pattern: an
+  // effect here would let a stale page briefly render, then commit a second time to fix it).
+  // Keyed on the combined filter object (not just `bodyStyle` alone) so every facet — powertrain,
+  // price, seating — triggers the same reset, not only the original body-style chips.
+  const filtersKey = JSON.stringify(facetFilters);
+  const [prevFiltersKey, setPrevFiltersKey] = useState(filtersKey);
+  if (filtersKey !== prevFiltersKey) {
+    setPrevFiltersKey(filtersKey);
     setPage(1);
   }
+
+  const togglePowertrain = (type: PowertrainType) => {
+    setPowertrainTypes((current) =>
+      current.includes(type) ? current.filter((t) => t !== type) : [...current, type],
+    );
+  };
+
+  const clearFacets = () => {
+    setBodyStyle(null);
+    setPowertrainTypes([]);
+    setMinPrice(null);
+    setMaxPrice(null);
+    setMinSeating(null);
+  };
 
   // Filtering happens above, over the full catalog (needed so the body-style chips always show
   // every style the lineup offers — see the fetch effect's own comment). Pagination is a second,
@@ -121,6 +166,76 @@ export default function ExplorePage() {
               {BODY_STYLE_LABELS[style]}
             </button>
           ))}
+        </div>
+      ) : null}
+
+      {allSummaries !== null ? (
+        <div className="explore-facets">
+          {powertrainOptions.length > 1 ? (
+            <div className="explore-facet" role="group" aria-label="Filter by powertrain">
+              <span className="explore-facet-label">Powertrain</span>
+              <div className="explore-facet-checks">
+                {powertrainOptions.map((type) => (
+                  <label key={type}>
+                    <input
+                      type="checkbox"
+                      checked={powertrainTypes.includes(type)}
+                      onChange={() => togglePowertrain(type)}
+                    />
+                    {POWERTRAIN_LABELS[type]}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="explore-facet">
+            <span className="explore-facet-label">Price</span>
+            <div className="explore-facet-range">
+              <input
+                type="number"
+                inputMode="numeric"
+                placeholder="Min"
+                aria-label="Minimum price"
+                min={0}
+                step="1000"
+                value={minPrice ?? ""}
+                onChange={(event) => setMinPrice(event.target.value === "" ? null : Number(event.target.value))}
+              />
+              <span>&ndash;</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                placeholder="Max"
+                aria-label="Maximum price"
+                min={0}
+                step="1000"
+                value={maxPrice ?? ""}
+                onChange={(event) => setMaxPrice(event.target.value === "" ? null : Number(event.target.value))}
+              />
+            </div>
+          </div>
+
+          <div className="explore-facet">
+            <label className="explore-facet-label" htmlFor="explore-min-seating">Min. seating</label>
+            <input
+              id="explore-min-seating"
+              type="number"
+              inputMode="numeric"
+              placeholder="Any"
+              min={0}
+              max={9}
+              step="1"
+              value={minSeating ?? ""}
+              onChange={(event) => setMinSeating(event.target.value === "" ? null : Number(event.target.value))}
+            />
+          </div>
+
+          {hasActiveFacets ? (
+            <button className="explore-facet-clear" onClick={clearFacets}>
+              <X size={13} /> Clear filters
+            </button>
+          ) : null}
         </div>
       ) : null}
 
