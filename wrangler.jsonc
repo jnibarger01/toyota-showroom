@@ -16,7 +16,7 @@
     {
       "binding": "DB",
       "database_name": "toyota-showroom-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "2af4c97e-c69a-4882-9c6b-f09f32e39948",
       "migrations_dir": "db/migrations"
     }
   ]
