@@ -110,11 +110,14 @@ no access to GitHub, and doesn't expose a token this could paste in even if it d
      creation UI).
    - `CLOUDFLARE_ACCOUNT_ID` — found on any Cloudflare dashboard page's right sidebar.
 
-   Until both are set, `deploy-staging.yml` logs `::notice::` and skips (not fails) its migration
-   and deploy steps — real, deliberate degradation, not a bug to chase.
+   Until both are set, `deploy-staging.yml`'s "Require Cloudflare credentials" step fails the check
+   with `::error::` naming the missing secret — every PR's "Deploy Staging Worker" check is red
+   until this step runs. (Earlier revisions of this workflow logged `::notice::` and skipped
+   instead of failing; that was changed deliberately to make the missing secrets visible as a red
+   check rather than an easy-to-miss log line.)
 
 4. **Verify:** open any pull request against `main`; the "Deploy Staging Worker" check should show
-   green with real migration/deploy log output rather than the skip notice.
+   green with real migration/deploy log output rather than the `::error::`.
 
 Nothing else needs manual staging deploys after this — every PR gets its own fresh deploy to the
 same `toyota-showroom-staging` Worker automatically.

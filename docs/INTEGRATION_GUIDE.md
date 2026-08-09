@@ -1472,10 +1472,13 @@ D1 migrations to a separate `toyota-showroom-staging` database, then deploys the
 own D1 database, its own rate-limiter namespace (`1002`, distinct from production's `1001` — a
 namespace id is account-scoped, not Worker-scoped, so reusing production's would mean a PR's
 staging traffic and production traffic drew from the same 30-writes/minute budget). Both the
-migration and deploy steps are skipped — not failed — when `CLOUDFLARE_API_TOKEN` /
-`CLOUDFLARE_ACCOUNT_ID` repository secrets aren't set, logged via `::notice::` rather than a red X —
-the same posture toward credentials this environment doesn't have that §1's D1 note takes (both
-databases are real now; the `wrangler`-CLI-authenticated deploy/migrate credentials still aren't).
+migration and deploy steps never run — a "Require Cloudflare credentials" step fails the check
+outright with `::error::` when `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repository secrets
+aren't set, so every PR's "Deploy Staging Worker" check is red until they are. (An earlier revision
+skipped gracefully with `::notice::` instead of failing; changed deliberately so the missing
+secrets show up as a red check, not an easy-to-miss log line.) Same underlying gap §1's D1 note
+takes toward credentials this environment doesn't have — both databases are real now; the
+`wrangler`-CLI-authenticated deploy/migrate credentials still aren't.
 To actually make this deploy something (this repo's own `env.staging.d1_databases[0].database_id`
 is already real — §2's "Status" note — so only the second step is left here):
 
