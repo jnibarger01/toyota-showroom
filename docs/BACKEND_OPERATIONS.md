@@ -55,11 +55,24 @@ Merging to `main` triggers `.github/workflows/deploy-worker.yml`. It runs typech
 production build; applies all D1 migrations; configures the optional write secret; then deploys with
 the repository's installed vinext adapter.
 
-A manual deployment uses the same order:
+A manual deployment must materialize the real D1 id before running Wrangler. Never run migrations against the committed placeholder:
 
 ```bash
-npx wrangler d1 migrations apply DB --remote
-npx vinext deploy
+export CLOUDFLARE_D1_DATABASE_ID="<production-d1-uuid>"
+node --input-type=module <<'NODE'
+import { readFile, writeFile } from "node:fs/promises";
+const path = "wrangler.jsonc";
+const source = await readFile(path, "utf8");
+if (!process.env.CLOUDFLARE_D1_DATABASE_ID) throw new Error("CLOUDFLARE_D1_DATABASE_ID is required");
+const rendered = source.replaceAll(
+  "00000000-0000-0000-0000-000000000000",
+  process.env.CLOUDFLARE_D1_DATABASE_ID,
+);
+if (rendered === source) throw new Error("No D1 placeholder found");
+await writeFile(path, rendered);
+NODE
+npx wrangler d1 migrations apply DB --remote --config wrangler.jsonc
+npx vinext deploy --skip-build
 ```
 
 ## Rollback
