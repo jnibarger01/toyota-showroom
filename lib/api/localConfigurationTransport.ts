@@ -68,6 +68,16 @@ export const localConfigurationTransport = {
     return record;
   },
 
+  has(configurationId: string): boolean {
+    return Boolean(readStore()[configurationId]);
+  },
+
+  seed(configuration: VehicleConfiguration): void {
+    const store = readStore();
+    store[configuration.configurationId] = configuration;
+    writeStore(store);
+  },
+
   async get(configurationId: string): Promise<VehicleConfiguration> {
     const record = readStore()[configurationId];
     if (!record) throw notFound(`No configuration found with id "${configurationId}".`);
