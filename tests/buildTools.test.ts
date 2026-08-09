@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateBuildProgress, createConfigurationShareUrl, createRandomSelections, estimateBuildTotal, filterBuildOptions, formatBuildSummary, readSharedConfigurationId } from "../lib/showroom/buildTools";
+import { calculateBuildProgress, createConfigurationShareUrl, createRandomSelections, estimateBuildTotal, estimateMonthlyPayment, filterBuildOptions, formatBuildSummary, readSharedConfigurationId } from "../lib/showroom/buildTools";
 
 describe("showroom build tools", () => {
   it("calculates a configuration total from selected catalog options", () => {
@@ -33,5 +33,20 @@ describe("showroom build tools", () => {
   it("creates deterministic random selections and a portable summary", () => {
     expect(createRandomSelections(catalog, () => 0)).toEqual({ paint: ["paint"], accessory: ["rack"] });
     expect(formatBuildSummary("2024 Toyota 4Runner", 50_000, catalog, configuration)).toContain("Estimated total: $50,700");
+  });
+
+  it("estimates a monthly financing payment via standard amortization", () => {
+    // $30,000 at 6% APR over 60 months — a commonly-cited reference figure for this exact loan.
+    expect(estimateMonthlyPayment(30_000, 6, 60)).toBeCloseTo(579.98, 1);
+  });
+
+  it("falls back to a straight-line split at 0% APR, where the amortization formula divides by zero", () => {
+    expect(estimateMonthlyPayment(12_000, 0, 12)).toBe(1000);
+  });
+
+  it("returns 0 for a non-positive principal or term rather than dividing by zero or going negative", () => {
+    expect(estimateMonthlyPayment(0, 6, 60)).toBe(0);
+    expect(estimateMonthlyPayment(30_000, 6, 0)).toBe(0);
+    expect(estimateMonthlyPayment(-500, 6, 60)).toBe(0);
   });
 });

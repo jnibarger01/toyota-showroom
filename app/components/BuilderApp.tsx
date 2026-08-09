@@ -13,6 +13,7 @@ import {
   CircleGauge,
   Cog,
   Expand,
+  Landmark,
   Lightbulb,
   Loader2,
   Mountain,
@@ -52,6 +53,7 @@ import {
   createConfigurationShareUrl,
   createRandomSelections,
   estimateBuildTotal,
+  estimateMonthlyPayment,
   filterBuildOptions,
   formatBuildSummary,
   readSharedConfigurationId,
@@ -122,6 +124,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [optionQuery, setOptionQuery] = useState("");
   const [selectedOnly, setSelectedOnly] = useState(false);
   const [budget, setBudget] = useState(65_000);
+  const [downPayment, setDownPayment] = useState(0);
+  const [apr, setApr] = useState(6.9);
+  const [termMonths, setTermMonths] = useState(60);
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
   const [tourOpen, setTourOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -280,6 +285,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const estimatedTotal = useMemo(() => estimateBuildTotal(startingMsrp(bootstrap?.vehicle ?? null), catalog, configuration), [bootstrap, catalog, configuration]);
   const buildProgress = calculateBuildProgress(configuration);
   const overBudget = estimatedTotal > budget;
+  // A page-local preview, like `lift`/`terrain` above — not part of the persisted
+  // `VehicleConfiguration` (lib/types/customization.ts), same reasoning: this is a what-if
+  // calculator over the current estimate, not a saved customization.
+  const financedPrincipal = Math.max(0, estimatedTotal - downPayment);
+  const estimatedMonthlyPayment = useMemo(
+    () => estimateMonthlyPayment(financedPrincipal, apr, termMonths),
+    [financedPrincipal, apr, termMonths],
+  );
 
   const rememberHistory = useCallback(() => {
     if (!configuration) return;
@@ -653,6 +666,27 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           </section>
           <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>${startingMsrp(vehicle).toLocaleString()}</b></p><p><span>Configured upgrades</span><b>+${(estimatedTotal - startingMsrp(vehicle)).toLocaleString()}</b></p><p className="total"><span>Estimated total</span><b>${estimatedTotal.toLocaleString()}</b></p></section>
           <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={startingMsrp(vehicle)} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `$${(estimatedTotal - budget).toLocaleString()} over target` : `$${(budget - estimatedTotal).toLocaleString()} remaining`}</p></section>
+          <section className="financing-card">
+            <div><Landmark size={16} /><strong>Estimated financing</strong></div>
+            <div className="financing-inputs">
+              <label htmlFor="financing-down">
+                Down payment
+                <div><span>$</span><input id="financing-down" type="number" min={0} max={estimatedTotal} step="500" value={downPayment} onChange={(event) => setDownPayment(Math.max(0, Number(event.target.value)))} /></div>
+              </label>
+              <label htmlFor="financing-apr">
+                APR
+                <div><input id="financing-apr" type="number" min={0} max={30} step="0.1" value={apr} onChange={(event) => setApr(Math.max(0, Number(event.target.value)))} /><span>%</span></div>
+              </label>
+              <label htmlFor="financing-term">
+                Term
+                <select id="financing-term" value={termMonths} onChange={(event) => setTermMonths(Number(event.target.value))}>
+                  {[36, 48, 60, 72].map((months) => <option key={months} value={months}>{months} mo</option>)}
+                </select>
+              </label>
+            </div>
+            <p className="total"><span>Est. monthly payment</span><b>${estimatedMonthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo</b></p>
+            <p className="financing-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender.</p>
+          </section>
         </aside>
       </section>
     </main>
