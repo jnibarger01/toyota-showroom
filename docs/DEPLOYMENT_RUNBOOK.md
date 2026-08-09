@@ -37,6 +37,15 @@ is never required for the site to function.
 
 Run once, when standing up the Worker for the first time. All commands run from the repo root.
 
+**Status in this repo:** steps 1–2 are done — `toyota-showroom` (`2af4c97e-c69a-4882-9c6b-f09f32e39948`)
+was created via the Cloudflare Developer Platform MCP connector's `d1_database_create` (a real
+Cloudflare account, reached through a connector grant rather than an authenticated local `wrangler`
+CLI) and the id is already wired into `wrangler.jsonc`. Steps 3–4 are still open: no migration has
+been applied to it yet, and nothing has deployed the Worker — that connector has no migration/deploy
+tool, only D1/KV/R2/Workers resource management, so those steps still need real `wrangler`-CLI
+credentials. Left below as the general procedure for reproducing this (e.g. a from-scratch clone,
+or rotating to a new database).
+
 1. **Create the D1 database:**
    ```
    npx wrangler d1 create toyota-showroom
@@ -82,6 +91,11 @@ Run once, when standing up the Worker for the first time. All commands run from 
 Staging deploys automatically from `.github/workflows/deploy-staging.yml` on every pull request
 against `main`, but needs the same real-resource setup once before it can do anything:
 
+**Status in this repo:** step 1 is done — `toyota-showroom-staging`
+(`4acd8ec7-26f2-40c0-b2d6-31377f395089`) exists and step 2's id is already wired in. Step 3 (the
+GitHub repository secrets) is still open — the Cloudflare connector that created the database has
+no access to GitHub, and doesn't expose a token this could paste in even if it did.
+
 1. **Create a separate staging D1 database** (never share production's — staging is expected to be
    reset/reseeded freely):
    ```
@@ -96,11 +110,14 @@ against `main`, but needs the same real-resource setup once before it can do any
      creation UI).
    - `CLOUDFLARE_ACCOUNT_ID` — found on any Cloudflare dashboard page's right sidebar.
 
-   Until both are set, `deploy-staging.yml` logs `::notice::` and skips (not fails) its migration
-   and deploy steps — real, deliberate degradation, not a bug to chase.
+   Until both are set, `deploy-staging.yml`'s "Require Cloudflare credentials" step fails the check
+   with `::error::` naming the missing secret — every PR's "Deploy Staging Worker" check is red
+   until this step runs. (Earlier revisions of this workflow logged `::notice::` and skipped
+   instead of failing; that was changed deliberately to make the missing secrets visible as a red
+   check rather than an easy-to-miss log line.)
 
 4. **Verify:** open any pull request against `main`; the "Deploy Staging Worker" check should show
-   green with real migration/deploy log output rather than the skip notice.
+   green with real migration/deploy log output rather than the `::error::`.
 
 Nothing else needs manual staging deploys after this — every PR gets its own fresh deploy to the
 same `toyota-showroom-staging` Worker automatically.
@@ -181,15 +198,29 @@ re-run a prior successful "Deploy Toyota Showroom" workflow run from the Actions
   a config with an assets directory reproduces "Asset too large" for real). Until the GLB drops
   under that cap, GitHub Pages remains the only static-site target — this is why `public/_headers`
   (§17) has no live effect anywhere yet.
-- **`database_id` placeholders.** A fresh clone's `wrangler.jsonc` ships
-  `REPLACE_WITH_REAL_D1_DATABASE_ID` / `REPLACE_WITH_REAL_STAGING_D1_DATABASE_ID` literally.
+- **`database_id` placeholders (historical — resolved in this repo, still a real trap elsewhere).**
+  A repo that hasn't run §2/§3 yet ships `REPLACE_WITH_REAL_D1_DATABASE_ID` /
+  `REPLACE_WITH_REAL_STAGING_D1_DATABASE_ID` literally in `wrangler.jsonc`.
   `wrangler deploy --dry-run` doesn't catch this (confirmed: it compiles and lists bindings against
   the placeholder string without ever validating it against Cloudflare's API) — the actual failure
-  only surfaces on a real, authenticated `deploy` or `d1 migrations apply --remote`, which this
-  environment has no credentials to reproduce. Cloudflare's own D1 lookup error is the expected
-  shape (something to the effect of "couldn't find a D1 database" naming the bad id), not confirmed
-  verbatim here; either way, that string in `wrangler.jsonc` still present at deploy time is the
-  signal this runbook's one-time setup (§2/§3) hasn't run yet.
+  only surfaces on a real, authenticated `deploy` or `d1 migrations apply --remote`. Cloudflare's own
+  D1 lookup error is the expected shape (something to the effect of "couldn't find a D1 database"
+  naming the bad id), not confirmed verbatim here; either way, that string still present in
+  `wrangler.jsonc` at deploy time is the signal §2/§3 hasn't run yet. This repo's own ids are real as
+  of the databases created in §2/§3's "Status" notes — the applies-migrations-and-deploys steps
+  after id-wiring are the part still open, tracked there and in `docs/INTEGRATION_GUIDE.md`'s Known
+  Gaps list, not this placeholder.
+  **A sharper version of this trap for anyone cloning or forking this repo under a *different*
+  Cloudflare account than the one that created these ids:** the committed `database_id`s are no
+  longer the obviously-fake `REPLACE_WITH_REAL_*` strings — they're real UUIDs, so nothing about
+  them *looks* wrong, and the placeholder-detection reasoning above doesn't apply. But they name
+  databases in someone else's account. `wrangler deploy --dry-run` still won't catch this (same
+  reason: no API validation), and a real, authenticated deploy/migrate against them will fail with
+  a permissions/not-found error that has nothing to do with the ids being malformed — it'll look
+  like an auth problem, not a config problem. If you don't recognize the ids in `wrangler.jsonc` as
+  ones you created, that's the tell: run §2/§3 for real under your own account and replace both
+  committed ids with your own before attempting a deploy or migration, don't assume they're
+  reusable just because they parse as valid UUIDs.
 - **Wrong D1 binding after a deploy** (health check green, writes 500): almost always means
   `--config wrangler.jsonc` was omitted and the previous gotcha's redirected config was used
   instead. Redeploy with the explicit flag.
