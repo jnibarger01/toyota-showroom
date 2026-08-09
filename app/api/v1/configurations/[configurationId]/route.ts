@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ApiError, invalidBody, notFound, toErrorBody } from "../../../../../lib/api/errors";
+import { ApiError, invalidBody, notFound, serviceUnavailable, toErrorBody } from "../../../../../lib/api/errors";
 import {
   getConfigurationRepository,
   type ConfigurationRepository,
@@ -63,11 +63,15 @@ export async function GET(
     const repository = await getConfigurationRepository();
     return respond(request, await requireConfiguration(repository, configurationId));
   } catch (err) {
-    if (err instanceof ApiError) return apiErrorResponse(request, err);
-    log("error", "configuration.read_failed", request, {
-      error: err instanceof Error ? err.message : String(err),
+    const apiError = err instanceof ApiError
+      ? err
+      : serviceUnavailable("The configuration service is temporarily unavailable.");
+    log(err instanceof ApiError ? "warn" : "error", "configuration.read_failed", request, {
+      code: apiError.code,
+      status: apiError.status,
+      ...(err instanceof ApiError ? {} : { error: err instanceof Error ? err.message : String(err) }),
     });
-    throw err;
+    return apiErrorResponse(request, apiError);
   }
 }
 
@@ -101,10 +105,13 @@ export async function PATCH(
       log("warn", "configuration.update_rejected", request, { code: err.code, status: err.status });
       return apiErrorResponse(request, err);
     }
+    const apiError = serviceUnavailable("The configuration service is temporarily unavailable.");
     log("error", "configuration.update_failed", request, {
+      code: apiError.code,
+      status: apiError.status,
       error: err instanceof Error ? err.message : String(err),
     });
-    throw err;
+    return apiErrorResponse(request, apiError);
   }
 }
 
@@ -126,9 +133,12 @@ export async function DELETE(
       log("warn", "configuration.delete_rejected", request, { code: err.code, status: err.status });
       return apiErrorResponse(request, err);
     }
+    const apiError = serviceUnavailable("The configuration service is temporarily unavailable.");
     log("error", "configuration.delete_failed", request, {
+      code: apiError.code,
+      status: apiError.status,
       error: err instanceof Error ? err.message : String(err),
     });
-    throw err;
+    return apiErrorResponse(request, apiError);
   }
 }
