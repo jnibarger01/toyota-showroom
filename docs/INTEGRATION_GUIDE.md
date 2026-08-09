@@ -1476,10 +1476,17 @@ migration and deploy steps are skipped — not failed — when `CLOUDFLARE_API_T
 `CLOUDFLARE_ACCOUNT_ID` repository secrets aren't set, logged via `::notice::` rather than a red X —
 the same posture toward credentials this environment doesn't have that §1's D1 note takes (both
 databases are real now; the `wrangler`-CLI-authenticated deploy/migrate credentials still aren't).
-To actually make this deploy something:
+To actually make this deploy something (this repo's own `env.staging.d1_databases[0].database_id`
+is already real — §2's "Status" note — so only the second step is left here):
 
 1. `wrangler d1 create toyota-showroom-staging`, paste the id into
-   `wrangler.jsonc`'s `env.staging.d1_databases[0].database_id`.
+   `wrangler.jsonc`'s `env.staging.d1_databases[0].database_id`. Skip this if that field already
+   holds a real UUID and it's one *your* Cloudflare account created — re-running it against a name
+   that already exists in that account fails on a conflict rather than doing anything useful. If
+   you're deploying this repo under a *different* Cloudflare account than the one that created the
+   committed id, this step isn't optional: create your own database and replace the committed id,
+   the same way `docs/DEPLOYMENT_RUNBOOK.md`'s "Known gotchas" section explains for §2's production
+   id.
 2. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets (Settings → Secrets
    and variables → Actions).
 

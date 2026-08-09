@@ -207,6 +207,17 @@ re-run a prior successful "Deploy Toyota Showroom" workflow run from the Actions
   of the databases created in §2/§3's "Status" notes — the applies-migrations-and-deploys steps
   after id-wiring are the part still open, tracked there and in `docs/INTEGRATION_GUIDE.md`'s Known
   Gaps list, not this placeholder.
+  **A sharper version of this trap for anyone cloning or forking this repo under a *different*
+  Cloudflare account than the one that created these ids:** the committed `database_id`s are no
+  longer the obviously-fake `REPLACE_WITH_REAL_*` strings — they're real UUIDs, so nothing about
+  them *looks* wrong, and the placeholder-detection reasoning above doesn't apply. But they name
+  databases in someone else's account. `wrangler deploy --dry-run` still won't catch this (same
+  reason: no API validation), and a real, authenticated deploy/migrate against them will fail with
+  a permissions/not-found error that has nothing to do with the ids being malformed — it'll look
+  like an auth problem, not a config problem. If you don't recognize the ids in `wrangler.jsonc` as
+  ones you created, that's the tell: run §2/§3 for real under your own account and replace both
+  committed ids with your own before attempting a deploy or migration, don't assume they're
+  reusable just because they parse as valid UUIDs.
 - **Wrong D1 binding after a deploy** (health check green, writes 500): almost always means
   `--config wrangler.jsonc` was omitted and the previous gotcha's redirected config was used
   instead. Redeploy with the explicit flag.
