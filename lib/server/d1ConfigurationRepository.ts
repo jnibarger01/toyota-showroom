@@ -108,8 +108,8 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
         WHERE id = ? AND revision = ?`).bind(selections, cameraState, next.revision, now.getTime(), configurationId, existing.revision),
       this.binding.prepare(`INSERT INTO configuration_revisions
         (id, configuration_id, revision, selections, camera_state, created_at)
-        SELECT ?, id, ?, ?, ?, ? FROM configurations WHERE id = ? AND revision = ?`).bind(
-          newId("rev"), next.revision, selections, cameraState, now.getTime(), configurationId, next.revision),
+        SELECT ?, ?, ?, ?, ?, ? WHERE changes() = 1`).bind(
+          newId("rev"), configurationId, next.revision, selections, cameraState, now.getTime()),
     ]));
     if (changedRows(updateResult) !== 1 || changedRows(historyResult) !== 1) {
       const current = await this.get(configurationId);
