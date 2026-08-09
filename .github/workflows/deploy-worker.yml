@@ -20,7 +20,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CLOUDFLARE_D1_DATABASE_ID: ${{ secrets.CLOUDFLARE_D1_DATABASE_ID }}
       WRITE_API_KEY: ${{ secrets.WRITE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -40,19 +39,6 @@ jobs:
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
-          test -n "$CLOUDFLARE_D1_DATABASE_ID" || { echo "Missing CLOUDFLARE_D1_DATABASE_ID"; exit 1; }
-      - name: Materialize production Wrangler config
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFile, writeFile } from "node:fs/promises";
-          const path = "wrangler.jsonc";
-          const source = await readFile(path, "utf8");
-          const rendered = source.replace(
-            "00000000-0000-0000-0000-000000000000",
-            process.env.CLOUDFLARE_D1_DATABASE_ID,
-          );
-          await writeFile(path, rendered);
-          NODE
       - name: Apply D1 migrations
         run: npx wrangler d1 migrations apply DB --remote --config wrangler.jsonc
       - name: Configure optional write API key
