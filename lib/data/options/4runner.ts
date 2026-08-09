@@ -108,6 +108,17 @@ export const fourRunnerOptions: CustomizationOption[] = [
     priceDelta: 520,
     compatibleVehicleIds: VEHICLE,
   },
+  {
+    id: "wheels-weisu-gunmetal",
+    category: "wheels",
+    label: "WEISU Gunmetal",
+    operation: "material-update",
+    targetNodes: WHEEL_NODES,
+    targetMaterials: WHEEL_MATERIALS,
+    materialConfig: { color: "#3f434a", metalness: 0.88, roughness: 0.26 },
+    priceDelta: 445,
+    compatibleVehicleIds: VEHICLE,
+  },
 
   // ----------------------------------------------------------------- trim
   // `tire.sidewall` is shared by all four KO3 nodes and by the hidden donor tyre. All four wheels
@@ -188,6 +199,24 @@ export const fourRunnerOptions: CustomizationOption[] = [
     operation: "mesh-visibility",
     targetNodes: ["ACCESSORY_ROCK_SLIDERS"],
     priceDelta: 890,
+    compatibleVehicleIds: VEHICLE,
+  },
+  {
+    id: "accessory-underglow",
+    category: "accessory",
+    label: "LED Underglow",
+    operation: "mesh-visibility",
+    targetNodes: ["ACCESSORY_UNDERGLOW"],
+    priceDelta: 450,
+    compatibleVehicleIds: VEHICLE,
+  },
+  {
+    id: "accessory-fog-lights",
+    category: "accessory",
+    label: "Auxiliary Fog Lights",
+    operation: "mesh-visibility",
+    targetNodes: ["ACCESSORY_FOG_LIGHTS"],
+    priceDelta: 320,
     compatibleVehicleIds: VEHICLE,
   },
 ];
