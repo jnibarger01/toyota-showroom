@@ -31,7 +31,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test -- --run
-      - run: npm run build
+      - name: Build Worker with origin-root base
+        run: npm run build
+        env:
+          VITE_BASE: /
       - name: Verify deployment secrets
         shell: bash
         run: |
