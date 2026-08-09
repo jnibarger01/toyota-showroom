@@ -48,7 +48,7 @@ test("an accessory selection survives a reload; lift height, which isn't part of
   await roofRack.click();
   await expect(roofRack).toHaveAttribute("aria-pressed", "true");
 
-  // Lift is plain component state (`BuilderApp.tsx`'s `useState(2)`), not part of
+  // Lift is plain component state (`BuilderApp.tsx`'s `useState(0)`), not part of
   // `VehicleConfiguration` — there is no `lift` field in the persisted schema
   // (`lib/types/customization.ts`) at all, so it's a page-local ride-height preview, not a saved
   // customization. Asserted explicitly below rather than assumed.
@@ -60,5 +60,5 @@ test("an accessory selection survives a reload; lift height, which isn't part of
   await page.getByRole("button", { name: /lighting/i }).click();
 
   await expect(page.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByRole("button", { name: '2"' })).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: '0"' })).toHaveClass(/active/);
 });

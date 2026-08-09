@@ -14,6 +14,8 @@ export const ACCESSORY_NODE_NAMES = {
   roofRack: "ACCESSORY_ROOF_RACK",
   lightBar: "ACCESSORY_LIGHT_BAR",
   rockSliders: "ACCESSORY_ROCK_SLIDERS",
+  underglow: "ACCESSORY_UNDERGLOW",
+  fogLights: "ACCESSORY_FOG_LIGHTS",
 } as const;
 
 /**
@@ -59,7 +61,35 @@ export function buildProceduralAccessories(root: THREE.Object3D): void {
     for (const z of [-0.72, 0.72]) sliders.add(positionedBox(0.1, 0.2, 0.08, 0.02, black, x * 0.91, 0.63, z));
   }
 
-  for (const group of [roofRack, lightBar, sliders]) {
+  // A low LED strip tracing the rocker panels and bumpers. Emissive-only (`MeshBasicMaterial`
+  // ignores scene lighting) so it reads as a lit LED under every environment preset, including
+  // Daytime, rather than a coloured panel that only glows once the lights turn moody.
+  const underglowMaterial = new THREE.MeshBasicMaterial({ color: "#5ad1ff", toneMapped: false });
+  const underglow = new THREE.Group();
+  underglow.name = ACCESSORY_NODE_NAMES.underglow;
+  for (const x of [-1.06, 1.06]) underglow.add(positionedBox(0.05, 0.04, 3.7, 0.015, underglowMaterial, x, 0.1, 0));
+  for (const z of [-2.28, 2.28]) underglow.add(positionedBox(1.9, 0.04, 0.05, 0.015, underglowMaterial, 0, 0.1, z));
+
+  // Auxiliary fog lamps at the front bumper corners. Unlike every other accessory here, these
+  // carry a real `PointLight` child, not just an emissive lens — selecting the option changes what
+  // the scene illuminates, not only what it displays.
+  const fogLights = new THREE.Group();
+  fogLights.name = ACCESSORY_NODE_NAMES.fogLights;
+  for (const x of [-0.62, 0.62]) {
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.05, 16), amber);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(x, 0.36, 2.26);
+    fogLights.add(lens);
+
+    const lamp = new THREE.PointLight("#ffdca8", 3, 5, 2);
+    lamp.position.set(x, 0.36, 2.3);
+    // Small accent lights, not the scene's shadow-casting key — a shadow-mapped point light is a
+    // cube-map render per lamp per frame, real cost for a purely decorative accessory.
+    lamp.castShadow = false;
+    fogLights.add(lamp);
+  }
+
+  for (const group of [roofRack, lightBar, sliders, underglow, fogLights]) {
     group.visible = false;
     group.traverse((object) => {
       if (object instanceof THREE.Mesh) {

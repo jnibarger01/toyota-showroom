@@ -105,22 +105,52 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       controls.target.set(...cameraPreset.target);
       controlsRef.current = controls;
 
-      const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 2.5);
+      const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 1.8);
       scene.add(hemi);
 
-      const key = new THREE.DirectionalLight("#ffffff", 4.5);
+      // `bias`/`normalBias` avoid shadow acne without pulling the shadow away from the geometry
+      // that casts it ("peter-panning") — too small and the floor self-shadows in moire bands, too
+      // large and the vehicle's own contact shadow detaches from its tires, which is exactly the
+      // "floating" artifact this tuning exists to prevent. The explicit frustum is sized to the
+      // largest catalog vehicle (the AE86, ~9m long) rather than three's default ±5 box, which
+      // clipped shadow coverage for anything longer than a compact car.
+      const key = new THREE.DirectionalLight("#ffffff", 4.2);
       key.position.set(6, 9, 7);
       key.castShadow = true;
       key.shadow.mapSize.set(2048, 2048);
+      key.shadow.bias = -0.00018;
+      key.shadow.normalBias = 0.025;
+      key.shadow.camera.near = 1;
+      key.shadow.camera.far = 30;
+      key.shadow.camera.left = -11;
+      key.shadow.camera.right = 11;
+      key.shadow.camera.top = 11;
+      key.shadow.camera.bottom = -11;
+      key.shadow.camera.updateProjectionMatrix();
       scene.add(key);
 
-      const rim = new THREE.DirectionalLight("#4169ff", 2.7);
-      rim.position.set(-7, 4, -6);
+      // Raised and dimmed relative to the original rig: at the old (-7, 4, -6) grazing angle this
+      // blue rim light hit the glossy floor almost edge-on and blew out into a large unshadowed
+      // specular hotspot that read as a glow the vehicle was floating in, drowning out the contact
+      // shadow underneath it. Steepening the angle and tempering the floor material below (both
+      // parts of the same fix) let the actual shadow read again.
+      const rim = new THREE.DirectionalLight("#4169ff", 1.6);
+      rim.position.set(-6, 7.5, -6);
       scene.add(rim);
 
+      // Fills the shaded (camera-facing, key-light-averted) side so the vehicle doesn't render as a
+      // near-silhouette — the previous two-light rig left everything but the lit flank close to
+      // black. No shadow: this is a soft bounce-light stand-in, not a directional key.
+      const fill = new THREE.DirectionalLight("#dce8ff", 1.1);
+      fill.position.set(-2, 3, 9);
+      scene.add(fill);
+
+      // Lower clearcoat/higher roughness than before: the prior floor was mirror-glossy enough that
+      // the rim light's specular reflection alone could out-shine the actual shadow beneath the
+      // vehicle. A duller showroom floor lets contact shadows read as the primary grounding cue.
       const floor = new THREE.Mesh(
         new THREE.PlaneGeometry(50, 50),
-        new THREE.MeshPhysicalMaterial({ color: "#080a0d", roughness: 0.36, metalness: 0.12, clearcoat: 0.35 }),
+        new THREE.MeshPhysicalMaterial({ color: "#0a0c10", roughness: 0.6, metalness: 0.05, clearcoat: 0.12, clearcoatRoughness: 0.4 }),
       );
       floor.rotation.x = -Math.PI / 2;
       floor.receiveShadow = true;
@@ -129,7 +159,16 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       const grid = new THREE.GridHelper(36, 36, "#26303a", "#151a20");
       grid.position.y = 0.002;
       scene.add(grid);
-      const environment = { scene, floor, grid, hemi, key, rim };
+
+      const stars = createStarfield();
+      stars.visible = false;
+      scene.add(stars);
+
+      const rocks = createTrailRocks();
+      rocks.visible = false;
+      scene.add(rocks);
+
+      const environment = { scene, floor, grid, hemi, key, rim, fill, stars, rocks };
       environmentRef.current = environment;
       applyEnvironment(environment, terrain, environmentPreset);
 
@@ -154,6 +193,15 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
       }
       prepareVehicleRoot(root, threeDConfig);
+
+      // Measured before the (initially hidden) procedural accessories are attached, so a roof rack
+      // or light bar sitting outside the body's own bounds never inflates the footprint this shadow
+      // is sized to.
+      root.updateWorldMatrix(true, true);
+      const footprint = new THREE.Box3().setFromObject(root);
+      const contactShadow = createContactShadow(footprint);
+      scene.add(contactShadow);
+
       buildProceduralAccessories(root);
       scene.add(root);
       rootRef.current = root;
@@ -210,6 +258,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         floor.geometry.dispose();
         (floor.material as THREE.Material).dispose();
         grid.dispose();
+        disposeStarfield(stars);
+        disposeTrailRocks(rocks);
+        disposeContactShadow(contactShadow);
         rootRef.current = null;
       };
     })().catch((error) => {
@@ -268,24 +319,159 @@ type EnvironmentRefs = {
   hemi: THREE.HemisphereLight;
   key: THREE.DirectionalLight;
   rim: THREE.DirectionalLight;
+  fill: THREE.DirectionalLight;
+  stars: THREE.Points;
+  rocks: THREE.Group;
 };
 
 function applyEnvironment(environment: EnvironmentRefs, terrain: Terrain, preset: EnvironmentPreset): void {
   const palette = preset === "Night"
-    ? { bg: "#050813", floor: "#070a13", sky: "#33436c", ground: "#080a12", keyColor: "#b8c9ff", rimColor: "#4169ff", key: 1.2, rim: 3.5 }
+    ? { bg: "#050813", floor: "#0b0d15", sky: "#33436c", ground: "#080a12", keyColor: "#b8c9ff", rimColor: "#4169ff", fillColor: "#26314f", key: 1.0, rim: 1.7, fill: 0.5, hemi: 1.1 }
     : preset === "Sunset"
-      ? { bg: "#21140f", floor: "#17100d", sky: "#ffd3a1", ground: "#5e3023", keyColor: "#ffb36b", rimColor: "#ff5a36", key: 3.4, rim: 2.2 }
-      : { bg: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#17150e" : "#080a0d", sky: "#edf5ff", ground: "#18100b", keyColor: "#ffffff", rimColor: "#4169ff", key: 4.5, rim: 2.7 };
+      ? { bg: "#21140f", floor: "#1c130f", sky: "#ffd3a1", ground: "#5e3023", keyColor: "#ffb36b", rimColor: "#ff5a36", fillColor: "#ffdcb0", key: 2.6, rim: 1.4, fill: 0.9, hemi: 1.6 }
+      : { bg: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#191712" : "#0a0c10", sky: "#edf5ff", ground: "#18100b", keyColor: "#ffffff", rimColor: "#4169ff", fillColor: "#dce8ff", key: 4.2, rim: 1.6, fill: 1.1, hemi: 1.8 };
   environment.scene.background = new THREE.Color(palette.bg);
   environment.scene.fog = new THREE.Fog(palette.bg, terrain === "Trail" ? 10 : 16, terrain === "Trail" ? 25 : 32);
   environment.floor.material.color.set(palette.floor);
   environment.hemi.color.set(palette.sky);
   environment.hemi.groundColor.set(palette.ground);
+  environment.hemi.intensity = palette.hemi;
   environment.key.color.set(palette.keyColor);
   environment.key.intensity = palette.key;
   environment.rim.color.set(palette.rimColor);
   environment.rim.intensity = palette.rim;
+  environment.fill.color.set(palette.fillColor);
+  environment.fill.intensity = palette.fill;
   environment.grid.visible = terrain === "Studio";
+  // Both are static set dressing, not physically part of any vehicle, so they're built once at
+  // scene setup and simply shown or hidden here rather than rebuilt per preset switch.
+  environment.stars.visible = preset === "Night";
+  environment.rocks.visible = terrain === "Trail";
+}
+
+/** A soft radial-gradient disc rather than a real-time shadow: it reads as a grounding cue under
+ * every lighting preset and camera angle, including ones where the directional shadow map is thin
+ * or absent (e.g. a shallow key-light angle), instead of the vehicle relying on the dynamic shadow
+ * alone to look like it's resting on the floor. */
+function createContactShadow(footprint: THREE.Box3): THREE.Mesh {
+  const size = footprint.getSize(new THREE.Vector3());
+  const width = Math.max(size.x, 0.5) * 1.6;
+  const depth = Math.max(size.z, 0.5) * 1.3;
+
+  const texture = createRadialGradientTexture();
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), material);
+  mesh.name = "CONTACT_SHADOW";
+  mesh.rotation.x = -Math.PI / 2;
+  // A hair above the floor (y = 0) and below the grid (y = 0.002) so it never z-fights with either.
+  mesh.position.y = 0.0012;
+  return mesh;
+}
+
+function disposeContactShadow(mesh: THREE.Mesh): void {
+  mesh.geometry.dispose();
+  const material = mesh.material as THREE.MeshBasicMaterial;
+  material.map?.dispose();
+  material.dispose();
+}
+
+function createRadialGradientTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, "rgba(0,0,0,0.6)");
+  gradient.addColorStop(0.55, "rgba(0,0,0,0.32)");
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** A fixed field of distant points, shown only for the Night preset — cheap set dressing that
+ * sells the "outdoor at night" read the flat dark background alone doesn't. */
+function createStarfield(): THREE.Points {
+  const count = 400;
+  const positions = new Float32Array(count * 3);
+  for (let i = 0; i < count; i += 1) {
+    const radius = 32 + Math.random() * 14;
+    const theta = Math.random() * Math.PI * 2;
+    // Restricted to the upper hemisphere (elevation 0.1–1) so stars never land below the horizon,
+    // where the floor plane would occlude them anyway.
+    const elevation = 0.1 + Math.random() * 0.9;
+    const y = radius * elevation;
+    const ring = Math.sqrt(Math.max(radius * radius - y * y, 0));
+    positions[i * 3] = Math.cos(theta) * ring;
+    positions[i * 3 + 1] = y;
+    positions[i * 3 + 2] = Math.sin(theta) * ring;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const material = new THREE.PointsMaterial({
+    color: "#e7edff",
+    size: 0.12,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.85,
+    toneMapped: false,
+    depthWrite: false,
+  });
+  const points = new THREE.Points(geometry, material);
+  points.name = "STARFIELD";
+  return points;
+}
+
+function disposeStarfield(points: THREE.Points): void {
+  points.geometry.dispose();
+  (points.material as THREE.Material).dispose();
+}
+
+/** Low-poly rocks scattered around the vehicle, shown only for the Trail terrain preview — the
+ * flat studio floor otherwise looks the same regardless of which terrain is "selected". Positions
+ * are hand-placed (not randomised) and kept outside the ~2.5m the camera presets orbit within, so
+ * they read as surrounding terrain rather than debris crowding the vehicle. */
+function createTrailRocks(): THREE.Group {
+  const group = new THREE.Group();
+  group.name = "TRAIL_ROCKS";
+  const material = new THREE.MeshStandardMaterial({ color: "#3a352e", roughness: 0.95, metalness: 0.02, flatShading: true });
+
+  const placements: [number, number, number, number][] = [
+    [-3.4, 0.22, -2.1, 0.34],
+    [-3.9, 0.16, 0.6, 0.24],
+    [3.6, 0.2, -1.4, 0.3],
+    [4.1, 0.14, 1.6, 0.22],
+    [-2.6, 0.12, 3.3, 0.2],
+    [2.9, 0.15, 3.6, 0.24],
+    [-4.4, 0.18, -3.4, 0.28],
+    [4.6, 0.13, -3.8, 0.2],
+  ];
+  for (const [x, y, z, scale] of placements) {
+    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), material);
+    rock.scale.set(scale, scale * (0.7 + (x % 1 === 0 ? 0 : 0.2)), scale);
+    rock.position.set(x, y, z);
+    rock.rotation.set(x * 0.7, z * 0.5, x * z * 0.1);
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+    group.add(rock);
+  }
+  return group;
+}
+
+function disposeTrailRocks(group: THREE.Group): void {
+  const material = (group.children[0] as THREE.Mesh | undefined)?.material as THREE.Material | undefined;
+  material?.dispose();
+  for (const child of group.children) {
+    if (child instanceof THREE.Mesh) child.geometry.dispose();
+  }
 }
 
 type RendererLike = {
@@ -367,12 +553,33 @@ function removeNode(node: THREE.Object3D | undefined): void {
   node?.parent?.remove(node);
 }
 
+/**
+ * Renames the `wheel.metal` slot on `root`'s meshes to `name`, cloning the material first.
+ *
+ * `instantiateAsset` reuses geometry and materials by reference (`SkeletonUtils.clone`, see
+ * `assets.ts`), so all four wheel assemblies mounted from the same source share one `wheel.metal`
+ * `Material` instance. Renaming it in place — the previous behaviour — mutated that shared object:
+ * relabelling the rear pair to `wheel.metal.001` silently relabelled the front pair too, since both
+ * pairs pointed at the same object, leaving no mesh named `wheel.metal` at all. Every wheel-colour
+ * catalog option targets both slots by name (`WHEEL_MATERIALS = ["wheel.metal", "wheel.metal.001"]`
+ * in `lib/data/options/*.ts`), so that collapsed contract silently dropped every one of them from
+ * the served catalog (`verifyNodeContract` reports the missing slot and removes the option, exactly
+ * as it's designed to for a genuinely absent material — there was no way for it to tell renamed and
+ * missing apart). Cloning here gives this wheel assembly its own material instance to rename,
+ * leaving the shared cached original — and every other assembly still using it — untouched.
+ */
 function renameMaterials(root: THREE.Object3D, name: string): void {
+  if (name === "wheel.metal") return;
   root.traverse((object) => {
     if (!(object instanceof THREE.Mesh)) return;
-    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-      material.name = name === "wheel.metal.001" && material.name === "wheel.metal" ? name : material.name;
-    }
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const renamed = materials.map((material) => {
+      if (material.name !== "wheel.metal") return material;
+      const clone = material.clone();
+      clone.name = name;
+      return clone;
+    });
+    object.material = Array.isArray(object.material) ? renamed : renamed[0]!;
   });
 }
 
