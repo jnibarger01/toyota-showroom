@@ -114,6 +114,7 @@ export async function createConfiguration(input: CreateConfigurationInput): Prom
         method: "POST",
         body: JSON.stringify(input),
       });
+      localConfigurationTransport.seed(data);
       return data;
     },
     () => localConfigurationTransport.create(input),
@@ -121,16 +122,18 @@ export async function createConfiguration(input: CreateConfigurationInput): Prom
 }
 
 export async function getConfiguration(configurationId: string): Promise<VehicleConfiguration> {
-  return withFallback(
-    "GET",
-    async () => {
-      const { data } = await request<{ data: VehicleConfiguration }>(
-        apiUrl(`/configurations/${encodeURIComponent(configurationId)}`),
-      );
-      return data;
-    },
-    () => localConfigurationTransport.get(configurationId),
-  );
+  try {
+    const { data } = await request<{ data: VehicleConfiguration }>(
+      apiUrl(`/configurations/${encodeURIComponent(configurationId)}`),
+    );
+    localConfigurationTransport.seed(data);
+    return data;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404 && localConfigurationTransport.has(configurationId)) {
+      return localConfigurationTransport.get(configurationId);
+    }
+    throw error;
+  }
 }
 
 export async function updateConfiguration(
@@ -144,6 +147,7 @@ export async function updateConfiguration(
         apiUrl(`/configurations/${encodeURIComponent(configurationId)}`),
         { method: "PATCH", body: JSON.stringify(input) },
       );
+      localConfigurationTransport.seed(data);
       return data;
     },
     () => localConfigurationTransport.update(configurationId, input),
