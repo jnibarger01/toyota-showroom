@@ -217,6 +217,16 @@ button { font: inherit; color: inherit; }
 .comparison-card .total { border-top: 1px solid #303946; padding-top: 10px; color: #e7ebef; font-size: 12px; }
 .comparison-card .total b { color: #ff5a60; }
 .budget-card { margin-top: 10px; padding: 13px; border: 1px solid #313945; border-radius: 10px; background: #11161c; }
+.validated-form { display: grid; gap: 14px; max-width: 520px; }
+.form-field { display: grid; gap: 7px; color: #cfd5dc; font-size: 12px; }
+.form-field input, .form-field textarea { width: 100%; border: 1px solid #2c343e; border-radius: 8px; padding: 10px 11px; background: #11161c; color: var(--text); font: inherit; resize: vertical; }
+.form-field input:focus, .form-field textarea:focus { outline: 2px solid #ff5a60; outline-offset: 1px; }
+.form-field.has-error input, .form-field.has-error textarea { border-color: #ff5a60; }
+.field-error { color: #ff858b; font-size: 11px; line-height: 1.4; }
+.form-submit { min-height: 42px; border: 0; border-radius: 9px; padding: 0 16px; cursor: pointer; }
+.form-submit:disabled { cursor: progress; opacity: .6; }
+.form-success { max-width: 520px; padding: 18px; border: 1px solid #287a54; border-radius: 10px; background: #10231b; }
+.form-success p { margin: 7px 0 14px; color: #a9c8b7; font-size: 12px; }
 .budget-card > label { color: #aab3bd; font-size: 11px; }
 .budget-card > div { display: flex; align-items: center; gap: 4px; margin-top: 7px; color: #8d98a5; }
 .budget-card input { width: 100%; border: 0; border-bottom: 1px solid #39424d; background: transparent; color: white; font: 600 17px var(--font-family-base); outline: 0; }
