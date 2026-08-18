@@ -1,1 +1,50 @@
-PLACEHOLDER
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Toyota Chessathon</title>
+<script src="chess-engine.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app-shell">
+  <section class="hero" aria-label="Toyota Chessathon">
+    <img src="assets/chess-collection.webp" alt="Toyota vehicle chess collection artwork">
+    <div class="hero-copy">
+      <h1 class="hero-title"><span class="red">Toyota</span><br>Chessathon</h1>
+      <div class="hero-sub">Every move. Every mile.</div>
+      <p class="hero-note">Prius pawns. 4Runner rooks. RAV4 knights. Camry bishops. Tacoma queen. Tundra king.</p>
+    </div>
+  </section>
+  <div class="toolbar">
+    <div class="brand-lockup"><span class="brand-mark"></span><div>CHESSATHON CONTROL<small>Dealership Edition</small></div></div>
+    <div class="controls">
+      <button id="btnNew" class="primary">New Game</button><button id="btnSettings">Settings</button><button id="btnExport">PGN</button><button id="btnUndo">Undo</button><button id="btnSound" class="utility-on" aria-pressed="true">Sound On</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="board-shell">
+      <div class="board-plaque"><span class="red">Toyota</span><strong>Chessathon</strong><span>Collection</span></div>
+      <div class="board-wrap" id="boardWrap"><div class="board" id="board"></div><div class="board-watermark" aria-hidden="true">Chessathon</div><div class="promo-overlay" id="promoOverlay"><div class="promo-choices" id="promoChoices"></div></div></div>
+      <div class="board-tagline">Every move. Every mile.</div>
+    </div>
+    <aside class="side-panel">
+      <div class="panel-head"><strong>Match Control</strong><span>TOYOTA</span></div>
+      <div class="clocks"><div class="clock" id="clockBlack"><span class="name">Midnight Team</span><span class="time" id="timeBlack">10:00</span></div><div class="clock" id="clockWhite"><span class="name">Silver Team</span><span class="time" id="timeWhite">10:00</span></div></div>
+      <div class="status" id="status">Silver to move</div>
+      <div><div class="section-title">Evaluation</div><div class="eval-bar-wrap"><div class="eval-bar" id="evalBar"></div></div><div class="eval-label" id="evalLabel">0.0</div></div>
+      <div><div class="section-title">Captured Inventory</div><div class="inventory" id="capturedInventory"><span class="inventory-empty">No trade-ins yet.</span></div></div>
+      <div><div class="section-title">Move Log</div><div class="moves" id="moveList"></div></div>
+      <div class="btn-row"><button id="btnFlip">Flip</button><button id="btnResign">Resign</button><button id="btnDraw">Offer Draw</button></div>
+    </aside>
+  </div>
+  <div class="modal-overlay" id="settingsModal"><div class="modal"><h2>Game Settings</h2><label>Time Control</label><select id="timeControl"><option value="1|0">1 min (Bullet)</option><option value="3|0">3 min (Blitz)</option><option value="5|0">5 min (Blitz)</option><option value="10|0" selected>10 min (Rapid)</option><option value="15|10">15|10 (Rapid)</option><option value="30|0">30 min (Classical)</option><option value="0|0">Unlimited</option></select><label>Opponent</label><select id="opponent"><option value="human">Human (Local)</option><option value="ai1">AI — Beginner</option><option value="ai2" selected>AI — Intermediate</option><option value="ai3">AI — Strong</option><option value="online">Online (WebSocket stub)</option></select><label>Play as</label><select id="playAs"><option value="w" selected>White</option><option value="b">Black</option><option value="random">Random</option></select><label>Show legal moves</label><select id="showLegal"><option value="1" selected>Yes</option><option value="0">No</option></select><div class="btn-row"><button id="btnCancelSettings">Cancel</button><button id="btnApplySettings" class="primary">Apply & New Game</button></div></div></div>
+  <div class="modal-overlay" id="resultModal"><div class="modal"><h2 id="resultTitle">Game Over</h2><p id="resultText" style="margin:12px 0;color:var(--muted)"></p><div class="btn-row"><button id="btnRematch" class="primary">Rematch</button><button id="btnCloseResult">Close</button></div></div></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <p class="footer-note">Fan-made Toyota Chessathon concept. Vehicle artwork is derived from the supplied campaign artwork. Toyota trademarks belong to their respective owners.</p>
+</div>
+<script src="app-core.js"></script>
+<script src="app-game.js"></script>
+</body>
+</html>
