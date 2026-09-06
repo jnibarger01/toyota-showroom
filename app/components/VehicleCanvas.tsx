@@ -11,6 +11,17 @@ import { VehicleSceneController } from "../../lib/three/sceneController";
 import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
+import {
+  collectBrowserDeviceHints,
+  resolveQuality,
+  type QualitySettings,
+} from "../../lib/three/quality";
+import { createCanvasIdleGate } from "../../lib/three/canvasIdle";
+import { FrameTimeTracker, formatFrameStats } from "../../lib/three/frameStats";
+import {
+  initialProgressiveState,
+  reduceProgressiveLoad,
+} from "../../lib/three/progressiveLoad";
 
 export type CameraPreset = {
   id: string;
@@ -84,17 +95,18 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       camera.position.set(...cameraPreset.position);
       cameraRef.current = camera;
 
-      const { renderer, mode } = await createRenderer();
+      const quality = resolveQuality(collectBrowserDeviceHints());
+      const { renderer, mode } = await createRenderer(quality.antialias);
       if (cancelled) {
         renderer.dispose();
         return;
       }
 
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.shadowMap.enabled = true;
+      applyRendererQuality(renderer, quality);
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.05;
       renderer.domElement.dataset.renderer = mode;
+      renderer.domElement.dataset.quality = quality.tier;
       host.appendChild(renderer.domElement);
 
       const controls = new OrbitControls(camera, renderer.domElement);
@@ -116,8 +128,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       // clipped shadow coverage for anything longer than a compact car.
       const key = new THREE.DirectionalLight("#ffffff", 4.2);
       key.position.set(6, 9, 7);
-      key.castShadow = true;
-      key.shadow.mapSize.set(2048, 2048);
+      key.castShadow = quality.shadowsEnabled;
+      key.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
       key.shadow.bias = -0.00018;
       key.shadow.normalBias = 0.025;
       key.shadow.camera.near = 1;
@@ -134,14 +146,14 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       // specular hotspot that read as a glow the vehicle was floating in, drowning out the contact
       // shadow underneath it. Steepening the angle and tempering the floor material below (both
       // parts of the same fix) let the actual shadow read again.
-      const rim = new THREE.DirectionalLight("#4169ff", 1.6);
+      const rim = new THREE.DirectionalLight("#4169ff", 1.6 * quality.secondaryLightScale);
       rim.position.set(-6, 7.5, -6);
       scene.add(rim);
 
       // Fills the shaded (camera-facing, key-light-averted) side so the vehicle doesn't render as a
       // near-silhouette — the previous two-light rig left everything but the lit flank close to
       // black. No shadow: this is a soft bounce-light stand-in, not a directional key.
-      const fill = new THREE.DirectionalLight("#dce8ff", 1.1);
+      const fill = new THREE.DirectionalLight("#dce8ff", 1.1 * quality.secondaryLightScale);
       fill.position.set(-2, 3, 9);
       scene.add(fill);
 
@@ -153,14 +165,14 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         new THREE.MeshPhysicalMaterial({ color: "#0a0c10", roughness: 0.6, metalness: 0.05, clearcoat: 0.12, clearcoatRoughness: 0.4 }),
       );
       floor.rotation.x = -Math.PI / 2;
-      floor.receiveShadow = true;
+      floor.receiveShadow = quality.shadowsEnabled;
       scene.add(floor);
 
       const grid = new THREE.GridHelper(36, 36, "#26303a", "#151a20");
       grid.position.y = 0.002;
       scene.add(grid);
 
-      const stars = createStarfield();
+      const stars = createStarfield(quality.starfieldCount);
       stars.visible = false;
       scene.add(stars);
 
@@ -172,59 +184,6 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       environmentRef.current = environment;
       applyEnvironment(environment, terrain, environmentPreset);
 
-      let root: THREE.Object3D;
-      try {
-        root = await loadVehicleRoot(threeDConfig);
-      } catch (error) {
-        console.error("High-detail glTF failed to load; using procedural fallback.", error);
-        onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");
-        root = createProceduralVehicle();
-      }
-      if (cancelled) {
-        disposeSubtree(root);
-        return;
-      }
-
-      try {
-        await installWheelAndTireAssets(root, threeDConfig);
-      } catch (error) {
-        // Replacement running gear is additive enhancement; retain the complete base model if an
-        // optional glTF cannot be fetched or decoded.
-        console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
-      }
-      prepareVehicleRoot(root, threeDConfig);
-
-      // Measured before the (initially hidden) procedural accessories are attached, so a roof rack
-      // or light bar sitting outside the body's own bounds never inflates the footprint this shadow
-      // is sized to.
-      root.updateWorldMatrix(true, true);
-      const footprint = new THREE.Box3().setFromObject(root);
-      const contactShadow = createContactShadow(footprint);
-      scene.add(contactShadow);
-
-      buildProceduralAccessories(root);
-      scene.add(root);
-      rootRef.current = root;
-      groundedYRef.current = root.position.y;
-      setSceneRevision((revision) => revision + 1);
-
-      if (import.meta.env.DEV) {
-        (window as unknown as Record<string, unknown>).__dumpVehicleHierarchy = () => logHierarchy(root);
-      }
-
-      // Verify before handing the scene over, so an option whose nodes are absent is dropped from
-      // the catalog rather than rendered as a button that would quietly do nothing.
-      const report = verifyNodeContract(root, catalogRef.current);
-      for (const entry of report.unsatisfied) {
-        console.warn(
-          `[customization] option "${entry.option.id}" is unavailable for this asset.`,
-          { missingNodes: entry.missingNodes, missingMaterials: entry.missingMaterials },
-        );
-      }
-
-      const controller = new VehicleSceneController(root, report.satisfied);
-      onReadyRef.current(controller, report.satisfied);
-
       const resize = () => {
         const width = Math.max(host.clientWidth, 1);
         const height = Math.max(host.clientHeight, 1);
@@ -233,36 +192,216 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         camera.updateProjectionMatrix();
       };
       resize();
-      const observer = new ResizeObserver(resize);
-      observer.observe(host);
+      const resizeObserver = new ResizeObserver(resize);
+      resizeObserver.observe(host);
 
+      // Start the render loop before the ~28 MiB GLB settles so the placeholder paints immediately.
       let running = true;
-      const loop = async () => {
-        if (!running) return;
-        controls.update();
-        if (renderer.renderAsync) await renderer.renderAsync(scene, camera);
-        else renderer.render(scene, camera);
-        requestAnimationFrame(loop);
-      };
-      void loop();
+      let suspended = false;
+      let contactShadow: THREE.Mesh | null = null;
+      let controller: VehicleSceneController | null = null;
+      const frameStats = new FrameTimeTracker(60);
+      let loop: (() => void) | undefined;
+      /** Pending rAF handle — must be cancelled on idle/suspend/cleanup to avoid forked loops. */
+      let rafId = 0;
+      /** Monotonic publish counter; `stats.samples` caps at the ring size so it cannot throttle. */
+      let framePublishCount = 0;
 
+      const cancelPendingRaf = () => {
+        if (rafId !== 0) {
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+        }
+      };
+
+      const queueFrame = () => {
+        if (rafId !== 0) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          loop?.();
+        });
+      };
+
+      const idleGate = createCanvasIdleGate(host, (next) => {
+        suspended = next;
+        renderer.domElement.dataset.idle = next ? "1" : "0";
+        if (next) {
+          cancelPendingRaf();
+          return;
+        }
+        // Leaving idle: drop any stale rAF, reseed frame timing, and kick a single chain.
+        if (running) {
+          cancelPendingRaf();
+          frameStats.reset();
+          loop?.();
+        }
+      });
+      suspended = idleGate.suspended;
+      renderer.domElement.dataset.idle = suspended ? "1" : "0";
+
+      loop = () => {
+        if (!running) return;
+        if (suspended) return;
+        const stats = frameStats.record(performance.now());
+        framePublishCount += 1;
+        if (stats.samples > 0 && framePublishCount % 30 === 0) {
+          renderer.domElement.dataset.frameStats = formatFrameStats(stats);
+        }
+        controls.update();
+        const paint = renderer.renderAsync
+          ? renderer.renderAsync(scene, camera)
+          : Promise.resolve(renderer.render(scene, camera));
+        void paint.finally(() => {
+          if (running && !suspended) queueFrame();
+        });
+      };
+      loop();
+
+      // Assign cleanup before any await so an unmount mid-load still tears the renderer down.
       cleanup = () => {
         running = false;
-        observer.disconnect();
+        cancelPendingRaf();
+        idleGate.dispose();
+        resizeObserver.disconnect();
         controls.dispose();
         renderer.dispose();
         renderer.domElement.remove();
-        // The controller owns every material clone and attachment it made; disposing it releases
-        // those before the base scene's own geometry is released below.
-        controller.dispose();
+        if (controller) {
+          controller.dispose();
+        } else if (rootRef.current) {
+          // Placeholder (or unsettled root) is not owned by the controller yet.
+          scene.remove(rootRef.current);
+          disposeSubtree(rootRef.current);
+        }
         floor.geometry.dispose();
         (floor.material as THREE.Material).dispose();
         grid.dispose();
         disposeStarfield(stars);
         disposeTrailRocks(rocks);
-        disposeContactShadow(contactShadow);
+        if (contactShadow) disposeContactShadow(contactShadow);
         rootRef.current = null;
       };
+
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__vehicleFrameStats = () => frameStats.snapshot();
+      }
+
+      let progressive = initialProgressiveState();
+
+      const publishReady = (root: THREE.Object3D) => {
+        if (import.meta.env.DEV) {
+          (window as unknown as Record<string, unknown>).__dumpVehicleHierarchy = () => logHierarchy(root);
+        }
+        const report = verifyNodeContract(root, catalogRef.current);
+        for (const entry of report.unsatisfied) {
+          console.warn(
+            `[customization] option "${entry.option.id}" is unavailable for this asset.`,
+            { missingNodes: entry.missingNodes, missingMaterials: entry.missingMaterials },
+          );
+        }
+        controller = new VehicleSceneController(root, report.satisfied);
+        onReadyRef.current(controller, report.satisfied);
+      };
+
+      const mountSettledRoot = (root: THREE.Object3D) => {
+        prepareVehicleRoot(root, threeDConfig);
+        root.updateWorldMatrix(true, true);
+        const footprint = new THREE.Box3().setFromObject(root);
+        if (contactShadow) {
+          scene.remove(contactShadow);
+          disposeContactShadow(contactShadow);
+        }
+        contactShadow = createContactShadow(footprint);
+        scene.add(contactShadow);
+        buildProceduralAccessories(root);
+        scene.add(root);
+        rootRef.current = root;
+        groundedYRef.current = root.position.y;
+        setSceneRevision((revision) => revision + 1);
+        publishReady(root);
+      };
+
+      const wantsDetailedModel = Boolean(threeDConfig.hasModel && threeDConfig.modelUrl);
+
+      if (!wantsDetailedModel) {
+        progressive = reduceProgressiveLoad(progressive, { type: "no-model" });
+        const root = createProceduralVehicle();
+        if (cancelled) {
+          disposeSubtree(root);
+          return;
+        }
+        mountSettledRoot(root);
+      } else {
+        // Progressive path: paint a procedural stand-in first, then swap when the GLB settles.
+        progressive = reduceProgressiveLoad(progressive, { type: "start-placeholder" });
+        const placeholder = createProceduralVehicle();
+        placeholder.name = "PROGRESSIVE_PLACEHOLDER";
+        placeholder.userData.__progressivePlaceholder = true;
+        // Rough showroom placement so the stand-in is grounded before prepareVehicleRoot runs on
+        // the detailed mesh (placeholder is never handed to the catalog / controller).
+        placeholder.position.y = 0;
+        placeholder.rotation.y = Math.PI;
+        scene.add(placeholder);
+        rootRef.current = placeholder;
+        groundedYRef.current = placeholder.position.y;
+        setSceneRevision((revision) => revision + 1);
+
+        progressive = reduceProgressiveLoad(progressive, { type: "start-loading" });
+        renderer.domElement.dataset.loadPhase = progressive.phase;
+
+        let detailed: THREE.Object3D | null = null;
+        try {
+          detailed = await loadVehicleRoot(threeDConfig);
+          progressive = reduceProgressiveLoad(progressive, { type: "glb-decoded" });
+        } catch (error) {
+          console.error("High-detail glTF failed to load; using procedural fallback.", error);
+          onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");
+          progressive = reduceProgressiveLoad(progressive, { type: "load-failed" });
+        }
+
+        if (cancelled) {
+          if (detailed) disposeSubtree(detailed);
+          scene.remove(placeholder);
+          disposeSubtree(placeholder);
+          rootRef.current = null;
+          return;
+        }
+
+        renderer.domElement.dataset.loadPhase = progressive.phase;
+
+        if (detailed && progressive.hasDetailedModel) {
+          if (quality.loadAuthoredRunningGear) {
+            try {
+              await installWheelAndTireAssets(detailed, threeDConfig);
+            } catch (error) {
+              console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
+            }
+          }
+          if (cancelled) {
+            disposeSubtree(detailed);
+            scene.remove(placeholder);
+            disposeSubtree(placeholder);
+            rootRef.current = null;
+            return;
+          }
+          scene.remove(placeholder);
+          disposeSubtree(placeholder);
+          mountSettledRoot(detailed);
+          progressive = reduceProgressiveLoad(progressive, { type: "settled" });
+        } else {
+          // Promote the placeholder to the permanent fallback root.
+          scene.remove(placeholder);
+          mountSettledRoot(placeholder);
+        }
+      }
+
+      renderer.domElement.dataset.loadPhase = progressive.phase;
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__vehicleProgressiveLoad = progressive;
+        (window as unknown as Record<string, unknown>).__vehicleQuality = quality;
+      }
+
+      // cleanup already assigned above (before GLB await).
     })().catch((error) => {
       console.error("Vehicle scene initialization failed:", error);
       onErrorRef.current(error instanceof Error ? error.message : String(error));
@@ -399,8 +538,7 @@ function createRadialGradientTexture(): THREE.CanvasTexture {
 
 /** A fixed field of distant points, shown only for the Night preset — cheap set dressing that
  * sells the "outdoor at night" read the flat dark background alone doesn't. */
-function createStarfield(): THREE.Points {
-  const count = 400;
+function createStarfield(count = 400): THREE.Points {
   const positions = new Float32Array(count * 3);
   for (let i = 0; i < count; i += 1) {
     const radius = 32 + Math.random() * 14;
@@ -486,10 +624,15 @@ type RendererLike = {
   toneMappingExposure: number;
 };
 
-async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu" | "webgl2" }> {
+function applyRendererQuality(renderer: RendererLike, quality: QualitySettings): void {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.maxPixelRatio));
+  renderer.shadowMap.enabled = quality.shadowsEnabled;
+}
+
+async function createRenderer(antialias: boolean): Promise<{ renderer: RendererLike; mode: "webgpu" | "webgl2" }> {
   if (navigator.gpu) {
     try {
-      const renderer = new THREE_WEBGPU.WebGPURenderer({ antialias: true });
+      const renderer = new THREE_WEBGPU.WebGPURenderer({ antialias });
       await renderer.init();
       return { renderer: renderer as unknown as RendererLike, mode: "webgpu" };
     } catch (error) {
@@ -497,7 +640,7 @@ async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu
     }
   }
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  const renderer = new THREE.WebGLRenderer({ antialias, alpha: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
 }

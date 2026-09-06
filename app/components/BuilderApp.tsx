@@ -119,6 +119,8 @@ type Props = {
 export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** True once VehicleCanvas has settled and attached a scene controller (not merely hydrated). */
+  const [sceneReady, setSceneReady] = useState(false);
   const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [lift, setLift] = useState(0);
   const [gradeChanging, setGradeChanging] = useState(false);
@@ -150,6 +152,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   // ------------------------------------------------------------------ step 1-4
   // Load vehicle metadata, then the option catalog, then the saved configuration. Nothing here
   // touches Three.js; the scene is only mutated once the GLB reports its node contract verified.
+  // Builder chrome (options / Share) hydrates immediately — see `configurationStore.hydrate` above.
   //
   // The App Router does not remount a page component just because a route param changed under the
   // same `[slug]` segment, so `app/[slug]/page.tsx` forces a clean remount on vehicle switches with
@@ -158,6 +161,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   // field this effect writes therefore starts at its `useState` initial value on each new vehicle.
   useEffect(() => {
     let cancelled = false;
+    // sceneReady resets via key={slug} remount; avoid setState at effect top (lint).
 
     void (async () => {
       try {
@@ -176,6 +180,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         ]);
 
         if (cancelled) return;
+
+        // Progressive load (#27): option catalog + Share must not wait on full GLB settle /
+        // verifyNodeContract. Hydrate the store with the grade-filtered catalog as soon as
+        // bootstrap finishes; VehicleCanvas still calls onReady later to attach the controller
+        // and narrow to mesh-verified options.
+        const forGrade = options.filter((option) => isOptionAvailableForGrade(option, configuration.gradeId));
+        configurationStore.hydrate(configuration, forGrade);
+
         setBootstrap({ vehicle, catalog: options, configuration });
         setPreset(presetForConfiguration(vehicle, configuration));
       } catch (err) {
@@ -191,16 +203,26 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   // ------------------------------------------------------------------ step 5-7
   // Called by the canvas after the base GLB loads and `verifyNodeContract` runs. Saved selections
-  // are applied here, in deterministic category order, before any control is interactive.
+  // are applied to the live mesh here; builder chrome was already interactive via `hydrate`.
   const handleSceneReady = useCallback(
     (controller: VehicleSceneController, applicable: CustomizationOption[]) => {
       controllerRef.current = controller;
       fullApplicableRef.current = applicable;
       if (!bootstrap) return;
-      const forGrade = applicable.filter((option) =>
-        isOptionAvailableForGrade(option, bootstrap.configuration.gradeId),
-      );
-      void configurationStore.attachScene(controller, bootstrap.configuration, forGrade);
+      setSceneReady(true);
+      // Prefer live store config (early hydrate + any pre-settle edits) over the bootstrap snapshot.
+      void (async () => {
+        await configurationStore.flush();
+        const live = configurationStore.getSnapshot().configuration;
+        const configuration =
+          live && live.configurationId === bootstrap.configuration.configurationId
+            ? live
+            : bootstrap.configuration;
+        const forGrade = applicable.filter((option) =>
+          isOptionAvailableForGrade(option, configuration.gradeId),
+        );
+        await configurationStore.attachScene(controller, configuration, forGrade);
+      })();
     },
     [bootstrap],
   );
@@ -414,8 +436,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       await navigator.clipboard.writeText(url);
       setGarageMessage("Share link copied to clipboard");
     } catch {
-      window.prompt("Copy this build link", url);
+      // Set feedback before prompt: headless / permission-denied environments can hang on
+      // `window.prompt`, and the e2e assertion only needs the garage message.
       setGarageMessage("Share link ready to copy");
+      try {
+        window.prompt("Copy this build link", url);
+      } catch {
+        /* ignore non-interactive prompt failures */
+      }
     }
   };
 
@@ -526,7 +554,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <button
                 key={grade.id}
                 className={grade.id === configuration?.gradeId ? "grade-item active" : "grade-item"}
-                disabled={gradeChanging || !configuration}
+                disabled={gradeChanging || !configuration || !sceneReady}
                 onClick={() => void changeGrade(grade.id)}
               >
                 <span>{grade.name}</span>
