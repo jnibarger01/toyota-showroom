@@ -17,6 +17,10 @@ test.describe.configure({ mode: "serial", timeout: 60_000 });
 test("a paint selection survives a full page reload", async ({ page }) => {
   await page.goto("4runner/");
 
+  // Pages preview has no Worker: banner must make demo/offline persistence explicit (#28).
+  await expect(page.getByTestId("persistence-mode-banner")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("persistence-mode-banner")).toContainText(/demo \/ offline/i);
+
   const barcelonaRed = page.getByRole("button", { name: "Barcelona Red Metallic" });
   await expect(barcelonaRed).toBeVisible();
   await expect(barcelonaRed).not.toHaveAttribute("aria-pressed", "true");

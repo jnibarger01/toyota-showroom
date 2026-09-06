@@ -942,13 +942,17 @@ typechecked against `@cloudflare/workers-types`.
 ### Deployment note
 
 `output: "export"` cannot serve `force-dynamic` routes, so the GitHub Pages build has no
-configuration API. Rather than ship a demo where saving is broken, `lib/api/configurations.ts`
-latches to a browser-local transport when a *write* fails in a way only a host without the route
-can fail (network error, 405, or 404 on POST/PATCH). A 404 on GET is passed through, because
-against a live API that means the configuration genuinely doesn't exist.
+configuration API. **Worker + D1 is the production persistence path**; Pages keeps
+`localConfigurationTransport` as an explicit **demo / offline** fallback so saving is not broken
+on the static export. `lib/api/configurations.ts` latches to that local transport when a *write*
+fails in a way only a host without the route can fail (network error, 405, or 404 on POST/PATCH).
+A 404 on GET is passed through, because against a live API that means the configuration genuinely
+does not exist. The builder surfaces a banner in local mode: saves stay in this browser; share uses
+deep links (`?c=…`).
 
-The fallback runs **the same validators** as the server, so behaviour is identical; only durability
-differs. The Cloudflare Worker build (already configured via `@cloudflare/vite-plugin`) serves the
+Both transports run **the same validators** (`lib/validation/configuration.ts`); only durability
+differs. Promote to production by deploying the Worker (see `docs/DEPLOYMENT_RUNBOOK.md` — Promote
+section). The Cloudflare Worker build (already configured via `@cloudflare/vite-plugin`) serves the
 real API.
 
 ---
