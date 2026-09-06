@@ -142,6 +142,12 @@ button { font: inherit; color: inherit; }
 
 .stage { min-width: 0; position: relative; display: grid; grid-template-rows: 1fr auto; background: #0c1015; }
 .vehicle-canvas { position: absolute; inset: 0 0 84px; }
+/*
+ * The stage is keyboard-operable (arrows orbit, +/- zoom, Home resets), so it needs a focus
+ * indicator as much as any button does. Inset rather than outset because the canvas is absolutely
+ * positioned against the stage edges, where an outer ring would be clipped.
+ */
+.vehicle-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .vehicle-canvas-loading { display: flex; align-items: center; justify-content: center; color: var(--muted); }
 
 /*

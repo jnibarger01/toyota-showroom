@@ -12,6 +12,7 @@ import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtr
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 import { QUALITY_TIERS, QualityGovernor, suggestInitialTierIndex, type QualityTier } from "../../lib/three/qualityGovernor";
+import { motionDuration, prefersReducedMotion } from "../../lib/three/motionPreference";
 
 export type CameraPreset = {
   id: string;
@@ -74,12 +75,16 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   const onErrorRef = useRef(onError);
   const onProgressRef = useRef(onProgress);
   const catalogRef = useRef(catalog);
+  // Read by the Home-key handler, which lives in the run-once setup effect and so cannot close
+  // over the prop directly — it would reset to whichever preset was active at mount.
+  const cameraPresetRef = useRef(cameraPreset);
   useEffect(() => {
     onReadyRef.current = onReady;
     onErrorRef.current = onError;
     onProgressRef.current = onProgress;
     catalogRef.current = catalog;
-  }, [catalog, onError, onProgress, onReady]);
+    cameraPresetRef.current = cameraPreset;
+  }, [cameraPreset, catalog, onError, onProgress, onReady]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -114,7 +119,10 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       host.appendChild(renderer.domElement);
 
       const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
+      // Damping is inertia: the scene keeps moving after the user stops dragging. That is exactly
+      // the "motion I did not ask for and cannot stop" that the reduced-motion preference covers,
+      // so it is a preference check rather than a constant.
+      controls.enableDamping = !prefersReducedMotion();
       controls.minDistance = 4;
       controls.maxDistance = 15;
       controls.maxPolarAngle = Math.PI * 0.49;
@@ -242,6 +250,73 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       // while the pixel ratio reflected a lower tier — half-configured, and hard to spot.
       applyTier(governor.tier);
 
+      /**
+       * Keyboard orbit, zoom, and reset.
+       *
+       * OrbitControls' own `listenToKeyEvents` binds the arrow keys to *panning*, which slides the
+       * whole scene sideways and is close to useless for inspecting a vehicle — the thing a user
+       * wants from the arrows here is to walk around it. So the orbit is computed directly, in
+       * spherical coordinates about the control target, honouring the same polar and distance
+       * limits the mouse path is constrained by. Without this the entire 3D stage was reachable by
+       * pointer only.
+       */
+      const handleKeyDown = (event: KeyboardEvent) => {
+        // Never swallow a modified key: those are browser and OS shortcuts, and stealing Cmd/Ctrl+
+        // arrow from a keyboard user is a worse bug than the one this is fixing.
+        if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+        const offset = camera.position.clone().sub(controls.target);
+        const spherical = new THREE.Spherical().setFromVector3(offset);
+
+        switch (event.key) {
+          case "ArrowLeft":
+            spherical.theta -= KEYBOARD_ORBIT_STEP_RADIANS;
+            break;
+          case "ArrowRight":
+            spherical.theta += KEYBOARD_ORBIT_STEP_RADIANS;
+            break;
+          case "ArrowUp":
+            spherical.phi -= KEYBOARD_ORBIT_STEP_RADIANS;
+            break;
+          case "ArrowDown":
+            spherical.phi += KEYBOARD_ORBIT_STEP_RADIANS;
+            break;
+          case "+":
+          case "=":
+            spherical.radius -= KEYBOARD_ZOOM_STEP;
+            break;
+          case "-":
+          case "_":
+            spherical.radius += KEYBOARD_ZOOM_STEP;
+            break;
+          case "Home":
+            // Back to the active preset, which is where the camera effect would put it anyway —
+            // a predictable escape hatch from an orbit the user has lost their bearings in.
+            camera.position.set(...cameraPresetRef.current.position);
+            controls.target.set(...cameraPresetRef.current.target);
+            controls.update();
+            event.preventDefault();
+            return;
+          default:
+            return;
+        }
+
+        // The same clamps OrbitControls applies to pointer input. `phi` additionally avoids exactly
+        // 0, where the camera's up-vector becomes degenerate and the view flips.
+        spherical.phi = Math.min(Math.max(spherical.phi, 0.05), controls.maxPolarAngle);
+        spherical.radius = Math.min(
+          Math.max(spherical.radius, controls.minDistance),
+          controls.maxDistance,
+        );
+
+        camera.position.copy(offset.setFromSpherical(spherical).add(controls.target));
+        controls.update();
+        // Only after a key was actually handled — an unrecognised key has already returned above,
+        // so page scrolling and browser shortcuts are left alone.
+        event.preventDefault();
+      };
+      host.addEventListener("keydown", handleKeyDown);
+
       const observer = new ResizeObserver(resize);
       observer.observe(host);
 
@@ -273,6 +348,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       const disposers: Array<() => void> = [
         () => {
           running = false;
+          host.removeEventListener("keydown", handleKeyDown);
           observer.disconnect();
           controls.dispose();
           renderer.dispose();
@@ -407,7 +483,11 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     // Lift is an offset from the grounded baseline, not an absolute position: writing `lift * 0.045`
     // straight into `position.y` would discard the grounding offset computed at load and drop the
     // vehicle through the floor.
-    gsap.to(root.position, { y: groundedYRef.current + lift * 0.045, duration: 0.35, ease: "power2.out" });
+    gsap.to(root.position, {
+      y: groundedYRef.current + lift * 0.045,
+      duration: motionDuration(0.35),
+      ease: "power2.out",
+    });
   }, [lift, sceneRevision]);
 
   useEffect(() => {
@@ -415,18 +495,22 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     const controls = controlsRef.current;
     if (!camera || !controls) return;
 
+    // The longest movement on the stage, and the one most likely to provoke motion sickness: the
+    // camera swings bodily across the scene. Under reduced motion it cuts, preserving the
+    // destination without the journey.
+    const duration = motionDuration(0.85);
     gsap.to(camera.position, {
       x: cameraPreset.position[0],
       y: cameraPreset.position[1],
       z: cameraPreset.position[2],
-      duration: 0.85,
+      duration,
       ease: "power3.inOut",
     });
     gsap.to(controls.target, {
       x: cameraPreset.target[0],
       y: cameraPreset.target[1],
       z: cameraPreset.target[2],
-      duration: 0.85,
+      duration,
       ease: "power3.inOut",
     });
   }, [cameraPreset]);
@@ -435,7 +519,22 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, environmentPreset);
   }, [terrain, environmentPreset]);
 
-  return <div ref={hostRef} className="vehicle-canvas" />;
+  return (
+    <div
+      ref={hostRef}
+      className="vehicle-canvas"
+      // `tabIndex` is what puts the 3D stage in the tab order at all; before this the entire
+      // viewport was pointer-only. `group` rather than `application`: the element is a composite
+      // widget the user steps into, and `application` would suppress the screen reader's own
+      // navigation keys everywhere inside it in exchange for nothing this needs.
+      tabIndex={0}
+      role="group"
+      aria-label={
+        "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
+        "and Home to return to the selected camera angle."
+      }
+    />
+  );
 }
 
 type EnvironmentRefs = {
@@ -629,6 +728,18 @@ async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu
 }
 
 /**
+ * Radians per arrow-key press.
+ *
+ * ~7 degrees: coarse enough that circling the vehicle takes a reasonable number of presses (about
+ * 52 for a full revolution, or a second or two of held key repeat), fine enough to line up on a
+ * detail like a wheel or a badge.
+ */
+const KEYBOARD_ORBIT_STEP_RADIANS = 0.12;
+
+/** Metres of dolly per +/- press, against the 4-15 m distance range OrbitControls is clamped to. */
+const KEYBOARD_ZOOM_STEP = 0.6;
+
+/**
  * Opacity of the low-detail placeholder shown while the real model streams in.
  *
  * Deliberately ghosted rather than solid: at full opacity a blocky procedural stand-in reads as
@@ -683,7 +794,7 @@ function swapProxyForVehicle(proxy: THREE.Object3D, immediate: boolean): void {
 
   gsap.to(materials, {
     opacity: 0,
-    duration: PROXY_FADE_SECONDS,
+    duration: motionDuration(PROXY_FADE_SECONDS),
     ease: "power2.out",
     // Disposal is the completion handler rather than a separate timer so the geometry is released
     // exactly when it stops being drawn, however the tween ends.
