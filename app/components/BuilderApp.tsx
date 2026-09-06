@@ -50,7 +50,6 @@ import {
 import type { VehicleSceneController } from "../../lib/three/sceneController";
 import {
   calculateBuildProgress,
-  createConfigurationShareUrl,
   createRandomSelections,
   estimateBuildTotal,
   estimateMonthlyPayment,
@@ -58,6 +57,11 @@ import {
   formatBuildSummary,
   readSharedConfigurationId,
 } from "../../lib/showroom/buildTools";
+import {
+  createBuildDeepLinkUrl,
+  readBuildDeepLinkParam,
+  validateBuildDeepLink,
+} from "../../lib/showroom/deepLink";
 
 /**
  * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
@@ -387,7 +391,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const share = async () => {
     if (!configuration) return;
-    const url = createConfigurationShareUrl(window.location.origin, window.location.pathname, configuration.configurationId);
+    // Encode selections + camera into `?c=…` so the link restores without a D1/localStorage id.
+    const url = createBuildDeepLinkUrl(window.location.origin, window.location.pathname, {
+      gradeId: configuration.gradeId,
+      selections: configuration.selections,
+      cameraState: configuration.cameraState,
+    });
     try {
       await navigator.clipboard.writeText(url);
       setGarageMessage("Share link copied to clipboard");
@@ -751,6 +760,21 @@ function rememberConfigurationId(vehicleSlug: string, configurationId: string): 
  * or hand-edited storage value pointing at the wrong vehicle.
  */
 async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): Promise<VehicleConfiguration> {
+  // Deep-link `?c=…` wins over hash/localStorage: it carries selections + camera inline so Pages
+  // and local static exports can restore a build without a durable configuration id.
+  const deepLink = tryRestoreFromDeepLink(vehicle);
+  if (deepLink) {
+    const created = await configurationsApi.createConfiguration({
+      vehicleId: vehicle.slug,
+      modelYear: vehicle.year,
+      gradeId: deepLink.gradeId,
+      selections: deepLink.selections,
+      cameraState: deepLink.cameraState,
+    });
+    rememberConfigurationId(vehicle.slug, created.configurationId);
+    return created;
+  }
+
   const storedId = safeReadStoredId(vehicle.slug);
 
   if (storedId) {
@@ -769,6 +793,20 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
   });
   rememberConfigurationId(vehicle.slug, created.configurationId);
   return created;
+}
+
+/**
+ * Decodes and catalog-validates `?c=…`. Returns null on absence or any validation failure so the
+ * builder can fall through to the normal resume/create path rather than blocking on a bad link.
+ */
+function tryRestoreFromDeepLink(vehicle: Vehicle): ReturnType<typeof validateBuildDeepLink> | null {
+  try {
+    const encoded = readBuildDeepLinkParam(window.location.search);
+    if (!encoded) return null;
+    return validateBuildDeepLink(vehicle.slug, vehicle.year, encoded);
+  } catch {
+    return null;
+  }
 }
 
 function safeReadStoredId(vehicleSlug: string): string | null {

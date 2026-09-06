@@ -62,3 +62,42 @@ test("an accessory selection survives a reload; lift height, which isn't part of
   await expect(page.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: '0"' })).toHaveClass(/active/);
 });
+
+test("a deep-link share restores selections and camera in a fresh session", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto("4runner/");
+
+  const barcelonaRed = page.getByRole("button", { name: "Barcelona Red Metallic" });
+  await expect(barcelonaRed).toBeVisible();
+  await barcelonaRed.click();
+  await expect(barcelonaRed).toHaveAttribute("aria-pressed", "true");
+
+  await page.getByRole("button", { name: "Front" }).click();
+  await expect(page.getByRole("button", { name: "Front" })).toHaveClass(/selected/);
+
+  await expect(page.getByRole("button", { name: /saving/i })).toHaveCount(0, { timeout: 10_000 });
+
+  await page.getByRole("button", { name: /^share$/i }).click();
+  await expect(page.getByText(/share link copied|share link ready/i)).toBeVisible();
+
+  const sharedUrl = await page.evaluate(async () => navigator.clipboard.readText());
+  expect(sharedUrl).toMatch(/[?&]c=/);
+
+  // Fresh session: wipe local garage so restore can only come from `?c=…`.
+  await context.clearCookies();
+  await page.goto("about:blank");
+  await page.evaluate(() => {
+    try {
+      localStorage.clear();
+    } catch {
+      /* ignore */
+    }
+  });
+
+  await page.goto(sharedUrl);
+
+  const restoredPaint = page.getByRole("button", { name: "Barcelona Red Metallic" });
+  await expect(restoredPaint).toBeVisible();
+  await expect(restoredPaint).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "Front" })).toHaveClass(/selected/);
+});
