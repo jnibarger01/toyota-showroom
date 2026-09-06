@@ -317,6 +317,39 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       };
       host.addEventListener("keydown", handleKeyDown);
 
+      /**
+       * WebGL context loss.
+       *
+       * The GPU process can drop a context at any time — a driver reset, the OS reclaiming VRAM,
+       * a background tab being evicted, or simply too many live contexts across the browser. It
+       * arrives as an *event*, not an exception, so neither the try/catch around model loading nor
+       * `CanvasErrorBoundary` sees it: the render loop just keeps calling into a dead context and
+       * the viewport freezes on its last frame with no error anywhere.
+       *
+       * `preventDefault` on `webglcontextlost` is what makes the context eligible for restoration
+       * at all — without it the browser will never fire `webglcontextrestored`. The loop is stopped
+       * meanwhile because drawing into a lost context is wasted work that also spams the console.
+       */
+      const canvas = renderer.domElement;
+      const handleContextLost = (event: Event) => {
+        event.preventDefault();
+        running = false;
+        console.warn("[canvas] WebGL context lost; pausing render loop until it is restored.");
+        onErrorRef.current("Rendering was interrupted. Attempting to recover the 3D view.");
+      };
+      const handleContextRestored = () => {
+        console.info("[canvas] WebGL context restored; resuming render loop.");
+        // `resize` reallocates the drawing buffer against the restored context; without it the
+        // renderer keeps the dimensions of a buffer that no longer exists.
+        resize();
+        if (running) return;
+        running = true;
+        lastFrameAt = performance.now();
+        void loop();
+      };
+      canvas.addEventListener("webglcontextlost", handleContextLost);
+      canvas.addEventListener("webglcontextrestored", handleContextRestored);
+
       const observer = new ResizeObserver(resize);
       observer.observe(host);
 
@@ -349,6 +382,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         () => {
           running = false;
           host.removeEventListener("keydown", handleKeyDown);
+          canvas.removeEventListener("webglcontextlost", handleContextLost);
+          canvas.removeEventListener("webglcontextrestored", handleContextRestored);
           observer.disconnect();
           controls.dispose();
           renderer.dispose();

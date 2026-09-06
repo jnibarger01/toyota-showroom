@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import type { CameraPreset } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
+import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
@@ -583,7 +584,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <SlidersHorizontal size={16} /> Customize
           </button>
 
-          <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
+          {/*
+            * Boundary outside Suspense, not inside: a failed `lazy()` chunk fetch — the most likely
+            * failure here, since a deploy invalidates hashed chunks for anyone with the page open —
+            * throws from the Suspense boundary itself, so a boundary nested within it never sees it.
+            */}
+          <CanvasErrorBoundary fallbackImage={vehicle.media.hero} onError={(error) => setLoadError(error.message)}>
+            <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
             <VehicleCanvas
               threeDConfig={vehicle.threeDConfig}
               catalog={bootstrap.catalog}
@@ -595,7 +602,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onError={handleSceneError}
               onProgress={setModelProgress}
             />
-          </Suspense>
+            </Suspense>
+          </CanvasErrorBoundary>
           {modelProgress !== null && modelProgress < 1 && (
             <div
               className="model-progress"
