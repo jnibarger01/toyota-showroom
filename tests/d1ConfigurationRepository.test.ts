@@ -21,6 +21,26 @@ interface Env {
   DB: import("@cloudflare/workers-types").D1Database;
 }
 
+/**
+ * Miniflare state directory, private to this test file.
+ *
+ * `getPlatformProxy` defaults to `.wrangler/state/v3`, shared with wrangler and — critically — with
+ * every other test file that calls it. Vitest runs files in parallel workers, so this file and
+ * `tests/rateLimit.test.ts` were starting two Miniflare instances against the same SQLite database,
+ * and CI caught the race workerd reports as:
+ *
+ *     Fatal uncaught kj::Exception: workerd/util/sqlite.c++: database is locked: SQLITE_BUSY
+ *
+ * Whichever instance loses the lock fails to start at all, taking its whole suite with it. It is
+ * timing-dependent — it never reproduced locally across repeated runs and only surfaced on a loaded
+ * CI runner — which is exactly why it needs a structural fix rather than a retry.
+ *
+ * A private path removes the contention instead of hiding it: both files still start a real
+ * Miniflare and still exercise real bindings, they simply no longer share one lock. The idempotent
+ * schema setup below is still required — this directory persists across runs on a dev machine.
+ */
+const MINIFLARE_STATE_DIR = path.resolve(import.meta.dirname, "../.wrangler/state/test-d1");
+
 let proxy: Awaited<ReturnType<typeof getPlatformProxy<Env>>>;
 let repo: D1ConfigurationRepository;
 
@@ -33,7 +53,10 @@ function migrationSqlFiles(): string[] {
 }
 
 beforeAll(async () => {
-  proxy = await getPlatformProxy<Env>({ configPath: path.resolve(import.meta.dirname, "../wrangler.jsonc") });
+  proxy = await getPlatformProxy<Env>({
+    configPath: path.resolve(import.meta.dirname, "../wrangler.jsonc"),
+    persist: { path: MINIFLARE_STATE_DIR },
+  });
   const db = proxy.env.DB;
 
   // Idempotent schema setup: `.wrangler/state/` persists across test runs, so re-running the

@@ -147,12 +147,32 @@ describe("enforceCatalogReadRateLimit (fake binding)", () => {
  * confirmed working fully offline) and runs `enforceConfigWriteRateLimit` against it for real,
  * rather than trusting that the fake-binding tests above generalize to Cloudflare's actual behavior.
  */
+/**
+ * Miniflare state directory, private to this test file.
+ *
+ * `getPlatformProxy` defaults to `.wrangler/state/v3`, shared with wrangler and — critically —
+ * with every other test file that calls it. Vitest runs files in parallel workers, so this file and
+ * `tests/d1ConfigurationRepository.test.ts` were starting two Miniflare instances against the same SQLite database, and CI
+ * caught the race workerd reports as:
+ *
+ *     Fatal uncaught kj::Exception: workerd/util/sqlite.c++: database is locked: SQLITE_BUSY
+ *
+ * Whichever instance loses the lock fails to start at all, taking its whole suite with it. It is
+ * timing-dependent — it never reproduced locally across repeated runs and only surfaced on a
+ * loaded CI runner — which is exactly why it needs a structural fix rather than a retry.
+ *
+ * A private path removes the contention instead of hiding it: both files still start a real
+ * Miniflare and still exercise real bindings, they simply no longer share one lock.
+ */
+const MINIFLARE_STATE_DIR = path.resolve(import.meta.dirname, "../.wrangler/state/test-rate-limit");
+
 describe("enforceConfigWriteRateLimit (real local rate limiter)", () => {
   let proxy: Awaited<ReturnType<typeof getPlatformProxy<{ CONFIG_WRITE_LIMITER: RateLimitBinding }>>>;
 
   beforeAll(async () => {
     proxy = await getPlatformProxy<{ CONFIG_WRITE_LIMITER: RateLimitBinding }>({
       configPath: path.resolve(import.meta.dirname, "../wrangler.jsonc"),
+      persist: { path: MINIFLARE_STATE_DIR },
     });
   });
 
