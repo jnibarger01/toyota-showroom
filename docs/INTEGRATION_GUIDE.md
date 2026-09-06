@@ -1267,9 +1267,13 @@ lib/
     useConfiguration.ts              useSyncExternalStore binding
   three/
     assets.ts                        cached loading, mounts, disposal
+    canvasIdle.ts                    Page Visibility + IntersectionObserver suspend
+    frameStats.ts                    rolling frame-time / fps tracker
     materials.ts                     clone-on-write writes
     nodes.ts                         exact-name resolution, contract verification, dump
     proceduralParts.ts               ACCESSORY_* groups + fallback vehicle
+    progressiveLoad.ts               placeholder → GLB settle phase machine
+    quality.ts                       high/medium/low tier selection + renderer knobs
     sceneController.ts               operation dispatch, deterministic restore
   types/
     customization.ts                 option + configuration schema
@@ -1755,3 +1759,28 @@ correct for them.
 Not attempted: standing up a real Cloudflare Pages/Workers Static Assets deployment in this
 environment to confirm actual HTTP response headers, since (as §1's D1 note and §12 already
 establish) this environment has no Cloudflare account credentials to deploy anything real with.
+
+---
+
+## 18. Progressive GLB Load, Quality Tiers, and Idle Canvas
+
+Issue #27. Complements §15 (GLB compression is **done**) and leaves adaptive quality policy to #33.
+
+**Progressive load.** `VehicleCanvas` no longer blocks the first paint on the ~28 MiB Draco GLB.
+After the renderer and studio rig are up, a procedural stand-in from `createProceduralVehicle()` is
+added immediately and the rAF loop starts. The detailed asset loads in the background; on success
+the stand-in is disposed and the real root is prepared / verified before `onReady`. Phases live in
+`lib/three/progressiveLoad.ts` so they stay unit-tested without WebGL.
+
+**Quality tiers (LOD stand-in).** The shipped GLB is a single resolution, so "LOD" here means
+renderer knobs: pixel-ratio cap, shadow map size / enable, antialias, secondary-light scale,
+starfield density, and whether to fetch authored wheel/tyre glTFs. `lib/three/quality.ts` picks
+`high` / `medium` / `low` once from device hints (Save-Data, memory, cores, mobile UA, DPR).
+
+**Frame-time instrumentation.** `lib/three/frameStats.ts` keeps a rolling average on the
+WebGPU/WebGL render path; `canvas.dataset.frameStats` exposes a short summary.
+
+**Idle suspend.** `lib/three/canvasIdle.ts` pauses rendering when the document is hidden or the
+canvas host is not intersecting the viewport, and resumes cleanly.
+
+Budgets and acceptance notes: `docs/PERF_BUDGETS.md`.
