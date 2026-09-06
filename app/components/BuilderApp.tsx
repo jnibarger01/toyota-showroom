@@ -9,6 +9,7 @@ import {
   Check,
   ClipboardCheck,
   Download,
+  CloudOff,
   CloudSun,
   CircleGauge,
   Cog,
@@ -37,7 +38,7 @@ import type { CameraPreset } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
-import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
+import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -148,6 +149,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const redoStack = useRef<SelectionMap[]>([]);
 
   const { configuration, catalog, status, error } = useConfiguration();
+  const persistenceMode = usePersistenceMode();
+  const isLocalPersistence = persistenceMode === "local";
 
   // ------------------------------------------------------------------ step 1-4
   // Load vehicle metadata, then the option catalog, then the saved configuration. Nothing here
@@ -421,7 +424,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const saveToGarage = async () => {
     await configurationStore.flush();
-    setGarageMessage("Build saved to your local garage");
+    setGarageMessage(
+      isLocalPersistence
+        ? "Build saved in this browser only (demo / offline mode)"
+        : "Build saved to your garage",
+    );
   };
 
   const share = async () => {
@@ -434,11 +441,19 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     });
     try {
       await navigator.clipboard.writeText(url);
-      setGarageMessage("Share link copied to clipboard");
+      setGarageMessage(
+        isLocalPersistence
+          ? "Share link copied — deep link restores this build without cloud save"
+          : "Share link copied to clipboard",
+      );
     } catch {
       // Set feedback before prompt: headless / permission-denied environments can hang on
       // `window.prompt`, and the e2e assertion only needs the garage message.
-      setGarageMessage("Share link ready to copy");
+      setGarageMessage(
+        isLocalPersistence
+          ? "Share link ready to copy — deep link works without Worker/D1"
+          : "Share link ready to copy",
+      );
       try {
         window.prompt("Copy this build link", url);
       } catch {
@@ -492,7 +507,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className="ghost" onClick={() => void reset()}>
             <RotateCcw size={16} /> Reset
           </button>
-          <SaveIndicator status={status} />
+          <SaveIndicator status={status} local={isLocalPersistence} />
           <button className="primary" onClick={() => void share()}>
             <Share2 size={16} /> Share
           </button>
@@ -512,6 +527,18 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button onClick={() => setLoadError(null)}>Dismiss</button>
         </div>
       ) : null}
+
+      {isLocalPersistence ? (
+        <div className="persistence-banner" role="status" data-testid="persistence-mode-banner">
+          <CloudOff size={15} aria-hidden />
+          <span>
+            <strong>Demo / offline saves</strong> — builds stay in this browser.
+            Share uses a deep link so others can open your build without Worker/D1.
+            Production persistence is Cloudflare Worker + D1; see the deployment runbook to promote.
+          </span>
+        </div>
+      ) : null}
+
       {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your 4Runner</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo.</p></div> : null}
 
       {error ? (
@@ -572,7 +599,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Accessories</button>
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
-          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small><button onClick={() => void saveToGarage()}>Save build</button></div>
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button onClick={() => void saveToGarage()}>Save build</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
@@ -744,7 +771,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   );
 }
 
-function SaveIndicator({ status }: { status: string }) {
+function SaveIndicator({ status, local }: { status: string; local: boolean }) {
   if (status === "saving") {
     return <button className="ghost" disabled><Loader2 size={16} className="spin" /> Saving</button>;
   }
@@ -752,9 +779,17 @@ function SaveIndicator({ status }: { status: string }) {
     return <button className="ghost" disabled><AlertTriangle size={16} /> Not saved</button>;
   }
   if (status === "saved") {
-    return <button className="ghost" disabled><Check size={16} /> Saved</button>;
+    return (
+      <button className="ghost" disabled title={local ? "Saved in this browser (demo / offline)" : "Saved to Worker/D1"}>
+        <Check size={16} /> {local ? "Saved locally" : "Saved"}
+      </button>
+    );
   }
-  return <button className="ghost" disabled><Check size={16} /> Up to date</button>;
+  return (
+    <button className="ghost" disabled title={local ? "Demo / offline — localStorage only" : undefined}>
+      <Check size={16} /> {local ? "Local only" : "Up to date"}
+    </button>
+  );
 }
 
 /**

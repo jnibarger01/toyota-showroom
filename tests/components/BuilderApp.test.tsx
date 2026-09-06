@@ -89,6 +89,13 @@ vi.mock("../../lib/api/configurations", () => ({
       updatedAt: new Date().toISOString(),
     };
   },
+  getPersistenceMode() {
+    return "local";
+  },
+  subscribePersistenceMode() {
+    return () => {};
+  },
+  resetTransportDetection() {},
 }));
 
 const { BuilderApp } = await import("../../app/components/BuilderApp");

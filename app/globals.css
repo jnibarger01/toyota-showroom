@@ -265,6 +265,17 @@ button { font: inherit; color: inherit; }
 
 .panel-empty { color: #747f8d; font-size: 12px; padding: 10px 0; }
 
+
+.persistence-banner {
+  display: flex; align-items: flex-start; gap: 9px; padding: 9px 16px; font-size: 12px;
+  background: #1a222c; border-bottom: 1px solid #3a4654; color: #c5d0dc;
+}
+.persistence-banner strong { color: #f0c674; font-weight: 600; }
+.persistence-banner span { line-height: 1.45; }
+.garage-local-hint {
+  margin: 0 0 8px; color: #c9a227; font-size: 10px; line-height: 1.4;
+}
+
 .config-error {
   display: flex; align-items: center; gap: 9px; padding: 9px 16px; font-size: 12px;
   background: #2a171a; border-bottom: 1px solid #772d32; color: #ffb4b8;
@@ -430,7 +441,7 @@ button { font: inherit; color: inherit; }
 
 @media print {
   body { overflow: visible; }
-  .topbar nav, .top-actions, .left-rail .rail-item, .garage-card, .quick-tools, .stage-toolbar, .gpu-status, .option-tools, .tour-card { display: none !important; }
+  .topbar nav, .top-actions, .left-rail .rail-item, .garage-card, .quick-tools, .stage-toolbar, .gpu-status, .option-tools, .tour-card, .persistence-banner { display: none !important; }
   .workspace { grid-template-columns: 180px 1fr 280px; height: auto; }
   .builder-shell { background: #fff; color: #111; }
 }
