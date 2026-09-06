@@ -7,6 +7,42 @@
 # revalidated on every use) — correct as-is for the HTML shells and `.rsc` payloads this app emits,
 # so they are deliberately not overridden here.
 
+# ---------------------------------------------------------------- security headers
+# Applies to every response this deployment serves. Cumulative with the cache rules below —
+# Cloudflare merges all matching rules rather than taking only the first.
+#
+# ## Why this exists when app/layout.tsx already sets a CSP
+#
+# The layout ships a `<meta http-equiv="Content-Security-Policy">` because GitHub Pages has no
+# server to attach response headers with, and `_headers` is a Cloudflare Workers Static Assets
+# feature that Pages does not read. So the two deployment targets need two different delivery
+# mechanisms for the same policy, and both must exist.
+#
+# The header is not merely a duplicate: per spec, a `<meta>` CSP cannot enforce `frame-ancestors`
+# or `sandbox` at all — they are header-only directives, silently ignored in a meta tag. That made
+# clickjacking protection impossible on either target while the meta tag was the only mechanism.
+# It is now enforced wherever a real header can be sent, which is the Cloudflare deployment. The
+# GitHub Pages export remains unable to express it; that gap is a property of the host, not of
+# this policy, and is disclosed in docs/INTEGRATION_GUIDE.md's Known gaps.
+#
+# The directives below deliberately match app/layout.tsx's meta policy, and
+# tests/staticHeaders.test.ts asserts they stay in sync, so a change made in one place cannot
+# quietly leave the other target on the old policy.
+#
+# `'unsafe-inline'` on script-src/style-src is an existing, documented tradeoff, unchanged here:
+# the RSC hydration payload ships as an inline `<script>` whose content differs per prerendered
+# page, and CustomizationButton's paint swatches use inline `style`. `'wasm-unsafe-eval'` is
+# required by the vendored Draco/Basis decoders' Emscripten glue; `connect-src` needs `blob:` and
+# `data:` because GLTFLoader's internal loaders fetch both. See app/layout.tsx for the full
+# rationale and how each was verified.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob: data:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  # Legacy companion to frame-ancestors, for user agents that predate CSP Level 2.
+  X-Frame-Options: DENY
+
 # Content-hashed build output (vite/vinext's own chunk naming, e.g. BuilderApp-<hash>.js): a new
 # build always produces a new hash, so these can be cached forever without a staleness risk.
 /assets/*

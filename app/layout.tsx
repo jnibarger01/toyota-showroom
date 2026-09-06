@@ -9,10 +9,19 @@ export const metadata: Metadata = {
 /**
  * The static HTML shell's own security policy — a different surface from `app/api/v1/**`'s
  * (`lib/server/securityHeaders.ts`), and delivered a different way. GitHub Pages has no server to
- * attach response headers with, so this is the only mechanism that can reach it at all; per spec,
- * a `<meta http-equiv="Content-Security-Policy">` tag cannot enforce `frame-ancestors` or
- * `sandbox` (real HTTP header delivery only) — this app has no way to prevent being framed on the
- * static export, a real, disclosed gap (see docs/INTEGRATION_GUIDE.md's Known gaps).
+ * attach response headers with, so this meta tag is the only mechanism that can reach that target
+ * at all.
+ *
+ * Per spec, a `<meta http-equiv="Content-Security-Policy">` tag cannot enforce `frame-ancestors`
+ * or `sandbox` — they are header-only directives, silently ignored here. `public/_headers` now
+ * sends the same policy plus `frame-ancestors 'none'` as a real header, so the Cloudflare Workers
+ * deployment does get clickjacking protection; GitHub Pages, which does not read `_headers`,
+ * still cannot (a property of the host, not of this policy — see docs/INTEGRATION_GUIDE.md's
+ * Known gaps).
+ *
+ * The two copies must agree. `tests/staticHeaders.test.ts` asserts they do, on every directive
+ * they share, so loosening one to make a feature work cannot quietly leave the other target
+ * behind.
  *
  * `'unsafe-inline'` on `script-src`/`style-src` is a deliberate, common tradeoff, not an
  * oversight: the RSC hydration payload ships as an inline `<script>` whose content differs per
