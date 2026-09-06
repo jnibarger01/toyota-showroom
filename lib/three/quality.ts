@@ -72,22 +72,35 @@ export function qualitySettingsFor(tier: QualityTier): QualitySettings {
   return { tier, ...TIER_SETTINGS[tier] };
 }
 
+const TIER_RANK: Record<QualityTier, number> = { low: 0, medium: 1, high: 2 };
+
+function weakerTier(a: QualityTier, b: QualityTier): QualityTier {
+  return TIER_RANK[a] <= TIER_RANK[b] ? a : b;
+}
+
+/** Map a numeric hint into a constrained tier, or null when the signal is not restrictive. */
+function tierFromThreshold(value: number | undefined, lowAt: number, mediumAt: number): QualityTier | null {
+  if (typeof value !== "number" || value <= 0) return null;
+  if (value <= lowAt) return "low";
+  if (value <= mediumAt) return "medium";
+  return null;
+}
+
 /**
- * Pick a tier from coarse device signals. Prefer explicit override, then Save-Data / very low
- * memory, then a mobile-ish heuristic, else high.
+ * Pick a tier from coarse device signals. Prefer explicit override, then Save-Data, then the
+ * weakest of memory/core hints, then a mobile-ish heuristic, else high.
  */
 export function selectQualityTier(hints: DeviceHints = {}): QualityTier {
   if (hints.preferTier) return hints.preferTier;
 
   if (hints.saveData) return "low";
 
-  const memory = hints.deviceMemoryGb;
-  if (typeof memory === "number" && memory > 0 && memory <= 2) return "low";
-  if (typeof memory === "number" && memory > 0 && memory <= 4) return "medium";
-
-  const cores = hints.hardwareConcurrency;
-  if (typeof cores === "number" && cores > 0 && cores <= 2) return "low";
-  if (typeof cores === "number" && cores > 0 && cores <= 4) return "medium";
+  // Combine memory + core hints with the most constrained tier (e.g. 4 GB + 2 cores → low).
+  const fromMemory = tierFromThreshold(hints.deviceMemoryGb, 2, 4);
+  const fromCores = tierFromThreshold(hints.hardwareConcurrency, 2, 4);
+  const fromHardware =
+    fromMemory && fromCores ? weakerTier(fromMemory, fromCores) : fromMemory ?? fromCores;
+  if (fromHardware) return fromHardware;
 
   const ua = hints.userAgent?.toLowerCase() ?? "";
   const touch = hints.maxTouchPoints ?? 0;

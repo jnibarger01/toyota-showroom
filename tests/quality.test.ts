@@ -23,6 +23,12 @@ describe("selectQualityTier", () => {
     expect(selectQualityTier({ deviceMemoryGb: 4, hardwareConcurrency: 8 })).toBe("medium");
   });
 
+  it("prefers the weakest of memory and core hints", () => {
+    // 4 GB alone is medium, but two cores force low — take the more constrained signal.
+    expect(selectQualityTier({ deviceMemoryGb: 4, hardwareConcurrency: 2 })).toBe("low");
+    expect(selectQualityTier({ deviceMemoryGb: 8, hardwareConcurrency: 2 })).toBe("low");
+  });
+
   it("maps mobile user agents to medium when memory is ample", () => {
     expect(
       selectQualityTier({

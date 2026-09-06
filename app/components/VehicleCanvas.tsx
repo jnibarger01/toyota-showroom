@@ -202,11 +202,39 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       let controller: VehicleSceneController | null = null;
       const frameStats = new FrameTimeTracker(60);
       let loop: (() => void) | undefined;
+      /** Pending rAF handle — must be cancelled on idle/suspend/cleanup to avoid forked loops. */
+      let rafId = 0;
+      /** Monotonic publish counter; `stats.samples` caps at the ring size so it cannot throttle. */
+      let framePublishCount = 0;
+
+      const cancelPendingRaf = () => {
+        if (rafId !== 0) {
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+        }
+      };
+
+      const queueFrame = () => {
+        if (rafId !== 0) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          loop?.();
+        });
+      };
+
       const idleGate = createCanvasIdleGate(host, (next) => {
         suspended = next;
         renderer.domElement.dataset.idle = next ? "1" : "0";
-        // Kick the loop when leaving idle so we do not wait on a stale rAF that never ran.
-        if (!next && running) loop?.();
+        if (next) {
+          cancelPendingRaf();
+          return;
+        }
+        // Leaving idle: drop any stale rAF, reseed frame timing, and kick a single chain.
+        if (running) {
+          cancelPendingRaf();
+          frameStats.reset();
+          loop?.();
+        }
       });
       suspended = idleGate.suspended;
       renderer.domElement.dataset.idle = suspended ? "1" : "0";
@@ -215,7 +243,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         if (!running) return;
         if (suspended) return;
         const stats = frameStats.record(performance.now());
-        if (stats.samples > 0 && stats.samples % 30 === 0) {
+        framePublishCount += 1;
+        if (stats.samples > 0 && framePublishCount % 30 === 0) {
           renderer.domElement.dataset.frameStats = formatFrameStats(stats);
         }
         controls.update();
@@ -223,7 +252,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
           ? renderer.renderAsync(scene, camera)
           : Promise.resolve(renderer.render(scene, camera));
         void paint.finally(() => {
-          if (running && !suspended) requestAnimationFrame(loop!);
+          if (running && !suspended) queueFrame();
         });
       };
       loop();
@@ -231,12 +260,19 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       // Assign cleanup before any await so an unmount mid-load still tears the renderer down.
       cleanup = () => {
         running = false;
+        cancelPendingRaf();
         idleGate.dispose();
         resizeObserver.disconnect();
         controls.dispose();
         renderer.dispose();
         renderer.domElement.remove();
-        controller?.dispose();
+        if (controller) {
+          controller.dispose();
+        } else if (rootRef.current) {
+          // Placeholder (or unsettled root) is not owned by the controller yet.
+          scene.remove(rootRef.current);
+          disposeSubtree(rootRef.current);
+        }
         floor.geometry.dispose();
         (floor.material as THREE.Material).dispose();
         grid.dispose();
@@ -325,6 +361,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
 
         if (cancelled) {
           if (detailed) disposeSubtree(detailed);
+          scene.remove(placeholder);
+          disposeSubtree(placeholder);
+          rootRef.current = null;
           return;
         }
 
@@ -340,6 +379,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
           }
           if (cancelled) {
             disposeSubtree(detailed);
+            scene.remove(placeholder);
+            disposeSubtree(placeholder);
+            rootRef.current = null;
             return;
           }
           scene.remove(placeholder);

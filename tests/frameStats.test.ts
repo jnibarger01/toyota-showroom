@@ -30,3 +30,17 @@ describe("FrameTimeTracker", () => {
     expect(formatFrameStats({ lastFrameMs: 0, avgFrameMs: 0, fps: 0, avgFps: 0, samples: 0 })).toBe("n/a");
   });
 });
+
+  it("resets and reseeds so an idle gap is not recorded as a frame", () => {
+    const tracker = new FrameTimeTracker(4);
+    tracker.record(0);
+    tracker.record(16);
+    expect(tracker.snapshot().samples).toBe(1);
+    tracker.reset();
+    const seeded = tracker.record(10_000);
+    expect(seeded.samples).toBe(0);
+    const next = tracker.record(10_016);
+    expect(next.samples).toBe(1);
+    expect(next.lastFrameMs).toBe(16);
+  });
+
