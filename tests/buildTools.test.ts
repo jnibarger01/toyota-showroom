@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { calculateBuildProgress, createConfigurationShareUrl, createRandomSelections, estimateBuildTotal, estimateMonthlyPayment, filterBuildOptions, formatBuildSummary, readSharedConfigurationId } from "../lib/showroom/buildTools";
+import { calculateBuildProgress, createConfigurationShareUrl, createRandomSelections, estimateBuildTotal, estimateMonthlyPayment, filterBuildOptions, formatBuildSummary, readSharedConfigurationId, resolveGradeMsrp } from "../lib/showroom/buildTools";
+import { fourRunner } from "../lib/data/vehicles/4runner";
+import { fourRunnerOptions } from "../lib/data/options/4runner";
 
 describe("showroom build tools", () => {
   it("calculates a configuration total from selected catalog options", () => {
@@ -48,5 +50,33 @@ describe("showroom build tools", () => {
     expect(estimateMonthlyPayment(0, 6, 60)).toBe(0);
     expect(estimateMonthlyPayment(30_000, 6, 0)).toBe(0);
     expect(estimateMonthlyPayment(-500, 6, 60)).toBe(0);
+  });
+
+  it("resolves grade sticker price and falls back to the cheapest published MSRP", () => {
+    expect(resolveGradeMsrp(fourRunner, "trd-pro")).toBe(53_900);
+    expect(resolveGradeMsrp(fourRunner, "sr5")).toBe(40_455);
+    expect(resolveGradeMsrp(fourRunner, "missing-grade")).toBe(40_455);
+    expect(resolveGradeMsrp(null, "trd-pro")).toBe(0);
+  });
+
+  it("derives the same live total after a selection round-trip (restore path)", () => {
+    const base = resolveGradeMsrp(fourRunner, "trd-pro");
+    const configuration = {
+      configurationId: "build-restore",
+      vehicleId: "4runner",
+      modelYear: 2024,
+      model: "4Runner",
+      gradeId: "trd-pro",
+      selections: { paint: ["paint-0r2-solar-octane"], accessory: ["accessory-roof-rack"] },
+      revision: 2,
+      schemaVersion: "1.0.0",
+      createdAt: "",
+      updatedAt: "",
+    };
+    const before = estimateBuildTotal(base, fourRunnerOptions, configuration);
+    // Simulate restore: only selections + grade come back; total is re-derived, never stored.
+    const restored = { ...configuration, configurationId: "build-restore-copy" };
+    expect(estimateBuildTotal(resolveGradeMsrp(fourRunner, restored.gradeId), fourRunnerOptions, restored)).toBe(before);
+    expect(before).toBe(53_900 + 425 + 1_150);
   });
 });
