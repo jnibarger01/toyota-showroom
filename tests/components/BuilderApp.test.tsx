@@ -6,6 +6,7 @@ import { fourRunnerOptions } from "../../lib/data/options/4runner";
 import type { CreateConfigurationInput, UpdateConfigurationInput } from "../../lib/api/configurations";
 import type { VehicleConfiguration } from "../../lib/types/customization";
 import { encodeBuildDeepLink } from "../../lib/showroom/deepLink";
+import { estimateBuildTotal, estimateMonthlyPayment, resolveGradeMsrp } from "../../lib/showroom/buildTools";
 
 /**
  * `VehicleCanvas` renders a real WebGPU/WebGL scene, which jsdom cannot run. It is replaced with a
@@ -202,5 +203,54 @@ describe("BuilderApp", () => {
     expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("front");
     expect(screen.getByRole("button", { name: "Barcelona Red Metallic" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Front" })).toHaveClass("selected");
+  });
+
+  it("updates the running build total and financing payment when an option with priceDelta is selected", async () => {
+    await renderBuilderReady();
+
+    const base = resolveGradeMsrp(fourRunner, "trd-pro");
+    expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${base.toLocaleString()}`);
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${base.toLocaleString()}`);
+
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+    await waitFor(() =>
+      expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual(["paint-0r2-solar-octane"]),
+    );
+
+    const expectedTotal = base + 425;
+    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expectedTotal.toLocaleString()}`));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expectedTotal.toLocaleString()}`);
+
+    const expectedMonthly = estimateMonthlyPayment(expectedTotal, 6.9, 60).toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    });
+    expect(screen.getByTestId("estimated-monthly-payment")).toHaveTextContent(`$${expectedMonthly}/mo`);
+  });
+
+  it("re-derives the same estimated total after restoring selections from a deep link", async () => {
+    const encoded = encodeBuildDeepLink({
+      gradeId: "trd-pro",
+      selections: { paint: ["paint-0r2-solar-octane"], accessory: ["accessory-roof-rack"] },
+    });
+    window.history.replaceState({}, "", `/4runner/?c=${encodeURIComponent(encoded)}`);
+
+    await renderBuilderReady();
+
+    await waitFor(() => {
+      expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual(["paint-0r2-solar-octane"]);
+    });
+
+    // Deep-link restore creates a config; catalog may still be grade-filtered in the store.
+    fireEvent.click(screen.getByRole("button", { name: /lighting/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true"));
+
+    const expected = estimateBuildTotal(
+      resolveGradeMsrp(fourRunner, "trd-pro"),
+      fourRunnerOptions,
+      configurationStore.getSnapshot().configuration,
+    );
+    expect(expected).toBe(53_900 + 425 + 1_150);
+    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expected.toLocaleString()}`));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expected.toLocaleString()}`);
   });
 });

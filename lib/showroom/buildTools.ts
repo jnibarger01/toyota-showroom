@@ -5,7 +5,26 @@ import {
   type SelectionMap,
   type VehicleConfiguration,
 } from "../types/customization";
+import type { Vehicle } from "../types/vehicle";
 
+/**
+ * Grade sticker price for a build total. Falls back to the vehicle's cheapest published MSRP when
+ * the grade id is missing or unknown — never trusts a client-supplied dollar figure.
+ */
+export function resolveGradeMsrp(vehicle: Vehicle | null | undefined, gradeId: string | null | undefined): number {
+  if (!vehicle) return 0;
+  const grade = gradeId ? vehicle.grades.find((candidate) => candidate.id === gradeId) : undefined;
+  if (grade) return grade.msrp;
+  return Math.min(vehicle.pricing.baseMsrp, ...vehicle.grades.map((candidate) => candidate.msrp));
+}
+
+/**
+ * Live build estimate: grade MSRP + sum of selected options' catalog `priceDelta`s.
+ *
+ * Derived from selections + trusted catalog on every call (including restore). Not persisted on
+ * `VehicleConfiguration` — keeping the schema selection-only keeps D1 / localConfigurationTransport
+ * offline round-trips simple and avoids accepting client-authored dollar figures.
+ */
 export function estimateBuildTotal(baseMsrp: number, catalog: CustomizationOption[], configuration: VehicleConfiguration | null): number {
   if (!configuration) return baseMsrp;
   const selected = new Set(Object.values(configuration.selections).flat());
