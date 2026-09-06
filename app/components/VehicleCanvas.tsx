@@ -11,6 +11,7 @@ import { VehicleSceneController } from "../../lib/three/sceneController";
 import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
+import { QUALITY_TIERS, QualityGovernor, suggestInitialTierIndex, type QualityTier } from "../../lib/three/qualityGovernor";
 
 export type CameraPreset = {
   id: string;
@@ -102,7 +103,10 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         return;
       }
 
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      // Current quality rung. `resize` reads this rather than closing over a constant, so a tier
+      // change landing between resizes is not undone by the next one. Seeded with the top tier and
+      // replaced by `applyTier(governor.tier)` once the governor exists.
+      let activeTier: QualityTier = QUALITY_TIERS[0]!;
       renderer.shadowMap.enabled = true;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.05;
@@ -187,11 +191,57 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       const resize = () => {
         const width = Math.max(host.clientWidth, 1);
         const height = Math.max(host.clientHeight, 1);
+        // Re-applied on every resize, not just on tier change: `setSize` reallocates the drawing
+        // buffer using whatever pixel ratio is currently set, so a stale ratio here would silently
+        // undo the governor's last decision the first time the window changed size.
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, activeTier.pixelRatioCap));
         renderer.setSize(width, height);
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
       };
-      resize();
+
+      /**
+       * Applies a quality tier to the live renderer.
+       *
+       * Shadow map resizing needs the explicit dispose: three caches the render target on
+       * `light.shadow.map` and does not reallocate it just because `mapSize` changed, so without
+       * this the new resolution is stored but never takes effect — the expensive half of a
+       * downgrade would silently do nothing.
+       */
+      const applyTier = (tier: QualityTier) => {
+        activeTier = tier;
+        const castsShadows = tier.shadowMapSize > 0;
+        renderer.shadowMap.enabled = castsShadows;
+        key.castShadow = castsShadows;
+        if (castsShadows) {
+          key.shadow.mapSize.set(tier.shadowMapSize, tier.shadowMapSize);
+          key.shadow.map?.dispose();
+          key.shadow.map = null;
+        }
+        // Runs setPixelRatio and setSize together; setting the ratio alone would leave the drawing
+        // buffer at its previous dimensions until something else happened to trigger a resize.
+        resize();
+      };
+
+      const governor = new QualityGovernor({
+        initialTierIndex: suggestInitialTierIndex(),
+        onChange: (tier, { from, reason }) => {
+          applyTier(tier);
+          // Left in production rather than dev-gated: when someone reports "the showroom looks
+          // blurry on my phone", this line is the answer, and it fires at most a handful of times
+          // in a session.
+          console.info(
+            `[quality] ${reason}: ${from.id} -> ${tier.id} ` +
+              `(dpr cap ${tier.pixelRatioCap}, shadow map ${tier.shadowMapSize || "off"})`,
+          );
+        },
+      });
+
+      // Applies the *opening* tier, which `suggestInitialTierIndex` may already have set below the
+      // top rung. Assigning `activeTier` alone would leave the shadow map at the 2048² default
+      // while the pixel ratio reflected a lower tier — half-configured, and hard to spot.
+      applyTier(governor.tier);
+
       const observer = new ResizeObserver(resize);
       observer.observe(host);
 
@@ -201,8 +251,12 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       // spinner waiting on geometry it does not depend on. Starting now means first paint is
       // bounded by renderer setup instead of by the largest asset on the page.
       let running = true;
+      let lastFrameAt = performance.now();
       const loop = async () => {
         if (!running) return;
+        const frameStartedAt = performance.now();
+        governor.recordFrame(frameStartedAt - lastFrameAt);
+        lastFrameAt = frameStartedAt;
         controls.update();
         if (renderer.renderAsync) await renderer.renderAsync(scene, camera);
         else renderer.render(scene, camera);
