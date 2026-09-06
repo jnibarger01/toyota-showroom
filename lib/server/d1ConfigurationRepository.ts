@@ -99,6 +99,14 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
     return row ? this.toVehicleConfiguration(row) : null;
   }
 
+  async requireOwner(configurationId: string, ownerToken: string): Promise<void> {
+    const row = await this.selectRow(configurationId);
+    if (!row) throw notFound(`No configuration found with id "${configurationId}".`);
+    if (!(await verifyOwnerToken(ownerToken, row.ownerTokenHash))) {
+      throw forbidden(`Owner token missing or does not match for configuration "${configurationId}".`);
+    }
+  }
+
   async update(configurationId: string, patch: ValidatedPatch, ownerToken: string): Promise<VehicleConfiguration> {
     const row = await this.selectRow(configurationId);
     if (!row) throw notFound(`No configuration found with id "${configurationId}".`);

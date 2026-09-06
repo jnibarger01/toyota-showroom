@@ -72,8 +72,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     await enforceConfigWriteRateLimit(request);
     const { configurationId } = await params;
     const existing = await requireConfiguration(configurationId);
+    // Authorize before validating. Validation first would do work on an unauthorized caller's
+    // behalf and let them distinguish a valid option id (422) from an invalid one (403) without
+    // holding the token — and it disagreed with the browser-side transport, which has always
+    // checked ownership first. `update` still re-checks; this is an additional gate, not a
+    // replacement for it.
+    const repository = getConfigurationRepository();
+    const ownerToken = ownerTokenFrom(request);
+    await repository.requireOwner(configurationId, ownerToken);
+
     const patch = validatePatchConfiguration(await readJson(request), existing);
-    return respond(await getConfigurationRepository().update(configurationId, patch, ownerTokenFrom(request)));
+    return respond(await repository.update(configurationId, patch, ownerToken));
   } catch (err) {
     if (err instanceof ApiError) return errorResponse(err);
     throw err;
