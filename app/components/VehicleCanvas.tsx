@@ -11,7 +11,18 @@ import { VehicleSceneController } from "../../lib/three/sceneController";
 import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
-import { QUALITY_TIERS, QualityGovernor, suggestInitialTierIndex, type QualityTier } from "../../lib/three/qualityGovernor";
+import {
+  collectBrowserDeviceHints,
+  resolveQuality,
+  type QualitySettings,
+} from "../../lib/three/quality";
+import { createCanvasIdleGate } from "../../lib/three/canvasIdle";
+import { FrameTimeTracker, formatFrameStats } from "../../lib/three/frameStats";
+import {
+  initialProgressiveState,
+  reduceProgressiveLoad,
+} from "../../lib/three/progressiveLoad";
+import { QualityGovernor } from "../../lib/three/qualityGovernor";
 import { motionDuration, prefersReducedMotion } from "../../lib/three/motionPreference";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
 
@@ -21,6 +32,18 @@ export type CameraPreset = {
   position: [number, number, number];
   target: [number, number, number];
 };
+
+/**
+ * Radians per arrow-key press.
+ *
+ * ~7 degrees: coarse enough that circling the vehicle takes a reasonable number of presses (about
+ * 52 for a full revolution, or a second of held key repeat), fine enough to line up on a detail
+ * like a wheel or a badge.
+ */
+const KEYBOARD_ORBIT_STEP_RADIANS = 0.12;
+
+/** Metres of dolly per +/- press, against the 4-15 m distance range OrbitControls is clamped to. */
+const KEYBOARD_ZOOM_STEP = 0.6;
 
 export type Terrain = "Studio" | "Trail" | "Night";
 export type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
@@ -41,13 +64,12 @@ type Props = {
   onReady: (controller: VehicleSceneController, applicable: CustomizationOption[]) => void;
   onError: (message: string) => void;
   /**
-   * Download progress for the main vehicle asset, 0..1. Optional, and deliberately not a
-   * substitute for `onReady`: the showroom is already rendering while this fires, so it drives a
-   * progress affordance, not a blocking spinner.
+   * Download progress for the main vehicle asset, 0..1. Optional, and deliberately not a substitute
+   * for `onReady`: the placeholder is already on screen while this fires, so it drives a progress
+   * affordance rather than a blocking spinner.
    *
-   * Only reported when the server sends `Content-Length`. A Draco-compressed GLB served with
-   * `Content-Encoding: gzip` often does not, and inventing a fake percentage in that case is worse
-   * than showing none — so the callback simply does not fire.
+   * Only reported when the server sends `Content-Length`. A Draco GLB served with
+   * `Content-Encoding: gzip` often does not, and inventing a percentage is worse than showing none.
    */
   onProgress?: (fraction: number) => void;
 };
@@ -61,13 +83,13 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   const groundedYRef = useRef(0);
   /**
    * Bumped once the model is in the scene. The lift effect depends on it so the initial ride height
-   * is applied when the root appears — otherwise the effect runs only while the GLB is still
+   * is applied when the root appears — otherwise the effect runs only while the 39 MB GLB is still
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
   const environmentRef = useRef<EnvironmentRefs | null>(null);
 
-  // Latest-value refs: the setup effect must run exactly once (re-fetching and re-decoding the GLB on every
+  // Latest-value refs: the setup effect must run exactly once (loading a 39 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
   // rather than listing them as dependencies. The assignment happens in an effect, not inline during
   // render — writing to `ref.current` while rendering is an impure side effect React disallows (the
@@ -76,8 +98,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   const onErrorRef = useRef(onError);
   const onProgressRef = useRef(onProgress);
   const catalogRef = useRef(catalog);
-  // Read by the Home-key handler, which lives in the run-once setup effect and so cannot close
-  // over the prop directly — it would reset to whichever preset was active at mount.
+  // Read by the Home-key handler, which lives in the run-once setup effect and so cannot close over
+  // the prop directly — it would reset to whichever preset was active at mount.
   const cameraPresetRef = useRef(cameraPreset);
   useEffect(() => {
     onReadyRef.current = onReady;
@@ -103,27 +125,25 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       camera.position.set(...cameraPreset.position);
       cameraRef.current = camera;
 
-      const { renderer, mode } = await createRenderer();
+      let quality = resolveQuality(collectBrowserDeviceHints());
+      const { renderer, mode } = await createRenderer(quality.antialias);
       if (cancelled) {
         renderer.dispose();
         return;
       }
 
-      // Current quality rung. `resize` reads this rather than closing over a constant, so a tier
-      // change landing between resizes is not undone by the next one. Seeded with the top tier and
-      // replaced by `applyTier(governor.tier)` once the governor exists.
-      let activeTier: QualityTier = QUALITY_TIERS[0]!;
-      renderer.shadowMap.enabled = true;
+      applyRendererQuality(renderer, quality);
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.05;
       renderer.domElement.dataset.renderer = mode;
-      recordMetric({ name: "renderer_selected", labels: { renderer: mode } });
+      recordMetric({ name: "renderer_selected", labels: { renderer: mode, tier: quality.tier } });
+      renderer.domElement.dataset.quality = quality.tier;
       host.appendChild(renderer.domElement);
 
       const controls = new OrbitControls(camera, renderer.domElement);
       // Damping is inertia: the scene keeps moving after the user stops dragging. That is exactly
-      // the "motion I did not ask for and cannot stop" that the reduced-motion preference covers,
-      // so it is a preference check rather than a constant.
+      // the "motion I did not ask for and cannot stop" the reduced-motion preference covers, so it
+      // is a preference check rather than a constant.
       controls.enableDamping = !prefersReducedMotion();
       controls.minDistance = 4;
       controls.maxDistance = 15;
@@ -142,8 +162,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       // clipped shadow coverage for anything longer than a compact car.
       const key = new THREE.DirectionalLight("#ffffff", 4.2);
       key.position.set(6, 9, 7);
-      key.castShadow = true;
-      key.shadow.mapSize.set(2048, 2048);
+      key.castShadow = quality.shadowsEnabled;
+      key.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
       key.shadow.bias = -0.00018;
       key.shadow.normalBias = 0.025;
       key.shadow.camera.near = 1;
@@ -160,14 +180,14 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       // specular hotspot that read as a glow the vehicle was floating in, drowning out the contact
       // shadow underneath it. Steepening the angle and tempering the floor material below (both
       // parts of the same fix) let the actual shadow read again.
-      const rim = new THREE.DirectionalLight("#4169ff", 1.6);
+      const rim = new THREE.DirectionalLight("#4169ff", 1.6 * quality.secondaryLightScale);
       rim.position.set(-6, 7.5, -6);
       scene.add(rim);
 
       // Fills the shaded (camera-facing, key-light-averted) side so the vehicle doesn't render as a
       // near-silhouette — the previous two-light rig left everything but the lit flank close to
       // black. No shadow: this is a soft bounce-light stand-in, not a directional key.
-      const fill = new THREE.DirectionalLight("#dce8ff", 1.1);
+      const fill = new THREE.DirectionalLight("#dce8ff", 1.1 * quality.secondaryLightScale);
       fill.position.set(-2, 3, 9);
       scene.add(fill);
 
@@ -179,14 +199,14 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         new THREE.MeshPhysicalMaterial({ color: "#0a0c10", roughness: 0.6, metalness: 0.05, clearcoat: 0.12, clearcoatRoughness: 0.4 }),
       );
       floor.rotation.x = -Math.PI / 2;
-      floor.receiveShadow = true;
+      floor.receiveShadow = quality.shadowsEnabled;
       scene.add(floor);
 
       const grid = new THREE.GridHelper(36, 36, "#26303a", "#151a20");
       grid.position.y = 0.002;
       scene.add(grid);
 
-      const stars = createStarfield();
+      const stars = createStarfield(quality.starfieldCount);
       stars.visible = false;
       scene.add(stars);
 
@@ -201,75 +221,26 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       const resize = () => {
         const width = Math.max(host.clientWidth, 1);
         const height = Math.max(host.clientHeight, 1);
-        // Re-applied on every resize, not just on tier change: `setSize` reallocates the drawing
-        // buffer using whatever pixel ratio is currently set, so a stale ratio here would silently
-        // undo the governor's last decision the first time the window changed size.
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, activeTier.pixelRatioCap));
         renderer.setSize(width, height);
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
       };
-
-      /**
-       * Applies a quality tier to the live renderer.
-       *
-       * Shadow map resizing needs the explicit dispose: three caches the render target on
-       * `light.shadow.map` and does not reallocate it just because `mapSize` changed, so without
-       * this the new resolution is stored but never takes effect — the expensive half of a
-       * downgrade would silently do nothing.
-       */
-      const applyTier = (tier: QualityTier) => {
-        activeTier = tier;
-        const castsShadows = tier.shadowMapSize > 0;
-        renderer.shadowMap.enabled = castsShadows;
-        key.castShadow = castsShadows;
-        if (castsShadows) {
-          key.shadow.mapSize.set(tier.shadowMapSize, tier.shadowMapSize);
-          key.shadow.map?.dispose();
-          key.shadow.map = null;
-        }
-        // Runs setPixelRatio and setSize together; setting the ratio alone would leave the drawing
-        // buffer at its previous dimensions until something else happened to trigger a resize.
-        resize();
-      };
-
-      const governor = new QualityGovernor({
-        initialTierIndex: suggestInitialTierIndex(),
-        onChange: (tier, { from, reason }) => {
-          applyTier(tier);
-          recordMetric({
-            name: "quality_changed",
-            value: Math.round(governor.averageFrameTimeMs),
-            labels: { from: from.id, to: tier.id, reason },
-          });
-          // Left in production rather than dev-gated: when someone reports "the showroom looks
-          // blurry on my phone", this line is the answer, and it fires at most a handful of times
-          // in a session.
-          console.info(
-            `[quality] ${reason}: ${from.id} -> ${tier.id} ` +
-              `(dpr cap ${tier.pixelRatioCap}, shadow map ${tier.shadowMapSize || "off"})`,
-          );
-        },
-      });
-
-      // Applies the *opening* tier, which `suggestInitialTierIndex` may already have set below the
-      // top rung. Assigning `activeTier` alone would leave the shadow map at the 2048² default
-      // while the pixel ratio reflected a lower tier — half-configured, and hard to spot.
-      applyTier(governor.tier);
+      resize();
+      const resizeObserver = new ResizeObserver(resize);
+      resizeObserver.observe(host);
 
       /**
        * Keyboard orbit, zoom, and reset.
        *
-       * OrbitControls' own `listenToKeyEvents` binds the arrow keys to *panning*, which slides the
-       * whole scene sideways and is close to useless for inspecting a vehicle — the thing a user
-       * wants from the arrows here is to walk around it. So the orbit is computed directly, in
-       * spherical coordinates about the control target, honouring the same polar and distance
-       * limits the mouse path is constrained by. Without this the entire 3D stage was reachable by
-       * pointer only.
+       * OrbitControls' own `listenToKeyEvents` binds the arrows to *panning*, which slides the whole
+       * scene sideways and is close to useless for inspecting a vehicle — what a user wants from the
+       * arrows here is to walk around it. So the orbit is computed directly, in spherical
+       * coordinates about the control target, honouring the same polar and distance limits the
+       * mouse path is constrained by. Without this the entire 3D stage was reachable by pointer only.
        */
       const handleKeyDown = (event: KeyboardEvent) => {
-        // Never swallow a modified key: those are browser and OS shortcuts, and stealing Cmd/Ctrl+
-        // arrow from a keyboard user is a worse bug than the one this is fixing.
+        // Never swallow a modified key: those are browser and OS shortcuts, and stealing
+        // Cmd/Ctrl+arrow from a keyboard user is a worse bug than the one this fixes.
         if (event.altKey || event.ctrlKey || event.metaKey) return;
 
         const offset = camera.position.clone().sub(controls.target);
@@ -297,8 +268,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
             spherical.radius += KEYBOARD_ZOOM_STEP;
             break;
           case "Home":
-            // Back to the active preset, which is where the camera effect would put it anyway —
-            // a predictable escape hatch from an orbit the user has lost their bearings in.
+            // Back to the active preset — a predictable escape hatch from an orbit the user has
+            // lost their bearings in.
             camera.position.set(...cameraPresetRef.current.position);
             controls.target.set(...cameraPresetRef.current.target);
             controls.update();
@@ -318,8 +289,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
 
         camera.position.copy(offset.setFromSpherical(spherical).add(controls.target));
         controls.update();
-        // Only after a key was actually handled — an unrecognised key has already returned above,
-        // so page scrolling and browser shortcuts are left alone.
+        // Only after a key was actually handled — an unrecognised key already returned above, so
+        // page scrolling and browser shortcuts are left alone.
         event.preventDefault();
       };
       host.addEventListener("keydown", handleKeyDown);
@@ -327,201 +298,307 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       /**
        * WebGL context loss.
        *
-       * The GPU process can drop a context at any time — a driver reset, the OS reclaiming VRAM,
-       * a background tab being evicted, or simply too many live contexts across the browser. It
-       * arrives as an *event*, not an exception, so neither the try/catch around model loading nor
-       * `CanvasErrorBoundary` sees it: the render loop just keeps calling into a dead context and
-       * the viewport freezes on its last frame with no error anywhere.
+       * The GPU process can drop a context at any time — a driver reset, the OS reclaiming VRAM, a
+       * background tab being evicted, too many live contexts. It arrives as an *event*, not an
+       * exception, so neither the try/catch around model loading nor `CanvasErrorBoundary` sees it:
+       * the render loop just keeps calling into a dead context and the viewport freezes on its last
+       * frame with nothing logged anywhere.
        *
-       * `preventDefault` on `webglcontextlost` is what makes the context eligible for restoration
-       * at all — without it the browser will never fire `webglcontextrestored`. The loop is stopped
-       * meanwhile because drawing into a lost context is wasted work that also spams the console.
+       * `preventDefault` on `webglcontextlost` is what makes the context eligible for restoration at
+       * all — without it the browser never fires `webglcontextrestored`.
        */
-      const canvas = renderer.domElement;
+      const canvasElement = renderer.domElement;
       const handleContextLost = (event: Event) => {
         event.preventDefault();
         running = false;
+        cancelPendingRaf();
         console.warn("[canvas] WebGL context lost; pausing render loop until it is restored.");
         onErrorRef.current("Rendering was interrupted. Attempting to recover the 3D view.");
       };
       const handleContextRestored = () => {
         console.info("[canvas] WebGL context restored; resuming render loop.");
-        // `resize` reallocates the drawing buffer against the restored context; without it the
-        // renderer keeps the dimensions of a buffer that no longer exists.
+        // Reallocates the drawing buffer against the restored context; without it the renderer keeps
+        // the dimensions of a buffer that no longer exists.
         resize();
         if (running) return;
         running = true;
-        lastFrameAt = performance.now();
-        void loop();
+        frameStats.reset();
+        governor.reset();
+        loop?.();
       };
-      canvas.addEventListener("webglcontextlost", handleContextLost);
-      canvas.addEventListener("webglcontextrestored", handleContextRestored);
+      canvasElement.addEventListener("webglcontextlost", handleContextLost);
+      canvasElement.addEventListener("webglcontextrestored", handleContextRestored);
 
-      const observer = new ResizeObserver(resize);
-      observer.observe(host);
       const uninstallMetricsFlush = installMetricsFlush();
 
-      // The render loop starts here — before any vehicle geometry exists — rather than after the
-      // model resolves. Previously nothing was drawn until the full GLB had downloaded, decoded,
-      // and been verified, so the whole showroom (lights, floor, grid, environment) sat behind a
-      // spinner waiting on geometry it does not depend on. Starting now means first paint is
-      // bounded by renderer setup instead of by the largest asset on the page.
+      // Start the render loop before the ~28 MiB GLB settles so the placeholder paints immediately.
       let running = true;
-      let lastFrameAt = performance.now();
-      const setupStartedAt = performance.now();
-      let firstFrameRecorded = false;
-      const loop = async () => {
-        if (!running) return;
-        const frameStartedAt = performance.now();
-        governor.recordFrame(frameStartedAt - lastFrameAt);
-        lastFrameAt = frameStartedAt;
-        controls.update();
-        if (renderer.renderAsync) await renderer.renderAsync(scene, camera);
-        else renderer.render(scene, camera);
-        if (!firstFrameRecorded) {
-          firstFrameRecorded = true;
-          // Recorded after the first `render` returns, not before: the point is when a pixel
-          // actually exists, and the first frame is where shader compilation happens.
-          recordMetric({ name: "first_frame", value: performance.now() - setupStartedAt });
-        }
-        requestAnimationFrame(loop);
-      };
-      void loop();
-
-      // Teardown is registered here, the moment there is anything to tear down, and extended as
-      // later resources appear. It used to be assigned only after the model resolved, which meant
-      // an unmount during loading — a route change, React 18 strict-mode's double effect — leaked
-      // the renderer, its WebGL context, the resize observer, and a render loop that kept running
-      // against a detached canvas. Starting the loop before the model made that window much wider,
-      // so the ordering is deliberate rather than incidental.
-      const disposers: Array<() => void> = [
-        () => {
-          running = false;
-          uninstallMetricsFlush();
-          host.removeEventListener("keydown", handleKeyDown);
-          canvas.removeEventListener("webglcontextlost", handleContextLost);
-          canvas.removeEventListener("webglcontextrestored", handleContextRestored);
-          observer.disconnect();
-          controls.dispose();
-          renderer.dispose();
-          renderer.domElement.remove();
-          floor.geometry.dispose();
-          (floor.material as THREE.Material).dispose();
-          grid.dispose();
-          disposeStarfield(stars);
-          disposeTrailRocks(rocks);
-          rootRef.current = null;
-        },
-      ];
-      // Run in reverse: later resources are built on earlier ones, so they must go first.
-      cleanup = () => {
-        for (const dispose of [...disposers].reverse()) dispose();
-      };
+      let suspended = false;
+      let contactShadow: THREE.Mesh | null = null;
+      let controller: VehicleSceneController | null = null;
+      const frameStats = new FrameTimeTracker(60);
 
       /**
-       * Low-detail stand-in shown while the real model streams in.
+       * Applies a quality tier to the live renderer and scene.
        *
-       * `createProceduralVehicle` is already this project's failure fallback, so reusing it as the
-       * loading proxy costs nothing and inherits its coverage. It is display-only: it is never
-       * handed to a `VehicleSceneController`, never verified against the catalog, and no option is
-       * ever applied to it. That keeps the swap below a pure visual substitution rather than a
-       * second lifecycle the store would have to reason about.
+       * `resolveQuality` picks a tier once from device hints; this is what makes that choice
+       * revisable mid-session (the adaptive policy `lib/three/quality.ts` defers to issue #33).
+       * Everything a tier controls that can be changed after construction is re-applied here.
+       *
+       * `antialias` and `loadAuthoredRunningGear` deliberately are not: antialias is fixed at
+       * renderer construction and changing it would mean tearing down the WebGL context mid-
+       * session, and the running gear is either already mounted or already skipped. Both settle at
+       * the opening tier, which is the right trade — the expensive, adjustable knobs are pixel
+       * ratio and shadows, and those are the ones that move.
        */
-      const proxy = createProceduralVehicle();
-      proxy.traverse((object) => {
-        if (!(object instanceof THREE.Mesh)) return;
-        // Cloned so dimming the placeholder cannot touch materials the real vehicle may share.
-        const material = (object.material as THREE.Material).clone();
-        material.transparent = true;
-        material.opacity = PROXY_OPACITY;
-        object.material = material;
+      const applyTier = (next: QualitySettings) => {
+        quality = next;
+        applyRendererQuality(renderer, next);
+        renderer.domElement.dataset.quality = next.tier;
+        key.castShadow = next.shadowsEnabled;
+        if (next.shadowsEnabled) {
+          key.shadow.mapSize.set(next.shadowMapSize, next.shadowMapSize);
+          // three caches the shadow render target and will not reallocate it just because mapSize
+          // changed, so without this the new resolution is stored and never takes effect — the
+          // expensive half of a downgrade would silently do nothing.
+          key.shadow.map?.dispose();
+          key.shadow.map = null;
+        }
+        floor.receiveShadow = next.shadowsEnabled;
+        rim.intensity = 1.6 * next.secondaryLightScale;
+        fill.intensity = 1.1 * next.secondaryLightScale;
+        resize();
+      };
+
+      const governor = new QualityGovernor({
+        initialTier: quality.tier,
+        onChange: (next, { from, reason }) => {
+          applyTier(next);
+          recordMetric({
+            name: "quality_changed",
+            value: Math.round(governor.averageFrameTimeMs),
+            labels: { from, to: next.tier, reason },
+          });
+          // Left in production rather than dev-gated: when someone reports "the showroom looks
+          // blurry on my phone", this line is the answer, and it fires a handful of times a session.
+          console.info(`[quality] ${reason}: ${from} -> ${next.tier}`);
+        },
       });
-      scene.add(proxy);
-      // Registered immediately: between here and the swap below, the proxy is the only vehicle in
-      // the scene, and `disposeProxy` is a no-op once the swap has already released it.
-      disposers.push(() => disposeProxy(proxy));
-      rootRef.current = proxy;
-      groundedYRef.current = proxy.position.y;
+      let loop: (() => void) | undefined;
+      /** Pending rAF handle — must be cancelled on idle/suspend/cleanup to avoid forked loops. */
+      let rafId = 0;
+      /** Monotonic publish counter; `stats.samples` caps at the ring size so it cannot throttle. */
+      let framePublishCount = 0;
 
-      let root: THREE.Object3D;
-      let usingFallback = false;
-      const modelStartedAt = performance.now();
-      try {
-        root = await loadVehicleRoot(threeDConfig, (fraction) => onProgressRef.current?.(fraction));
-        // Download *and* Draco decode together, which is the number that matters: after
-        // scripts/optimize-models.mjs took the payload to ~1.2 MiB, decode is expected to dominate,
-        // and that is precisely the assumption worth checking against real devices.
-        recordMetric({ name: "model_loaded", value: Math.round(performance.now() - modelStartedAt) });
-      } catch (error) {
-        console.error("High-detail glTF failed to load; using procedural fallback.", error);
-        onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");
-        root = createProceduralVehicle();
-        usingFallback = true;
-      }
-      if (cancelled) {
-        disposeSubtree(root);
-        return;
-      }
+      const cancelPendingRaf = () => {
+        if (rafId !== 0) {
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+        }
+      };
 
-      // Running gear is additive: the body is complete and correct without it, and it is four small
-      // assets rather than one large one. Loading it *after* the body is in the scene means the
-      // vehicle becomes visible a network round trip earlier, and a slow or failed running-gear
-      // fetch degrades to the baked-in wheels instead of holding back the whole model.
-      try {
-        await installWheelAndTireAssets(root, threeDConfig);
-      } catch (error) {
-        // Replacement running gear is additive enhancement; retain the complete base model if an
-        // optional glTF cannot be fetched or decoded.
-        console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
-      }
-      if (cancelled) {
-        disposeSubtree(root);
-        return;
-      }
-      prepareVehicleRoot(root, threeDConfig);
+      const queueFrame = () => {
+        if (rafId !== 0) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          loop?.();
+        });
+      };
 
-      // Measured before the (initially hidden) procedural accessories are attached, so a roof rack
-      // or light bar sitting outside the body's own bounds never inflates the footprint this shadow
-      // is sized to.
-      root.updateWorldMatrix(true, true);
-      const footprint = new THREE.Box3().setFromObject(root);
-      const contactShadow = createContactShadow(footprint);
-      scene.add(contactShadow);
-      disposers.push(() => disposeContactShadow(contactShadow));
+      const idleGate = createCanvasIdleGate(host, (next) => {
+        suspended = next;
+        renderer.domElement.dataset.idle = next ? "1" : "0";
+        if (next) {
+          cancelPendingRaf();
+          return;
+        }
+        // Leaving idle: drop any stale rAF, reseed frame timing, and kick a single chain.
+        if (running) {
+          cancelPendingRaf();
+          frameStats.reset();
+          // The frames either side of an idle gap describe the pause, not the renderer; feeding
+          // them to the governor would drive a downgrade on resume.
+          governor.reset();
+          loop?.();
+        }
+      });
+      suspended = idleGate.suspended;
+      renderer.domElement.dataset.idle = suspended ? "1" : "0";
 
-      buildProceduralAccessories(root);
-      scene.add(root);
+      loop = () => {
+        if (!running) return;
+        if (suspended) return;
+        const stats = frameStats.record(performance.now());
+        // Reuses the delta frameStats already computed rather than timing the loop a second time.
+        governor.recordFrame(stats.lastFrameMs);
+        framePublishCount += 1;
+        if (stats.samples > 0 && framePublishCount % 30 === 0) {
+          renderer.domElement.dataset.frameStats = formatFrameStats(stats);
+        }
+        controls.update();
+        const paint = renderer.renderAsync
+          ? renderer.renderAsync(scene, camera)
+          : Promise.resolve(renderer.render(scene, camera));
+        void paint.finally(() => {
+          if (running && !suspended) queueFrame();
+        });
+      };
+      loop();
 
-      // Swap the placeholder for the real vehicle. Both are in the scene for the length of the
-      // fade, which is what keeps the transition from reading as a flash of empty showroom.
-      // `usingFallback` skips the fade: the "real" model *is* another procedural vehicle in that
-      // case, so cross-fading one into an identical copy would just look like a flicker.
-      swapProxyForVehicle(proxy, usingFallback);
-
-      rootRef.current = root;
-      groundedYRef.current = root.position.y;
-      setSceneRevision((revision) => revision + 1);
+      // Assign cleanup before any await so an unmount mid-load still tears the renderer down.
+      cleanup = () => {
+        running = false;
+        cancelPendingRaf();
+        uninstallMetricsFlush();
+        host.removeEventListener("keydown", handleKeyDown);
+        canvasElement.removeEventListener("webglcontextlost", handleContextLost);
+        canvasElement.removeEventListener("webglcontextrestored", handleContextRestored);
+        idleGate.dispose();
+        resizeObserver.disconnect();
+        controls.dispose();
+        renderer.dispose();
+        renderer.domElement.remove();
+        if (controller) {
+          controller.dispose();
+        } else if (rootRef.current) {
+          // Placeholder (or unsettled root) is not owned by the controller yet.
+          scene.remove(rootRef.current);
+          disposeSubtree(rootRef.current);
+        }
+        floor.geometry.dispose();
+        (floor.material as THREE.Material).dispose();
+        grid.dispose();
+        disposeStarfield(stars);
+        disposeTrailRocks(rocks);
+        if (contactShadow) disposeContactShadow(contactShadow);
+        rootRef.current = null;
+      };
 
       if (import.meta.env.DEV) {
-        (window as unknown as Record<string, unknown>).__dumpVehicleHierarchy = () => logHierarchy(root);
+        (window as unknown as Record<string, unknown>).__vehicleFrameStats = () => frameStats.snapshot();
       }
 
-      // Verify before handing the scene over, so an option whose nodes are absent is dropped from
-      // the catalog rather than rendered as a button that would quietly do nothing.
-      const report = verifyNodeContract(root, catalogRef.current);
-      for (const entry of report.unsatisfied) {
-        console.warn(
-          `[customization] option "${entry.option.id}" is unavailable for this asset.`,
-          { missingNodes: entry.missingNodes, missingMaterials: entry.missingMaterials },
-        );
+      let progressive = initialProgressiveState();
+
+      const publishReady = (root: THREE.Object3D) => {
+        if (import.meta.env.DEV) {
+          (window as unknown as Record<string, unknown>).__dumpVehicleHierarchy = () => logHierarchy(root);
+        }
+        const report = verifyNodeContract(root, catalogRef.current);
+        for (const entry of report.unsatisfied) {
+          console.warn(
+            `[customization] option "${entry.option.id}" is unavailable for this asset.`,
+            { missingNodes: entry.missingNodes, missingMaterials: entry.missingMaterials },
+          );
+        }
+        controller = new VehicleSceneController(root, report.satisfied);
+        onReadyRef.current(controller, report.satisfied);
+      };
+
+      const mountSettledRoot = (root: THREE.Object3D) => {
+        prepareVehicleRoot(root, threeDConfig);
+        root.updateWorldMatrix(true, true);
+        const footprint = new THREE.Box3().setFromObject(root);
+        if (contactShadow) {
+          scene.remove(contactShadow);
+          disposeContactShadow(contactShadow);
+        }
+        contactShadow = createContactShadow(footprint);
+        scene.add(contactShadow);
+        buildProceduralAccessories(root);
+        scene.add(root);
+        rootRef.current = root;
+        groundedYRef.current = root.position.y;
+        setSceneRevision((revision) => revision + 1);
+        publishReady(root);
+      };
+
+      const wantsDetailedModel = Boolean(threeDConfig.hasModel && threeDConfig.modelUrl);
+
+      if (!wantsDetailedModel) {
+        progressive = reduceProgressiveLoad(progressive, { type: "no-model" });
+        const root = createProceduralVehicle();
+        if (cancelled) {
+          disposeSubtree(root);
+          return;
+        }
+        mountSettledRoot(root);
+      } else {
+        // Progressive path: paint a procedural stand-in first, then swap when the GLB settles.
+        progressive = reduceProgressiveLoad(progressive, { type: "start-placeholder" });
+        const placeholder = createProceduralVehicle();
+        placeholder.name = "PROGRESSIVE_PLACEHOLDER";
+        placeholder.userData.__progressivePlaceholder = true;
+        // Rough showroom placement so the stand-in is grounded before prepareVehicleRoot runs on
+        // the detailed mesh (placeholder is never handed to the catalog / controller).
+        placeholder.position.y = 0;
+        placeholder.rotation.y = Math.PI;
+        scene.add(placeholder);
+        rootRef.current = placeholder;
+        groundedYRef.current = placeholder.position.y;
+        setSceneRevision((revision) => revision + 1);
+
+        progressive = reduceProgressiveLoad(progressive, { type: "start-loading" });
+        renderer.domElement.dataset.loadPhase = progressive.phase;
+
+        let detailed: THREE.Object3D | null = null;
+        try {
+          const modelStartedAt = performance.now();
+          detailed = await loadVehicleRoot(threeDConfig, (fraction) => onProgressRef.current?.(fraction));
+          // Download *and* Draco decode together, which is the number that matters: after
+          // scripts/optimize-models.mjs took the payload to ~1.2 MiB, decode is expected to
+          // dominate, and that is exactly the assumption worth checking against real devices.
+          recordMetric({ name: "model_loaded", value: Math.round(performance.now() - modelStartedAt) });
+          progressive = reduceProgressiveLoad(progressive, { type: "glb-decoded" });
+        } catch (error) {
+          console.error("High-detail glTF failed to load; using procedural fallback.", error);
+          onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");
+          progressive = reduceProgressiveLoad(progressive, { type: "load-failed" });
+        }
+
+        if (cancelled) {
+          if (detailed) disposeSubtree(detailed);
+          scene.remove(placeholder);
+          disposeSubtree(placeholder);
+          rootRef.current = null;
+          return;
+        }
+
+        renderer.domElement.dataset.loadPhase = progressive.phase;
+
+        if (detailed && progressive.hasDetailedModel) {
+          if (quality.loadAuthoredRunningGear) {
+            try {
+              await installWheelAndTireAssets(detailed, threeDConfig);
+            } catch (error) {
+              console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
+            }
+          }
+          if (cancelled) {
+            disposeSubtree(detailed);
+            scene.remove(placeholder);
+            disposeSubtree(placeholder);
+            rootRef.current = null;
+            return;
+          }
+          scene.remove(placeholder);
+          disposeSubtree(placeholder);
+          mountSettledRoot(detailed);
+          progressive = reduceProgressiveLoad(progressive, { type: "settled" });
+        } else {
+          // Promote the placeholder to the permanent fallback root.
+          scene.remove(placeholder);
+          mountSettledRoot(placeholder);
+        }
       }
 
-      const controller = new VehicleSceneController(root, report.satisfied);
-      onReadyRef.current(controller, report.satisfied);
+      renderer.domElement.dataset.loadPhase = progressive.phase;
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__vehicleProgressiveLoad = progressive;
+        (window as unknown as Record<string, unknown>).__vehicleQuality = quality;
+      }
 
-      // The controller owns every material clone and attachment it made. It is last in, so the
-      // reverse-order teardown releases it first — before the base scene geometry it borrows from.
-      disposers.push(() => controller.dispose());
+      // cleanup already assigned above (before GLB await).
     })().catch((error) => {
       console.error("Vehicle scene initialization failed:", error);
       onErrorRef.current(error instanceof Error ? error.message : String(error));
@@ -681,8 +758,7 @@ function createRadialGradientTexture(): THREE.CanvasTexture {
 
 /** A fixed field of distant points, shown only for the Night preset — cheap set dressing that
  * sells the "outdoor at night" read the flat dark background alone doesn't. */
-function createStarfield(): THREE.Points {
-  const count = 400;
+function createStarfield(count = 400): THREE.Points {
   const positions = new Float32Array(count * 3);
   for (let i = 0; i < count; i += 1) {
     const radius = 32 + Math.random() * 14;
@@ -768,10 +844,15 @@ type RendererLike = {
   toneMappingExposure: number;
 };
 
-async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu" | "webgl2" }> {
+function applyRendererQuality(renderer: RendererLike, quality: QualitySettings): void {
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.maxPixelRatio));
+  renderer.shadowMap.enabled = quality.shadowsEnabled;
+}
+
+async function createRenderer(antialias: boolean): Promise<{ renderer: RendererLike; mode: "webgpu" | "webgl2" }> {
   if (navigator.gpu) {
     try {
-      const renderer = new THREE_WEBGPU.WebGPURenderer({ antialias: true });
+      const renderer = new THREE_WEBGPU.WebGPURenderer({ antialias });
       await renderer.init();
       return { renderer: renderer as unknown as RendererLike, mode: "webgpu" };
     } catch (error) {
@@ -779,84 +860,9 @@ async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu
     }
   }
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  const renderer = new THREE.WebGLRenderer({ antialias, alpha: false });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
-}
-
-/**
- * Radians per arrow-key press.
- *
- * ~7 degrees: coarse enough that circling the vehicle takes a reasonable number of presses (about
- * 52 for a full revolution, or a second or two of held key repeat), fine enough to line up on a
- * detail like a wheel or a badge.
- */
-const KEYBOARD_ORBIT_STEP_RADIANS = 0.12;
-
-/** Metres of dolly per +/- press, against the 4-15 m distance range OrbitControls is clamped to. */
-const KEYBOARD_ZOOM_STEP = 0.6;
-
-/**
- * Opacity of the low-detail placeholder shown while the real model streams in.
- *
- * Deliberately ghosted rather than solid: at full opacity a blocky procedural stand-in reads as
- * *the product*, and the swap then looks like the page corrected a mistake. Semi-transparent, it
- * reads as scaffolding, and the real vehicle resolving into place reads as loading finishing.
- */
-const PROXY_OPACITY = 0.28;
-
-/** Duration of the placeholder-to-vehicle cross-fade. */
-const PROXY_FADE_SECONDS = 0.45;
-
-/**
- * Releases the placeholder's geometry and the materials cloned for it.
- *
- * Safe to call twice — the swap disposes on fade completion, and teardown disposes on unmount,
- * and which happens first depends on how quickly the user navigates away. `parent` is nulled by
- * `remove()`, so the second call detaches nothing and traverses an already-emptied subtree.
- */
-function disposeProxy(proxy: THREE.Object3D): void {
-  proxy.parent?.remove(proxy);
-  proxy.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    object.geometry?.dispose();
-    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-      material?.dispose();
-    }
-  });
-  proxy.clear();
-}
-
-/**
- * Fades the placeholder out and disposes it.
- *
- * The real vehicle is already in the scene when this runs, so the two overlap for the fade rather
- * than the showroom flashing empty between them. `immediate` skips the animation for the case
- * where the "real" model is itself a procedural fallback — cross-fading a shape into an identical
- * copy of itself just looks like a flicker.
- */
-function swapProxyForVehicle(proxy: THREE.Object3D, immediate: boolean): void {
-  if (immediate) {
-    disposeProxy(proxy);
-    return;
-  }
-
-  const materials: THREE.Material[] = [];
-  proxy.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) return;
-    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-      if (material) materials.push(material);
-    }
-  });
-
-  gsap.to(materials, {
-    opacity: 0,
-    duration: motionDuration(PROXY_FADE_SECONDS),
-    ease: "power2.out",
-    // Disposal is the completion handler rather than a separate timer so the geometry is released
-    // exactly when it stops being drawn, however the tween ends.
-    onComplete: () => disposeProxy(proxy),
-  });
 }
 
 async function loadVehicleRoot(
@@ -865,10 +871,10 @@ async function loadVehicleRoot(
 ): Promise<THREE.Object3D> {
   if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
   const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl, (event) => {
-    // `lengthComputable` is false whenever the response has no usable `Content-Length` — common
-    // for a gzipped GLB. Reporting `loaded / 0` would emit Infinity, and guessing a denominator
-    // would show a progress bar that lies; skipping the callback lets the UI fall back to an
-    // indeterminate affordance instead.
+    // `lengthComputable` is false whenever the response has no usable `Content-Length` — common for
+    // a gzipped GLB. Reporting `loaded / 0` would emit Infinity, and guessing a denominator would
+    // show a progress bar that lies; skipping the callback lets the UI fall back to the
+    // placeholder's own indeterminate affordance.
     if (!event.lengthComputable || event.total <= 0) return;
     onProgress?.(Math.min(event.loaded / event.total, 1));
   });

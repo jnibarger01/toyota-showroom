@@ -62,6 +62,8 @@
   Cache-Control: public, max-age=86400, must-revalidate
 /images/*
   Cache-Control: public, max-age=86400, must-revalidate
+/chessathon/*
+  Cache-Control: public, max-age=86400, must-revalidate
 
 # The static-export mirror of GET /api/v1/** (scripts/generate-static-api.ts's prebuild output,
 # served from here only on the GitHub Pages deployment target where there is no live Worker) —

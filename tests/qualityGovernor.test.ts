@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  QUALITY_TIERS,
-  QualityGovernor,
-  suggestInitialTierIndex,
-  type QualityTier,
-} from "../lib/three/qualityGovernor";
+import { QualityGovernor } from "../lib/three/qualityGovernor";
+import type { QualitySettings, QualityTier } from "../lib/three/quality";
 
 /**
  * The governor is deliberately pure — frame deltas in, tier changes out — so its tuning can be
@@ -26,13 +22,13 @@ function run(
   }
 }
 
-function setup(initialTierIndex = 0) {
+function setup(initialTier: QualityTier = "high") {
   const clock = { now: 0 };
-  const changes: Array<{ tier: QualityTier; reason: string }> = [];
+  const changes: Array<{ tier: QualityTier; settings: QualitySettings; reason: string }> = [];
   const governor = new QualityGovernor({
-    initialTierIndex,
+    initialTier,
     now: () => clock.now,
-    onChange: (tier, { reason }) => changes.push({ tier, reason }),
+    onChange: (settings, { reason }) => changes.push({ tier: settings.tier, settings, reason }),
   });
   return { clock, changes, governor };
 }
@@ -43,8 +39,8 @@ const BAND_MS = 26; // inside the hysteresis band: neither degrades nor promotes
 
 describe("QualityGovernor", () => {
   it("starts at the requested tier and reports it", () => {
-    const { governor } = setup(1);
-    expect(governor.tier.id).toBe("balanced");
+    const { governor } = setup("medium");
+    expect(governor.tier).toBe("medium");
   });
 
   it("steps down after sustained slow frames", () => {
@@ -53,7 +49,7 @@ describe("QualityGovernor", () => {
 
     expect(changes.length).toBeGreaterThan(0);
     expect(changes[0]!.reason).toBe("downgrade");
-    expect(changes[0]!.tier.id).toBe("balanced");
+    expect(changes[0]!.tier).toBe("medium");
   });
 
   it("ignores warm-up frames", () => {
@@ -68,13 +64,13 @@ describe("QualityGovernor", () => {
     const { governor, clock, changes } = setup();
     run(governor, clock, SLOW_MS, 5000);
 
-    expect(governor.tier.id).toBe(QUALITY_TIERS[QUALITY_TIERS.length - 1]!.id);
-    expect(changes).toHaveLength(QUALITY_TIERS.length - 1);
+    expect(governor.tier).toBe("low");
+    expect(changes).toHaveLength(2); // high -> medium -> low
     expect(changes.every((change) => change.reason === "downgrade")).toBe(true);
   });
 
   it("steps back up when sustained headroom returns", () => {
-    const { governor, clock, changes } = setup(QUALITY_TIERS.length - 1);
+    const { governor, clock, changes } = setup("low");
     run(governor, clock, FAST_MS, 400);
 
     expect(changes.length).toBeGreaterThan(0);
@@ -82,21 +78,21 @@ describe("QualityGovernor", () => {
   });
 
   it("never rises above the top rung", () => {
-    const { governor, clock, changes } = setup(0);
+    const { governor, clock, changes } = setup("high");
     run(governor, clock, FAST_MS, 3000);
 
-    expect(governor.tier.id).toBe("high");
+    expect(governor.tier).toBe("high");
     expect(changes).toEqual([]);
   });
 
   it("holds steady inside the hysteresis band", () => {
     // This band is exactly where a naive governor oscillates: fast enough to look promotable,
     // slow enough to look degradable, depending on which threshold it checks first.
-    const { governor, clock, changes } = setup(1);
+    const { governor, clock, changes } = setup("medium");
     run(governor, clock, BAND_MS, 2000);
 
     expect(changes).toEqual([]);
-    expect(governor.tier.id).toBe("balanced");
+    expect(governor.tier).toBe("medium");
   });
 
   it("does not oscillate when a downgrade is what made frames fast again", () => {
@@ -154,28 +150,9 @@ describe("QualityGovernor", () => {
   });
 });
 
-describe("suggestInitialTierIndex", () => {
-  it("opens capable hardware at the top tier", () => {
-    expect(suggestInitialTierIndex({ deviceMemory: 8, hardwareConcurrency: 8 })).toBe(0);
-  });
-
-  it("steps down for mid-range hardware", () => {
-    expect(suggestInitialTierIndex({ deviceMemory: 4, hardwareConcurrency: 4 })).toBe(1);
-  });
-
-  it("steps down further for low-end hardware", () => {
-    expect(suggestInitialTierIndex({ deviceMemory: 2, hardwareConcurrency: 2 })).toBe(2);
-  });
-
-  it("assumes capable hardware when the signals are absent", () => {
-    // deviceMemory is Chromium-only. Guessing "slow" on Safari and Firefox would permanently
-    // penalise them for a missing API; the governor corrects downward fast if the guess is wrong.
-    expect(suggestInitialTierIndex({})).toBe(0);
-  });
-
-  it("never suggests the bottom rung, leaving shadows for the governor to give up", () => {
-    // Opening with shadows already off would remove the main grounding cue on evidence this weak.
-    const worst = suggestInitialTierIndex({ deviceMemory: 0.25, hardwareConcurrency: 1 });
-    expect(worst).toBeLessThan(QUALITY_TIERS.length - 1);
-  });
-});
+/**
+ * Opening-tier selection lives in `lib/three/quality.ts` (`resolveQuality`), which reads richer
+ * device hints than this module ever did — coarse pointer and Save-Data as well as memory and
+ * cores — and is covered by `tests/quality.test.ts`. The governor only moves the tier from
+ * wherever that put it, so there is deliberately nothing to duplicate here.
+ */

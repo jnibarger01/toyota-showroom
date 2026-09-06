@@ -49,15 +49,44 @@ export class ConfigurationStore {
     for (const listener of this.listeners) listener();
   }
 
+  /**
+   * Publish configuration + catalog before the detailed mesh settles so builder chrome (option
+   * buttons, Share, camera persistence) is usable after bootstrap / progressive first paint.
+   * Scene mutations no-op until `attachScene` wires a controller (`applyToScene` early-returns).
+   */
+  hydrate(configuration: VehicleConfiguration, catalog: CustomizationOption[]): void {
+    this.controller = null;
+    this.lastPersisted = configuration;
+    this.mutationVersion = 0;
+    this.batchedOptionIds.clear();
+    if (this.flushTimer) clearTimeout(this.flushTimer);
+    this.flushTimer = null;
+    this.flushRequested = false;
+    this.setState({ configuration, catalog, status: "idle", error: null, pending: new Set() });
+  }
+
   async attachScene(
     controller: VehicleSceneController,
     configuration: VehicleConfiguration,
     catalog: CustomizationOption[],
   ): Promise<void> {
     this.controller = controller;
-    this.lastPersisted = configuration;
-    this.mutationVersion = 0;
-    this.setState({ configuration, catalog, status: "idle", error: null, pending: new Set() });
+
+    const live = this.state.configuration;
+    const sameBuild = live?.configurationId === configuration.configurationId;
+    if (!sameBuild) {
+      // Different record (reset / grade switch): reset persistence bookkeeping.
+      this.lastPersisted = configuration;
+      this.mutationVersion = 0;
+      this.batchedOptionIds.clear();
+      this.setState({ configuration, catalog, status: "idle", error: null, pending: new Set() });
+    } else {
+      // Same build after early `hydrate` (and any pre-settle edits): keep save status / pending
+      // flushes, publish the caller's configuration snapshot, and narrow the catalog to what the
+      // settled mesh can actually satisfy.
+      this.setState({ configuration, catalog });
+      if (!this.lastPersisted) this.lastPersisted = configuration;
+    }
 
     const { failed } = await controller.applyConfiguration(configuration.selections);
     if (failed.length > 0) {

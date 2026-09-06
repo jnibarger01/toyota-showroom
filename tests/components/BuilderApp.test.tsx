@@ -5,6 +5,8 @@ import { fourRunner } from "../../lib/data/vehicles/4runner";
 import { fourRunnerOptions } from "../../lib/data/options/4runner";
 import type { CreateConfigurationInput, UpdateConfigurationInput } from "../../lib/api/configurations";
 import type { VehicleConfiguration } from "../../lib/types/customization";
+import { encodeBuildDeepLink } from "../../lib/showroom/deepLink";
+import { estimateBuildTotal, estimateMonthlyPayment, resolveGradeMsrp } from "../../lib/showroom/buildTools";
 
 /**
  * `VehicleCanvas` renders a real WebGPU/WebGL scene, which jsdom cannot run. It is replaced with a
@@ -87,6 +89,13 @@ vi.mock("../../lib/api/configurations", () => ({
       updatedAt: new Date().toISOString(),
     };
   },
+  getPersistenceMode() {
+    return "local";
+  },
+  subscribePersistenceMode() {
+    return () => {};
+  },
+  resetTransportDetection() {},
 }));
 
 const { BuilderApp } = await import("../../app/components/BuilderApp");
@@ -100,15 +109,16 @@ beforeEach(() => {
 
 afterEach(() => {
   configurationStore.reset();
+  window.history.replaceState({}, "", "/");
 });
 
 /**
  * Renders and waits past both async gaps in bootstrap: the "4Runner" heading appears once
- * `vehicle`/`configuration` metadata loads, but grade buttons stay `disabled` and the catalog stays
- * empty until `handleSceneReady`'s `attachScene(...)` call — kicked off by the mocked VehicleCanvas's
- * `onReady` effect — resolves separately. A bare `findByRole("heading", ...)` races that second gap;
- * CI caught this for real once (BuilderApp.tsx's grade buttons rendered `disabled=""` and no paint
- * swatches existed yet, even though the heading itself was already on screen).
+ * `vehicle`/`configuration` metadata loads (and `hydrate` publishes the grade-filtered catalog so
+ * paint swatches are already present), but grade buttons stay `disabled` until `handleSceneReady`
+ * attaches a scene controller — kicked off by the mocked VehicleCanvas's `onReady` effect. A bare
+ * `findByRole("heading", ...)` races that second gap; CI caught this for real once (grade buttons
+ * rendered `disabled=""` even though the heading itself was already on screen).
  */
 async function renderBuilderReady(vehicleSlug = "4runner") {
   render(<BuilderApp vehicleSlug={vehicleSlug} />);
@@ -180,5 +190,74 @@ describe("BuilderApp", () => {
       const after = revisionRow.querySelector("strong")?.textContent;
       expect(after).not.toBe(before);
     });
+  });
+
+  it("restores selections and camera from a ?c= deep link on bootstrap", async () => {
+    const encoded = encodeBuildDeepLink({
+      gradeId: "trd-pro",
+      selections: { paint: ["paint-3u5-barcelona-red"] },
+      cameraState: { presetId: "front", position: [0, 2.2, -10], target: [0, 1.0, 0] },
+    });
+    window.history.replaceState({}, "", `/4runner/?c=${encodeURIComponent(encoded)}`);
+
+    await renderBuilderReady();
+
+    await waitFor(() => {
+      expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual([
+        "paint-3u5-barcelona-red",
+      ]);
+    });
+    expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("front");
+    expect(screen.getByRole("button", { name: "Barcelona Red Metallic" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Front" })).toHaveClass("selected");
+  });
+
+  it("updates the running build total and financing payment when an option with priceDelta is selected", async () => {
+    await renderBuilderReady();
+
+    const base = resolveGradeMsrp(fourRunner, "trd-pro");
+    expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${base.toLocaleString()}`);
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${base.toLocaleString()}`);
+
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+    await waitFor(() =>
+      expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual(["paint-0r2-solar-octane"]),
+    );
+
+    const expectedTotal = base + 425;
+    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expectedTotal.toLocaleString()}`));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expectedTotal.toLocaleString()}`);
+
+    const expectedMonthly = estimateMonthlyPayment(expectedTotal, 6.9, 60).toLocaleString(undefined, {
+      maximumFractionDigits: 0,
+    });
+    expect(screen.getByTestId("estimated-monthly-payment")).toHaveTextContent(`$${expectedMonthly}/mo`);
+  });
+
+  it("re-derives the same estimated total after restoring selections from a deep link", async () => {
+    const encoded = encodeBuildDeepLink({
+      gradeId: "trd-pro",
+      selections: { paint: ["paint-0r2-solar-octane"], accessory: ["accessory-roof-rack"] },
+    });
+    window.history.replaceState({}, "", `/4runner/?c=${encodeURIComponent(encoded)}`);
+
+    await renderBuilderReady();
+
+    await waitFor(() => {
+      expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual(["paint-0r2-solar-octane"]);
+    });
+
+    // Deep-link restore creates a config; catalog may still be grade-filtered in the store.
+    fireEvent.click(screen.getByRole("button", { name: /lighting/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true"));
+
+    const expected = estimateBuildTotal(
+      resolveGradeMsrp(fourRunner, "trd-pro"),
+      fourRunnerOptions,
+      configurationStore.getSnapshot().configuration,
+    );
+    expect(expected).toBe(53_900 + 425 + 1_150);
+    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expected.toLocaleString()}`));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expected.toLocaleString()}`);
   });
 });

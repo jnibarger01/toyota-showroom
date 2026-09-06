@@ -58,14 +58,52 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 /**
+ * Persistence surface the client is talking to.
+ *
+ * - `unknown` — no write/read has proven either path yet
+ * - `worker` — Cloudflare Worker + D1 (production persistence)
+ * - `local` — browser `localStorage` via `localConfigurationTransport` (Pages demo / offline)
+ */
+export type PersistenceMode = "unknown" | "worker" | "local";
+
+/**
  * Whether the request-aware backend is reachable.
  *
  * `null` until proven either way. It latches to `false` the first time a *write* fails in a way
  * only a host without the route can fail — a network error, a 405, or a 404 on POST/PATCH, which
  * is precisely what the static GitHub Pages export returns. A 404 on GET is left alone, because
  * against a live API it means the configuration genuinely does not exist.
+ *
+ * Worker/D1 is the production persistence path. Pages keeps `local` as a demo/offline fallback
+ * so the static site still saves and shares (via deep links) without a live API.
  */
 let remoteAvailable: boolean | null = null;
+
+const persistenceModeListeners = new Set<() => void>();
+
+function notifyPersistenceModeListeners(): void {
+  for (const listener of persistenceModeListeners) listener();
+}
+
+function setRemoteAvailable(value: boolean): void {
+  if (remoteAvailable === value) return;
+  remoteAvailable = value;
+  notifyPersistenceModeListeners();
+}
+
+/** Current persistence surface — safe to read from UI after bootstrap/save has run. */
+export function getPersistenceMode(): PersistenceMode {
+  if (remoteAvailable === null) return "unknown";
+  return remoteAvailable ? "worker" : "local";
+}
+
+/** Subscribe to latch changes (`unknown` → `worker` | `local`). Returns an unsubscribe. */
+export function subscribePersistenceMode(listener: () => void): () => void {
+  persistenceModeListeners.add(listener);
+  return () => {
+    persistenceModeListeners.delete(listener);
+  };
+}
 
 function indicatesMissingBackend(error: unknown, method: "GET" | "WRITE"): boolean {
   if (!(error instanceof ApiError)) return false;
@@ -94,13 +132,13 @@ async function withFallback<T>(
 
   try {
     const result = await remote();
-    remoteAvailable = true;
+    setRemoteAvailable(true);
     return result;
   } catch (error) {
     if (indicatesMissingBackend(error, method)) {
-      remoteAvailable = false;
+      setRemoteAvailable(false);
       console.info(
-        "[configurations] No request-aware backend detected; persisting configurations in this browser instead.",
+        "[configurations] No Worker/D1 backend detected; using local demo persistence (saves stay in this browser; share uses deep links).",
       );
       return local();
     }
@@ -283,5 +321,10 @@ export async function deleteConfiguration(configurationId: string): Promise<void
 
 /** Test hook: forget the detected transport so each case starts from an unknown state. */
 export function resetTransportDetection(): void {
-  remoteAvailable = null;
+  if (remoteAvailable !== null) {
+    remoteAvailable = null;
+    notifyPersistenceModeListeners();
+  } else {
+    remoteAvailable = null;
+  }
 }

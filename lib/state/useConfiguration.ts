@@ -1,6 +1,11 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import {
+  getPersistenceMode,
+  subscribePersistenceMode,
+  type PersistenceMode,
+} from "../api/configurations";
 import { configurationStore, type ConfigurationState } from "./configurationStore";
 import {
   CATEGORY_APPLY_ORDER,
@@ -40,6 +45,12 @@ export function useCatalogByCategory(): CategoryView[] {
 export function useIsSelected(option: CustomizationOption): boolean {
   const { configuration } = useConfiguration();
   return configuration ? isSelected(configuration.selections, option) : false;
+}
+
+
+/** React binding for Worker vs local (Pages demo) persistence detection. */
+export function usePersistenceMode(): PersistenceMode {
+  return useSyncExternalStore(subscribePersistenceMode, getPersistenceMode, getPersistenceMode);
 }
 
 export { configurationStore };

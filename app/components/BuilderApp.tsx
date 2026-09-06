@@ -9,6 +9,7 @@ import {
   Check,
   ClipboardCheck,
   Download,
+  CloudOff,
   CloudSun,
   CircleGauge,
   Cog,
@@ -38,7 +39,7 @@ import { CustomizationButton } from "./CustomizationButton";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
-import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
+import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -51,14 +52,19 @@ import {
 import type { VehicleSceneController } from "../../lib/three/sceneController";
 import {
   calculateBuildProgress,
-  createConfigurationShareUrl,
   createRandomSelections,
   estimateBuildTotal,
   estimateMonthlyPayment,
+  resolveGradeMsrp,
   filterBuildOptions,
   formatBuildSummary,
   readSharedConfigurationId,
 } from "../../lib/showroom/buildTools";
+import {
+  createBuildDeepLinkUrl,
+  readBuildDeepLinkParam,
+  validateBuildDeepLink,
+} from "../../lib/showroom/deepLink";
 
 /**
  * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
@@ -115,6 +121,8 @@ type Props = {
 export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  /** True once VehicleCanvas has settled and attached a scene controller (not merely hydrated). */
+  const [sceneReady, setSceneReady] = useState(false);
   const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [lift, setLift] = useState(0);
   const [gradeChanging, setGradeChanging] = useState(false);
@@ -152,10 +160,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [modelProgress, setModelProgress] = useState<number | null>(null);
 
   const { configuration, catalog, status, error } = useConfiguration();
+  const persistenceMode = usePersistenceMode();
+  const isLocalPersistence = persistenceMode === "local";
 
   // ------------------------------------------------------------------ step 1-4
   // Load vehicle metadata, then the option catalog, then the saved configuration. Nothing here
   // touches Three.js; the scene is only mutated once the GLB reports its node contract verified.
+  // Builder chrome (options / Share) hydrates immediately — see `configurationStore.hydrate` above.
   //
   // The App Router does not remount a page component just because a route param changed under the
   // same `[slug]` segment, so `app/[slug]/page.tsx` forces a clean remount on vehicle switches with
@@ -164,6 +175,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   // field this effect writes therefore starts at its `useState` initial value on each new vehicle.
   useEffect(() => {
     let cancelled = false;
+    // sceneReady resets via key={slug} remount; avoid setState at effect top (lint).
 
     void (async () => {
       try {
@@ -182,6 +194,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         ]);
 
         if (cancelled) return;
+
+        // Progressive load (#27): option catalog + Share must not wait on full GLB settle /
+        // verifyNodeContract. Hydrate the store with the grade-filtered catalog as soon as
+        // bootstrap finishes; VehicleCanvas still calls onReady later to attach the controller
+        // and narrow to mesh-verified options.
+        const forGrade = options.filter((option) => isOptionAvailableForGrade(option, configuration.gradeId));
+        configurationStore.hydrate(configuration, forGrade);
+
         setBootstrap({ vehicle, catalog: options, configuration });
         setPreset(presetForConfiguration(vehicle, configuration));
       } catch (err) {
@@ -197,7 +217,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   // ------------------------------------------------------------------ step 5-7
   // Called by the canvas after the base GLB loads and `verifyNodeContract` runs. Saved selections
-  // are applied here, in deterministic category order, before any control is interactive.
+  // are applied to the live mesh here; builder chrome was already interactive via `hydrate`.
   const handleSceneReady = useCallback(
     (controller: VehicleSceneController, applicable: CustomizationOption[]) => {
       controllerRef.current = controller;
@@ -205,10 +225,20 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       // The vehicle is in the scene; the bar has nothing left to report.
       setModelProgress(null);
       if (!bootstrap) return;
-      const forGrade = applicable.filter((option) =>
-        isOptionAvailableForGrade(option, bootstrap.configuration.gradeId),
-      );
-      void configurationStore.attachScene(controller, bootstrap.configuration, forGrade);
+      setSceneReady(true);
+      // Prefer live store config (early hydrate + any pre-settle edits) over the bootstrap snapshot.
+      void (async () => {
+        await configurationStore.flush();
+        const live = configurationStore.getSnapshot().configuration;
+        const configuration =
+          live && live.configurationId === bootstrap.configuration.configurationId
+            ? live
+            : bootstrap.configuration;
+        const forGrade = applicable.filter((option) =>
+          isOptionAvailableForGrade(option, configuration.gradeId),
+        );
+        await configurationStore.attachScene(controller, configuration, forGrade);
+      })();
     },
     [bootstrap],
   );
@@ -295,13 +325,25 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     if (!configuration) return 0;
     return (configuration.selections.accessory ?? []).length + (configuration.selections.decal ?? []).length;
   }, [configuration]);
-  const estimatedTotal = useMemo(() => estimateBuildTotal(startingMsrp(bootstrap?.vehicle ?? null), catalog, configuration), [bootstrap, catalog, configuration]);
+  // Grade sticker + selected option deltas — re-derived whenever selections/grade/catalog change,
+  // including after localConfigurationTransport / deep-link restore. Never a stored dollar field.
+  const baseMsrp = useMemo(
+    () => resolveGradeMsrp(bootstrap?.vehicle, configuration?.gradeId),
+    [bootstrap, configuration?.gradeId],
+  );
+  const estimatedTotal = useMemo(
+    () => estimateBuildTotal(baseMsrp, catalog, configuration),
+    [baseMsrp, catalog, configuration],
+  );
   const buildProgress = calculateBuildProgress(configuration);
   const overBudget = estimatedTotal > budget;
   // A page-local preview, like `lift`/`terrain` above — not part of the persisted
   // `VehicleConfiguration` (lib/types/customization.ts), same reasoning: this is a what-if
   // calculator over the current estimate, not a saved customization.
-  const financedPrincipal = Math.max(0, estimatedTotal - downPayment);
+  // Clamp during render so principal/payment stay coherent when the live total drops below
+  // the stored down payment (e.g. options removed / cheaper grade) — no setState-in-effect.
+  const effectiveDownPayment = Math.min(downPayment, estimatedTotal);
+  const financedPrincipal = Math.max(0, estimatedTotal - effectiveDownPayment);
   const estimatedMonthlyPayment = useMemo(
     () => estimateMonthlyPayment(financedPrincipal, apr, termMonths),
     [financedPrincipal, apr, termMonths],
@@ -345,7 +387,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const downloadSummary = useCallback(() => {
     if (!configuration || !bootstrap) return;
-    const text = formatBuildSummary(`${bootstrap.vehicle.year} Toyota ${bootstrap.vehicle.model}`, startingMsrp(bootstrap.vehicle), catalog, configuration);
+    const text = formatBuildSummary(`${bootstrap.vehicle.year} Toyota ${bootstrap.vehicle.model}`, resolveGradeMsrp(bootstrap.vehicle, configuration.gradeId), catalog, configuration);
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -395,18 +437,41 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const saveToGarage = async () => {
     await configurationStore.flush();
-    setGarageMessage("Build saved to your local garage");
+    setGarageMessage(
+      isLocalPersistence
+        ? "Build saved in this browser only (demo / offline mode)"
+        : "Build saved to your garage",
+    );
   };
 
   const share = async () => {
     if (!configuration) return;
-    const url = createConfigurationShareUrl(window.location.origin, window.location.pathname, configuration.configurationId);
+    // Encode selections + camera into `?c=…` so the link restores without a D1/localStorage id.
+    const url = createBuildDeepLinkUrl(window.location.origin, window.location.pathname, {
+      gradeId: configuration.gradeId,
+      selections: configuration.selections,
+      cameraState: configuration.cameraState,
+    });
     try {
       await navigator.clipboard.writeText(url);
-      setGarageMessage("Share link copied to clipboard");
+      setGarageMessage(
+        isLocalPersistence
+          ? "Share link copied — deep link restores this build without cloud save"
+          : "Share link copied to clipboard",
+      );
     } catch {
-      window.prompt("Copy this build link", url);
-      setGarageMessage("Share link ready to copy");
+      // Set feedback before prompt: headless / permission-denied environments can hang on
+      // `window.prompt`, and the e2e assertion only needs the garage message.
+      setGarageMessage(
+        isLocalPersistence
+          ? "Share link ready to copy — deep link works without Worker/D1"
+          : "Share link ready to copy",
+      );
+      try {
+        window.prompt("Copy this build link", url);
+      } catch {
+        /* ignore non-interactive prompt failures */
+      }
     }
   };
 
@@ -455,7 +520,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className="ghost" onClick={() => void reset()}>
             <RotateCcw size={16} /> Reset
           </button>
-          <SaveIndicator status={status} />
+          <SaveIndicator status={status} local={isLocalPersistence} />
           <button className="primary" onClick={() => void share()}>
             <Share2 size={16} /> Share
           </button>
@@ -475,6 +540,18 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button onClick={() => setLoadError(null)}>Dismiss</button>
         </div>
       ) : null}
+
+      {isLocalPersistence ? (
+        <div className="persistence-banner" role="status" data-testid="persistence-mode-banner">
+          <CloudOff size={15} aria-hidden />
+          <span>
+            <strong>Demo / offline saves</strong> — builds stay in this browser.
+            Share uses a deep link so others can open your build without Worker/D1.
+            Production persistence is Cloudflare Worker + D1; see the deployment runbook to promote.
+          </span>
+        </div>
+      ) : null}
+
       {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your 4Runner</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo.</p></div> : null}
 
       {error ? (
@@ -517,7 +594,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <button
                 key={grade.id}
                 className={grade.id === configuration?.gradeId ? "grade-item active" : "grade-item"}
-                disabled={gradeChanging || !configuration}
+                disabled={gradeChanging || !configuration || !sceneReady}
                 onClick={() => void changeGrade(grade.id)}
               >
                 <span>{grade.name}</span>
@@ -535,7 +612,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Accessories</button>
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
-          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small><button onClick={() => void saveToGarage()}>Save build</button></div>
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button onClick={() => void saveToGarage()}>Save build</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
@@ -697,14 +774,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               ))}
             </div>
           </section>
-          <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>${startingMsrp(vehicle).toLocaleString()}</b></p><p><span>Configured upgrades</span><b>+${(estimatedTotal - startingMsrp(vehicle)).toLocaleString()}</b></p><p className="total"><span>Estimated total</span><b>${estimatedTotal.toLocaleString()}</b></p></section>
-          <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={startingMsrp(vehicle)} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `$${(estimatedTotal - budget).toLocaleString()} over target` : `$${(budget - estimatedTotal).toLocaleString()} remaining`}</p></section>
+          <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>${baseMsrp.toLocaleString()}</b></p><p><span>Configured upgrades</span><b>+${(estimatedTotal - baseMsrp).toLocaleString()}</b></p><p className="total"><span>Estimated total</span><b data-testid="estimated-total">${estimatedTotal.toLocaleString()}</b></p></section>
+          <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={baseMsrp} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `$${(estimatedTotal - budget).toLocaleString()} over target` : `$${(budget - estimatedTotal).toLocaleString()} remaining`}</p></section>
           <section className="financing-card">
             <div><Landmark size={16} /><strong>Estimated financing</strong></div>
             <div className="financing-inputs">
               <label htmlFor="financing-down">
                 Down payment
-                <div><span>$</span><input id="financing-down" type="number" min={0} max={estimatedTotal} step="500" value={downPayment} onChange={(event) => setDownPayment(Math.max(0, Number(event.target.value)))} /></div>
+                <div><span>$</span><input id="financing-down" type="number" min={0} max={estimatedTotal} step="500" value={effectiveDownPayment} onChange={(event) => setDownPayment(Math.min(estimatedTotal, Math.max(0, Number(event.target.value))))} /></div>
               </label>
               <label htmlFor="financing-apr">
                 APR
@@ -717,8 +794,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 </select>
               </label>
             </div>
-            <p className="total"><span>Est. monthly payment</span><b>${estimatedMonthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo</b></p>
-            <p className="financing-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender.</p>
+            <p><span>Amount financed</span><b data-testid="amount-financed">${financedPrincipal.toLocaleString()}</b></p>
+            <p className="total"><span>Est. monthly payment</span><b data-testid="estimated-monthly-payment">${estimatedMonthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo</b></p>
+            <p className="financing-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender. Payment tracks the live build total derived from your selections.</p>
           </section>
         </aside>
       </section>
@@ -726,7 +804,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   );
 }
 
-function SaveIndicator({ status }: { status: string }) {
+function SaveIndicator({ status, local }: { status: string; local: boolean }) {
   if (status === "saving") {
     return <button className="ghost" disabled><Loader2 size={16} className="spin" /> Saving</button>;
   }
@@ -734,14 +812,17 @@ function SaveIndicator({ status }: { status: string }) {
     return <button className="ghost" disabled><AlertTriangle size={16} /> Not saved</button>;
   }
   if (status === "saved") {
-    return <button className="ghost" disabled><Check size={16} /> Saved</button>;
+    return (
+      <button className="ghost" disabled title={local ? "Saved in this browser (demo / offline)" : "Saved to Worker/D1"}>
+        <Check size={16} /> {local ? "Saved locally" : "Saved"}
+      </button>
+    );
   }
-  return <button className="ghost" disabled><Check size={16} /> Up to date</button>;
-}
-
-function startingMsrp(vehicle: Vehicle | null): number {
-  if (!vehicle) return 0;
-  return Math.min(vehicle.pricing.baseMsrp, ...vehicle.grades.map((grade) => grade.msrp));
+  return (
+    <button className="ghost" disabled title={local ? "Demo / offline — localStorage only" : undefined}>
+      <Check size={16} /> {local ? "Local only" : "Up to date"}
+    </button>
+  );
 }
 
 /**
@@ -784,6 +865,21 @@ function rememberConfigurationId(vehicleSlug: string, configurationId: string): 
  * or hand-edited storage value pointing at the wrong vehicle.
  */
 async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): Promise<VehicleConfiguration> {
+  // Deep-link `?c=…` wins over hash/localStorage: it carries selections + camera inline so Pages
+  // and local static exports can restore a build without a durable configuration id.
+  const deepLink = tryRestoreFromDeepLink(vehicle);
+  if (deepLink) {
+    const created = await configurationsApi.createConfiguration({
+      vehicleId: vehicle.slug,
+      modelYear: vehicle.year,
+      gradeId: deepLink.gradeId,
+      selections: deepLink.selections,
+      cameraState: deepLink.cameraState,
+    });
+    rememberConfigurationId(vehicle.slug, created.configurationId);
+    return created;
+  }
+
   const storedId = safeReadStoredId(vehicle.slug);
 
   if (storedId) {
@@ -802,6 +898,20 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
   });
   rememberConfigurationId(vehicle.slug, created.configurationId);
   return created;
+}
+
+/**
+ * Decodes and catalog-validates `?c=…`. Returns null on absence or any validation failure so the
+ * builder can fall through to the normal resume/create path rather than blocking on a bad link.
+ */
+function tryRestoreFromDeepLink(vehicle: Vehicle): ReturnType<typeof validateBuildDeepLink> | null {
+  try {
+    const encoded = readBuildDeepLinkParam(window.location.search);
+    if (!encoded) return null;
+    return validateBuildDeepLink(vehicle.slug, vehicle.year, encoded);
+  } catch {
+    return null;
+  }
 }
 
 function safeReadStoredId(vehicleSlug: string): string | null {

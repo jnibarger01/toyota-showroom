@@ -4,13 +4,16 @@ import { getVehicle, pageUrl } from "../lib/api/client";
 import {
   createConfiguration,
   getConfiguration,
+  getPersistenceMode,
   listVehicleOptions,
   resetTransportDetection,
+  subscribePersistenceMode,
   updateConfiguration,
 } from "../lib/api/configurations";
 import { localConfigurationTransport } from "../lib/api/localConfigurationTransport";
 import { fourRunnerOptions } from "../lib/data/options/4runner";
 import { fourRunner } from "../lib/data/vehicles/4runner";
+import { estimateBuildTotal, resolveGradeMsrp } from "../lib/showroom/buildTools";
 
 /** Minimal `window.localStorage` so the local transport can run under the node test environment. */
 function installLocalStorage(): void {
@@ -270,3 +273,83 @@ describe("owner token", () => {
     ).resolves.toMatchObject({ revision: 2 });
   });
 });
+
+
+describe("localConfigurationTransport offline build-total derivation", () => {
+  it("persists selections offline and re-derives the same financing principal on restore", async () => {
+    const created = await localConfigurationTransport.create({
+      vehicleId: "4runner",
+      modelYear: 2024,
+      gradeId: "trd-pro",
+      selections: {
+        paint: ["paint-0r2-solar-octane"],
+        accessory: ["accessory-roof-rack"],
+      },
+    });
+
+    const before = estimateBuildTotal(
+      resolveGradeMsrp(fourRunner, created.configuration.gradeId),
+      fourRunnerOptions,
+      created.configuration,
+    );
+    expect(before).toBe(53_900 + 425 + 1_150);
+
+    // No estimatedTotal field is stored — restore only gets selections + grade.
+    expect(created.configuration).not.toHaveProperty("estimatedTotal");
+    expect(JSON.stringify(created.configuration)).not.toContain("55475");
+
+    const restored = await localConfigurationTransport.get(created.configuration.configurationId);
+    const after = estimateBuildTotal(
+      resolveGradeMsrp(fourRunner, restored.gradeId),
+      fourRunnerOptions,
+      restored,
+    );
+    expect(after).toBe(before);
+    expect(restored.selections).toEqual(created.configuration.selections);
+  });
+});
+
+describe("persistence mode surface", () => {
+  it("starts unknown, then latches to local when the static host has no API", async () => {
+    expect(getPersistenceMode()).toBe("unknown");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({}), { status: 404 })));
+    await createConfiguration({ vehicleId: "4runner", modelYear: 2024, gradeId: "trd-pro" });
+    expect(getPersistenceMode()).toBe("local");
+  });
+
+  it("latches to worker when the remote API answers", async () => {
+    const remote = {
+      configurationId: "cfg_remote_mode",
+      vehicleId: "4runner",
+      modelYear: 2024,
+      model: "4Runner",
+      gradeId: "trd-pro",
+      selections: {},
+      revision: 1,
+      schemaVersion: "1.0.0",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ data: remote, ownerToken: "tok" }), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    await createConfiguration({ vehicleId: "4runner", modelYear: 2024, gradeId: "trd-pro" });
+    expect(getPersistenceMode()).toBe("worker");
+  });
+
+  it("notifies subscribers when the mode latches", async () => {
+    const seen: string[] = [];
+    const unsubscribe = subscribePersistenceMode(() => seen.push(getPersistenceMode()));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({}), { status: 405 })));
+    await createConfiguration({ vehicleId: "4runner", modelYear: 2024, gradeId: "trd-pro" });
+    unsubscribe();
+    expect(seen).toEqual(["local"]);
+  });
+});
+

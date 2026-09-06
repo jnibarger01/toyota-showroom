@@ -59,9 +59,23 @@ npm run typecheck
 npm run build
 ```
 
-Configuration writes need a request-aware runtime (the Cloudflare Worker build). Under the static
-GitHub Pages export those routes do not exist, so the client detects their absence once and
-persists configurations in the browser instead, running the same validators the server does.
+## Persistence: Worker/D1 (production) vs Pages (demo / offline)
+
+| Surface | Role | Durability | Share |
+|---|---|---|---|
+| **Cloudflare Worker + D1** | **Production** persistence | Server-side, cross-browser | Configuration id links + deep links |
+| **GitHub Pages + `localConfigurationTransport`** | Demo / offline fallback | This browser localStorage only | **Deep links** (`?c=…`) — not cloud ids |
+
+Configuration writes need a request-aware runtime (the Cloudflare Worker). Under the static GitHub
+Pages export those routes do not exist, so the client detects their absence once, shows a clear
+**demo / offline** banner, and persists in the browser instead — running **the same validators** as
+the Worker (`lib/validation/configuration.ts`). Share on Pages always prefers deep links so a build
+can travel without D1.
+
+### Promote to production persistence
+See docs/DEPLOYMENT_RUNBOOK.md for the full promote path.
+Short version: migrate remote D1, deploy the Worker, verify health, reload the builder so the demo banner clears.
+
 
 ## Final packaged assets
 

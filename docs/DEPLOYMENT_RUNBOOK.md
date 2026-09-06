@@ -21,6 +21,20 @@ site works standalone against `localConfigurationTransport` (browser `localStora
 Worker deployed at all. Deploying the Worker adds server-side persistence and shareable links; it
 is never required for the site to function.
 
+
+## Promote: Pages demo to Worker/D1 production
+
+GitHub Pages alone is the **demo / offline** surface: `localConfigurationTransport` + deep-link share.
+**Worker + D1 is the production persistence path.** Promoting does not require Pages code changes;
+the client auto-detects `/api/v1` once the Worker is reachable.
+
+1. Finish §2 (production D1 migrate + deploy) and/or §3 (staging).
+2. Point the site or a reverse proxy so browser calls to `/api/v1/**` reach the Worker.
+3. Open the builder, change an option, and confirm the demo/offline banner is gone and saves report cloud status.
+4. Validators are shared: `lib/validation/configuration.ts` is used by both the Worker routes and `localConfigurationTransport`.
+
+---
+
 ---
 
 ## 1. Prerequisites
