@@ -74,8 +74,8 @@ describe("catalog reads", () => {
     const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
     expect(vehicle.threeDConfig.modelUrl).toBe(`${basePath}/models/modsnation_7416_assets_assembled.glb`);
-    expect(vehicle.threeDConfig.wheelAndTireAssets?.wheelUrl).toBe(`${basePath}/models/4runner-2024/ModsNation_7416_wheel_a.gltf`);
-    expect(vehicle.threeDConfig.wheelAndTireAssets?.tireUrl).toBe(`${basePath}/models/4runner-2024/ModsNation_7416_tire.gltf`);
+    expect(vehicle.threeDConfig.wheelAndTireAssets?.wheelUrl).toBe(`${basePath}/models/4runner-2024/ModsNation_7416_wheel_a.glb`);
+    expect(vehicle.threeDConfig.wheelAndTireAssets?.tireUrl).toBe(`${basePath}/models/4runner-2024/ModsNation_7416_tire.glb`);
   });
 });
 

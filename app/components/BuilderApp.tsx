@@ -140,6 +140,16 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const undoStack = useRef<SelectionMap[]>([]);
   const redoStack = useRef<SelectionMap[]>([]);
 
+  /**
+   * Main-asset download progress, 0..1, or null when the size is unknown.
+   *
+   * Distinct from "is the scene ready": since the render loop now starts before any geometry
+   * exists, the showroom is already drawn and interactive while this counts up. It drives a thin
+   * determinate bar over a live scene, not a spinner over a blank one — and stays null (bar hidden)
+   * when the response has no Content-Length to measure against.
+   */
+  const [modelProgress, setModelProgress] = useState<number | null>(null);
+
   const { configuration, catalog, status, error } = useConfiguration();
 
   // ------------------------------------------------------------------ step 1-4
@@ -191,6 +201,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     (controller: VehicleSceneController, applicable: CustomizationOption[]) => {
       controllerRef.current = controller;
       fullApplicableRef.current = applicable;
+      // The vehicle is in the scene; the bar has nothing left to report.
+      setModelProgress(null);
       if (!bootstrap) return;
       const forGrade = applicable.filter((option) =>
         isOptionAvailableForGrade(option, bootstrap.configuration.gradeId),
@@ -581,8 +593,21 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               environmentPreset={environmentPreset}
               onReady={handleSceneReady}
               onError={handleSceneError}
+              onProgress={setModelProgress}
             />
           </Suspense>
+          {modelProgress !== null && modelProgress < 1 && (
+            <div
+              className="model-progress"
+              role="progressbar"
+              aria-label="Loading vehicle model"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(modelProgress * 100)}
+            >
+              <div className="model-progress-fill" style={{ transform: `scaleX(${modelProgress})` }} />
+            </div>
+          )}
 
           <div className="gpu-status">
             <span><i /> WebGPU preferred</span>

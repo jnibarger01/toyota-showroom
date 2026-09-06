@@ -96,14 +96,14 @@ describe("catalog vs. shipped GLB", () => {
  * These exist because the hero 4Runner asset once shipped at 28.1 MiB, of which ~24.5 MiB was data
  * the runtime provably never read: 18 MiB of morph targets on the four wheel meshes (every weight
  * zero, and the file contains no animations and no skins to drive them) plus 6.5 MiB of bufferViews
- * referenced by nothing at all. `scripts/compress-glb.mjs` strips both and re-encodes with Draco,
+ * referenced by nothing at all. `scripts/optimize-models.mjs` strips both and re-encodes with Draco,
  * taking the file to ~1.2 MiB with every node name, every material name, and the rendered triangle
  * count intact.
  *
  * The budget is the guard against that regressing silently, which is the realistic failure: a
  * re-export from Blender reintroduces the morph targets, the file is committed because it loads
  * fine locally on a fast connection, and mobile users pay 28 MiB again. A failure here means run
- * `node scripts/compress-glb.mjs` (idempotent) before committing the asset — not raise the number.
+ * `node scripts/optimize-models.mjs` (idempotent) before committing the asset — not raise the number.
  */
 describe("shipped GLB payload budget", () => {
   const BUDGETS_BYTES: Record<string, number> = {
@@ -132,7 +132,7 @@ describe("shipped GLB payload budget", () => {
       expect(
         actual,
         `${modelUrl} is ${(actual / 1024 / 1024).toFixed(2)} MiB, over its ` +
-          `${(budget / 1024 / 1024).toFixed(2)} MiB budget. Run \`node scripts/compress-glb.mjs\`.`,
+          `${(budget / 1024 / 1024).toFixed(2)} MiB budget. Run \`node scripts/optimize-models.mjs\`.`,
       ).toBeLessThanOrEqual(budget);
     });
   }
@@ -141,7 +141,7 @@ describe("shipped GLB payload budget", () => {
 /**
  * The optimizer's own invariant, asserted against the committed asset rather than trusted.
  *
- * Morph targets are the single largest thing `scripts/compress-glb.mjs` removes, and they are also
+ * Morph targets are the single largest thing `scripts/optimize-models.mjs` removes, and they are also
  * the thing a Blender re-export silently puts back. Checking the file directly means this fails at
  * commit time on the real artifact, not on a description of it.
  */
@@ -165,7 +165,7 @@ describe("shipped GLB carries no undrivable morph targets", () => {
       expect(
         withTargets.map((mesh) => mesh.name ?? "<unnamed>"),
         `These meshes carry morph targets that no weight and no animation can drive — dead ` +
-          `download weight. Run \`node scripts/compress-glb.mjs\`.`,
+          `download weight. Run \`node scripts/optimize-models.mjs\`.`,
       ).toEqual([]);
     });
   }

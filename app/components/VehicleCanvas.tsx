@@ -37,9 +37,19 @@ type Props = {
    */
   onReady: (controller: VehicleSceneController, applicable: CustomizationOption[]) => void;
   onError: (message: string) => void;
+  /**
+   * Download progress for the main vehicle asset, 0..1. Optional, and deliberately not a
+   * substitute for `onReady`: the showroom is already rendering while this fires, so it drives a
+   * progress affordance, not a blocking spinner.
+   *
+   * Only reported when the server sends `Content-Length`. A Draco-compressed GLB served with
+   * `Content-Encoding: gzip` often does not, and inventing a fake percentage in that case is worse
+   * than showing none — so the callback simply does not fire.
+   */
+  onProgress?: (fraction: number) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, onReady, onError }: Props) {
+export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, onReady, onError, onProgress }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -61,12 +71,14 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   // render function may run more than once before committing); an effect runs only after commit.
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
+  const onProgressRef = useRef(onProgress);
   const catalogRef = useRef(catalog);
   useEffect(() => {
     onReadyRef.current = onReady;
     onErrorRef.current = onError;
+    onProgressRef.current = onProgress;
     catalogRef.current = catalog;
-  }, [catalog, onError, onReady]);
+  }, [catalog, onError, onProgress, onReady]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -172,25 +184,112 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       environmentRef.current = environment;
       applyEnvironment(environment, terrain, environmentPreset);
 
+      const resize = () => {
+        const width = Math.max(host.clientWidth, 1);
+        const height = Math.max(host.clientHeight, 1);
+        renderer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      };
+      resize();
+      const observer = new ResizeObserver(resize);
+      observer.observe(host);
+
+      // The render loop starts here — before any vehicle geometry exists — rather than after the
+      // model resolves. Previously nothing was drawn until the full GLB had downloaded, decoded,
+      // and been verified, so the whole showroom (lights, floor, grid, environment) sat behind a
+      // spinner waiting on geometry it does not depend on. Starting now means first paint is
+      // bounded by renderer setup instead of by the largest asset on the page.
+      let running = true;
+      const loop = async () => {
+        if (!running) return;
+        controls.update();
+        if (renderer.renderAsync) await renderer.renderAsync(scene, camera);
+        else renderer.render(scene, camera);
+        requestAnimationFrame(loop);
+      };
+      void loop();
+
+      // Teardown is registered here, the moment there is anything to tear down, and extended as
+      // later resources appear. It used to be assigned only after the model resolved, which meant
+      // an unmount during loading — a route change, React 18 strict-mode's double effect — leaked
+      // the renderer, its WebGL context, the resize observer, and a render loop that kept running
+      // against a detached canvas. Starting the loop before the model made that window much wider,
+      // so the ordering is deliberate rather than incidental.
+      const disposers: Array<() => void> = [
+        () => {
+          running = false;
+          observer.disconnect();
+          controls.dispose();
+          renderer.dispose();
+          renderer.domElement.remove();
+          floor.geometry.dispose();
+          (floor.material as THREE.Material).dispose();
+          grid.dispose();
+          disposeStarfield(stars);
+          disposeTrailRocks(rocks);
+          rootRef.current = null;
+        },
+      ];
+      // Run in reverse: later resources are built on earlier ones, so they must go first.
+      cleanup = () => {
+        for (const dispose of [...disposers].reverse()) dispose();
+      };
+
+      /**
+       * Low-detail stand-in shown while the real model streams in.
+       *
+       * `createProceduralVehicle` is already this project's failure fallback, so reusing it as the
+       * loading proxy costs nothing and inherits its coverage. It is display-only: it is never
+       * handed to a `VehicleSceneController`, never verified against the catalog, and no option is
+       * ever applied to it. That keeps the swap below a pure visual substitution rather than a
+       * second lifecycle the store would have to reason about.
+       */
+      const proxy = createProceduralVehicle();
+      proxy.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) return;
+        // Cloned so dimming the placeholder cannot touch materials the real vehicle may share.
+        const material = (object.material as THREE.Material).clone();
+        material.transparent = true;
+        material.opacity = PROXY_OPACITY;
+        object.material = material;
+      });
+      scene.add(proxy);
+      // Registered immediately: between here and the swap below, the proxy is the only vehicle in
+      // the scene, and `disposeProxy` is a no-op once the swap has already released it.
+      disposers.push(() => disposeProxy(proxy));
+      rootRef.current = proxy;
+      groundedYRef.current = proxy.position.y;
+
       let root: THREE.Object3D;
+      let usingFallback = false;
       try {
-        root = await loadVehicleRoot(threeDConfig);
+        root = await loadVehicleRoot(threeDConfig, (fraction) => onProgressRef.current?.(fraction));
       } catch (error) {
         console.error("High-detail glTF failed to load; using procedural fallback.", error);
         onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");
         root = createProceduralVehicle();
+        usingFallback = true;
       }
       if (cancelled) {
         disposeSubtree(root);
         return;
       }
 
+      // Running gear is additive: the body is complete and correct without it, and it is four small
+      // assets rather than one large one. Loading it *after* the body is in the scene means the
+      // vehicle becomes visible a network round trip earlier, and a slow or failed running-gear
+      // fetch degrades to the baked-in wheels instead of holding back the whole model.
       try {
         await installWheelAndTireAssets(root, threeDConfig);
       } catch (error) {
         // Replacement running gear is additive enhancement; retain the complete base model if an
         // optional glTF cannot be fetched or decoded.
         console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
+      }
+      if (cancelled) {
+        disposeSubtree(root);
+        return;
       }
       prepareVehicleRoot(root, threeDConfig);
 
@@ -201,9 +300,17 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       const footprint = new THREE.Box3().setFromObject(root);
       const contactShadow = createContactShadow(footprint);
       scene.add(contactShadow);
+      disposers.push(() => disposeContactShadow(contactShadow));
 
       buildProceduralAccessories(root);
       scene.add(root);
+
+      // Swap the placeholder for the real vehicle. Both are in the scene for the length of the
+      // fade, which is what keeps the transition from reading as a flash of empty showroom.
+      // `usingFallback` skips the fade: the "real" model *is* another procedural vehicle in that
+      // case, so cross-fading one into an identical copy would just look like a flicker.
+      swapProxyForVehicle(proxy, usingFallback);
+
       rootRef.current = root;
       groundedYRef.current = root.position.y;
       setSceneRevision((revision) => revision + 1);
@@ -225,44 +332,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       const controller = new VehicleSceneController(root, report.satisfied);
       onReadyRef.current(controller, report.satisfied);
 
-      const resize = () => {
-        const width = Math.max(host.clientWidth, 1);
-        const height = Math.max(host.clientHeight, 1);
-        renderer.setSize(width, height);
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-      };
-      resize();
-      const observer = new ResizeObserver(resize);
-      observer.observe(host);
-
-      let running = true;
-      const loop = async () => {
-        if (!running) return;
-        controls.update();
-        if (renderer.renderAsync) await renderer.renderAsync(scene, camera);
-        else renderer.render(scene, camera);
-        requestAnimationFrame(loop);
-      };
-      void loop();
-
-      cleanup = () => {
-        running = false;
-        observer.disconnect();
-        controls.dispose();
-        renderer.dispose();
-        renderer.domElement.remove();
-        // The controller owns every material clone and attachment it made; disposing it releases
-        // those before the base scene's own geometry is released below.
-        controller.dispose();
-        floor.geometry.dispose();
-        (floor.material as THREE.Material).dispose();
-        grid.dispose();
-        disposeStarfield(stars);
-        disposeTrailRocks(rocks);
-        disposeContactShadow(contactShadow);
-        rootRef.current = null;
-      };
+      // The controller owns every material clone and attachment it made. It is last in, so the
+      // reverse-order teardown releases it first — before the base scene geometry it borrows from.
+      disposers.push(() => controller.dispose());
     })().catch((error) => {
       console.error("Vehicle scene initialization failed:", error);
       onErrorRef.current(error instanceof Error ? error.message : String(error));
@@ -502,9 +574,82 @@ async function createRenderer(): Promise<{ renderer: RendererLike; mode: "webgpu
   return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
 }
 
-async function loadVehicleRoot(threeDConfig: Vehicle3DConfig): Promise<THREE.Object3D> {
+/**
+ * Opacity of the low-detail placeholder shown while the real model streams in.
+ *
+ * Deliberately ghosted rather than solid: at full opacity a blocky procedural stand-in reads as
+ * *the product*, and the swap then looks like the page corrected a mistake. Semi-transparent, it
+ * reads as scaffolding, and the real vehicle resolving into place reads as loading finishing.
+ */
+const PROXY_OPACITY = 0.28;
+
+/** Duration of the placeholder-to-vehicle cross-fade. */
+const PROXY_FADE_SECONDS = 0.45;
+
+/**
+ * Releases the placeholder's geometry and the materials cloned for it.
+ *
+ * Safe to call twice — the swap disposes on fade completion, and teardown disposes on unmount,
+ * and which happens first depends on how quickly the user navigates away. `parent` is nulled by
+ * `remove()`, so the second call detaches nothing and traverses an already-emptied subtree.
+ */
+function disposeProxy(proxy: THREE.Object3D): void {
+  proxy.parent?.remove(proxy);
+  proxy.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    object.geometry?.dispose();
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      material?.dispose();
+    }
+  });
+  proxy.clear();
+}
+
+/**
+ * Fades the placeholder out and disposes it.
+ *
+ * The real vehicle is already in the scene when this runs, so the two overlap for the fade rather
+ * than the showroom flashing empty between them. `immediate` skips the animation for the case
+ * where the "real" model is itself a procedural fallback — cross-fading a shape into an identical
+ * copy of itself just looks like a flicker.
+ */
+function swapProxyForVehicle(proxy: THREE.Object3D, immediate: boolean): void {
+  if (immediate) {
+    disposeProxy(proxy);
+    return;
+  }
+
+  const materials: THREE.Material[] = [];
+  proxy.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      if (material) materials.push(material);
+    }
+  });
+
+  gsap.to(materials, {
+    opacity: 0,
+    duration: PROXY_FADE_SECONDS,
+    ease: "power2.out",
+    // Disposal is the completion handler rather than a separate timer so the geometry is released
+    // exactly when it stops being drawn, however the tween ends.
+    onComplete: () => disposeProxy(proxy),
+  });
+}
+
+async function loadVehicleRoot(
+  threeDConfig: Vehicle3DConfig,
+  onProgress?: (fraction: number) => void,
+): Promise<THREE.Object3D> {
   if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
-  const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl);
+  const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl, (event) => {
+    // `lengthComputable` is false whenever the response has no usable `Content-Length` — common
+    // for a gzipped GLB. Reporting `loaded / 0` would emit Infinity, and guessing a denominator
+    // would show a progress bar that lies; skipping the callback lets the UI fall back to an
+    // indeterminate affordance instead.
+    if (!event.lengthComputable || event.total <= 0) return;
+    onProgress?.(Math.min(event.loaded / event.total, 1));
+  });
   return gltf.scene;
 }
 

@@ -148,8 +148,8 @@ export const fourRunner: Vehicle = {
     // The node names deliberately match the configuration catalog, so wheel-finish and tyre-sidewall
     // controls continue to target the newly mounted meshes.
     wheelAndTireAssets: {
-      wheelUrl: "/models/4runner-2024/ModsNation_7416_wheel_a.gltf",
-      tireUrl: "/models/4runner-2024/ModsNation_7416_tire.gltf",
+      wheelUrl: "/models/4runner-2024/ModsNation_7416_wheel_a.glb",
+      tireUrl: "/models/4runner-2024/ModsNation_7416_tire.glb",
       // The standalone source assets are 0.553 units across, while the vehicle uses metre-scale
       // dimensions. This yields an approximately 0.80 m (31.5 in) outside tyre diameter.
       scale: 1.45,

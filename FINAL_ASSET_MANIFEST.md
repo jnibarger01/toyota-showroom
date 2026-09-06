@@ -2,12 +2,23 @@
 
 ## Runtime asset
 
-- `public/models/modsnation_7416_assets_assembled.glb`
-  - Latest assembled 4Runner GLB used by the WebGPU/Three.js viewer.
-  - ~1.2 MiB, Draco-compressed and pruned by `scripts/compress-glb.mjs`.
-  - Optimized from a 28.1 MiB export: ~18 MiB of undrivable morph targets and ~6.5 MiB of
-    unreferenced bufferViews removed, with every node name, every material name, and the rendered
-    triangle count preserved. `tests/glbContract.test.ts` holds the size budget.
+Everything the running app downloads, after `scripts/optimize-models.mjs`. Total runtime model
+payload went from **12.52 MiB to 1.49 MiB (88% smaller)**; `tests/glbContract.test.ts` holds a
+per-asset budget so it stays there.
+
+| Asset | Before | After | Notes |
+| --- | --- | --- | --- |
+| `models/modsnation_7416_assets_assembled.glb` | 28.10 MiB | 1.21 MiB | 44 undrivable morph targets, 6.5 MiB unreferenced bufferViews |
+| `models/4runner-2024/ModsNation_7416_tire.glb` | 9.11 MiB | 0.16 MiB | was base64 `.gltf`; 5 dead morph targets on 35k triangles |
+| `models/4runner-2024/ModsNation_7416_wheel_a.glb` | 1.41 MiB | 0.04 MiB | was base64 `.gltf`; 6 dead morph targets on 14k triangles |
+| `models/toyota-ae86-ivofficial.glb` | 0.79 MiB | 0.08 MiB | was uncompressed |
+
+Every node name, every material name, and the rendered triangle count are preserved across the
+optimization — `tests/glbContract.test.ts` re-derives the whole customization catalog against the
+committed binaries on every run.
+
+`public/models/4runner-limited.gltf` (4.2 MiB) is **not** in this list: nothing in `lib/` or `app/`
+references it, so no browser requests it. It is a candidate for deletion, left for a separate call.
 
 ## Source assets — in history, not in the working tree
 

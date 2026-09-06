@@ -77,10 +77,6 @@ const DEFAULT_BUDGET_BYTES = 2 * MiB;
  * in `tests/glbContract.test.ts`.
  */
 const ALLOWANCES: Record<string, { bytes: number; why: string }> = {
-  "public/models/4runner-2024/ModsNation_7416_tire.gltf": {
-    bytes: 10 * MiB,
-    why: "Uncompressed donor tire geometry, loaded on demand as a wheel replacement option.",
-  },
   "public/renders/rav4-2024/rav4_2024_limited_buffers.base64": {
     bytes: 6 * MiB,
     why: "Base64 capture data for the RAV4 render pipeline; not fetched by the running app.",

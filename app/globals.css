@@ -143,6 +143,22 @@ button { font: inherit; color: inherit; }
 .stage { min-width: 0; position: relative; display: grid; grid-template-rows: 1fr auto; background: #0c1015; }
 .vehicle-canvas { position: absolute; inset: 0 0 84px; }
 .vehicle-canvas-loading { display: flex; align-items: center; justify-content: center; color: var(--muted); }
+
+/*
+ * Vehicle download progress. Sits at the top edge of the stage rather than centred over it,
+ * because the showroom is already rendered and interactive underneath while this counts up —
+ * a centred overlay would imply the page is blocked when it is not.
+ */
+.model-progress {
+  position: absolute; z-index: 5; left: 0; right: 0; top: 0; height: 2px;
+  background: #1b222b; overflow: hidden; pointer-events: none;
+}
+.model-progress-fill {
+  height: 100%; background: var(--accent, #4169ff);
+  /* scaleX from a left origin, so the bar animates on the compositor rather than relaying out. */
+  transform-origin: left center; will-change: transform;
+  transition: transform 120ms linear;
+}
 .stage-toolbar {
   position: absolute; z-index: 4; left: 18px; right: 18px; top: 16px; display: flex; justify-content: space-between; pointer-events: none;
 }
