@@ -13,6 +13,7 @@ import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 import { QUALITY_TIERS, QualityGovernor, suggestInitialTierIndex, type QualityTier } from "../../lib/three/qualityGovernor";
 import { motionDuration, prefersReducedMotion } from "../../lib/three/motionPreference";
+import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
 
 export type CameraPreset = {
   id: string;
@@ -116,6 +117,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.05;
       renderer.domElement.dataset.renderer = mode;
+      recordMetric({ name: "renderer_selected", labels: { renderer: mode } });
       host.appendChild(renderer.domElement);
 
       const controls = new OrbitControls(camera, renderer.domElement);
@@ -235,6 +237,11 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         initialTierIndex: suggestInitialTierIndex(),
         onChange: (tier, { from, reason }) => {
           applyTier(tier);
+          recordMetric({
+            name: "quality_changed",
+            value: Math.round(governor.averageFrameTimeMs),
+            labels: { from: from.id, to: tier.id, reason },
+          });
           // Left in production rather than dev-gated: when someone reports "the showroom looks
           // blurry on my phone", this line is the answer, and it fires at most a handful of times
           // in a session.
@@ -352,6 +359,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
 
       const observer = new ResizeObserver(resize);
       observer.observe(host);
+      const uninstallMetricsFlush = installMetricsFlush();
 
       // The render loop starts here — before any vehicle geometry exists — rather than after the
       // model resolves. Previously nothing was drawn until the full GLB had downloaded, decoded,
@@ -360,6 +368,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       // bounded by renderer setup instead of by the largest asset on the page.
       let running = true;
       let lastFrameAt = performance.now();
+      const setupStartedAt = performance.now();
+      let firstFrameRecorded = false;
       const loop = async () => {
         if (!running) return;
         const frameStartedAt = performance.now();
@@ -368,6 +378,12 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         controls.update();
         if (renderer.renderAsync) await renderer.renderAsync(scene, camera);
         else renderer.render(scene, camera);
+        if (!firstFrameRecorded) {
+          firstFrameRecorded = true;
+          // Recorded after the first `render` returns, not before: the point is when a pixel
+          // actually exists, and the first frame is where shader compilation happens.
+          recordMetric({ name: "first_frame", value: performance.now() - setupStartedAt });
+        }
         requestAnimationFrame(loop);
       };
       void loop();
@@ -381,6 +397,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       const disposers: Array<() => void> = [
         () => {
           running = false;
+          uninstallMetricsFlush();
           host.removeEventListener("keydown", handleKeyDown);
           canvas.removeEventListener("webglcontextlost", handleContextLost);
           canvas.removeEventListener("webglcontextrestored", handleContextRestored);
@@ -428,8 +445,13 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
 
       let root: THREE.Object3D;
       let usingFallback = false;
+      const modelStartedAt = performance.now();
       try {
         root = await loadVehicleRoot(threeDConfig, (fraction) => onProgressRef.current?.(fraction));
+        // Download *and* Draco decode together, which is the number that matters: after
+        // scripts/optimize-models.mjs took the payload to ~1.2 MiB, decode is expected to dominate,
+        // and that is precisely the assumption worth checking against real devices.
+        recordMetric({ name: "model_loaded", value: Math.round(performance.now() - modelStartedAt) });
       } catch (error) {
         console.error("High-detail glTF failed to load; using procedural fallback.", error);
         onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");

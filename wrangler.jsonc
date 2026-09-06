@@ -61,6 +61,23 @@
     }
   ],
 
+  // Analytics Engine dataset for the structured request telemetry in `lib/server/telemetry.ts`.
+  //
+  // Optional at runtime by design, exactly like `CONFIG_WRITE_LIMITER`: `recordRequest` resolves
+  // the binding ambiently and skips the data point when it is absent, so `npm run dev`, `vitest`,
+  // and the GitHub Pages export need no binding and no account. The structured `console.log` it
+  // always emits is the baseline channel — `wrangler tail` streams it and Logpush ships it — and
+  // this binding adds queryable aggregates on top.
+  //
+  // Unlike D1, no resource has to be created first: an Analytics Engine dataset is created on
+  // first write, so this binding is complete as committed.
+  "analytics_engine_datasets": [
+    {
+      "binding": "TELEMETRY",
+      "dataset": "toyota_showroom_requests"
+    }
+  ],
+
   // Named environment for `.github/workflows/deploy-staging.yml`, which deploys every pull request
   // here before it can reach the production Worker (top-level config above, deployed by `npm run
   // deploy` — there is no CI-driven production deploy workflow; this repo's Worker is deployed
@@ -80,6 +97,14 @@
           // must never be.
           "database_id": "4acd8ec7-26f2-40c0-b2d6-31377f395089",
           "migrations_dir": "db/migrations"
+        }
+      ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "TELEMETRY",
+          // Separate from production's, so a PR's staging traffic cannot skew the numbers the
+          // quality governor's thresholds will be tuned against.
+          "dataset": "toyota_showroom_requests_staging"
         }
       ],
       "ratelimits": [
