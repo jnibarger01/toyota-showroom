@@ -5,6 +5,7 @@ import { fourRunner } from "../../lib/data/vehicles/4runner";
 import { fourRunnerOptions } from "../../lib/data/options/4runner";
 import type { CreateConfigurationInput, UpdateConfigurationInput } from "../../lib/api/configurations";
 import type { VehicleConfiguration } from "../../lib/types/customization";
+import { encodeBuildDeepLink } from "../../lib/showroom/deepLink";
 
 /**
  * `VehicleCanvas` renders a real WebGPU/WebGL scene, which jsdom cannot run. It is replaced with a
@@ -100,6 +101,7 @@ beforeEach(() => {
 
 afterEach(() => {
   configurationStore.reset();
+  window.history.replaceState({}, "", "/");
 });
 
 /**
@@ -180,5 +182,25 @@ describe("BuilderApp", () => {
       const after = revisionRow.querySelector("strong")?.textContent;
       expect(after).not.toBe(before);
     });
+  });
+
+  it("restores selections and camera from a ?c= deep link on bootstrap", async () => {
+    const encoded = encodeBuildDeepLink({
+      gradeId: "trd-pro",
+      selections: { paint: ["paint-3u5-barcelona-red"] },
+      cameraState: { presetId: "front", position: [0, 2.2, -10], target: [0, 1.0, 0] },
+    });
+    window.history.replaceState({}, "", `/4runner/?c=${encodeURIComponent(encoded)}`);
+
+    await renderBuilderReady();
+
+    await waitFor(() => {
+      expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual([
+        "paint-3u5-barcelona-red",
+      ]);
+    });
+    expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("front");
+    expect(screen.getByRole("button", { name: "Barcelona Red Metallic" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Front" })).toHaveClass("selected");
   });
 });
