@@ -1,0 +1,28 @@
+# Git LFS routing for binary source assets.
+#
+# These patterns take effect for *future* additions once LFS is enabled on the remote
+# (`git lfs install` locally; LFS enabled for the repository on GitHub). They are committed ahead
+# of that so a binary added in the meantime is caught by the tooling rather than silently landing
+# in the object database at full size — which is how this repository accumulated ~90 MB of
+# Blender sources in its history.
+#
+# `tests/repoWeight.test.ts` is the enforcement half: it fails CI on a large tracked file
+# regardless of whether LFS is configured, so this file is a routing hint, not the guard.
+*.blend    filter=lfs diff=lfs merge=lfs -text
+*.blend1   filter=lfs diff=lfs merge=lfs -text
+*.fbx      filter=lfs diff=lfs merge=lfs -text
+*.psd      filter=lfs diff=lfs merge=lfs -text
+*.hdr      filter=lfs diff=lfs merge=lfs -text
+*.exr      filter=lfs diff=lfs merge=lfs -text
+
+# Runtime GLBs are deliberately NOT routed to LFS. They are shipped to browsers, must exist in a
+# plain checkout for `npm run build`, GitHub Pages, and `tests/glbContract.test.ts`, and are kept
+# small by `scripts/compress-glb.mjs` (the hero asset is ~1.2 MiB). Putting them behind LFS would
+# trade a solved size problem for a checkout that silently deploys pointer files.
+
+# Keep line endings sane for text the toolchain writes.
+*.ts       text eol=lf
+*.tsx      text eol=lf
+*.mjs      text eol=lf
+*.json     text eol=lf
+*.md       text eol=lf

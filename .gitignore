@@ -16,3 +16,13 @@ public/catalog/
 /test-results/
 /playwright-report/
 /blob-report/
+
+# Blender sources for the 4Runner asset (~89 MB combined). Untracked from HEAD deliberately —
+# they are authoring inputs that no build step, test, or deploy reads; the only consumer of that
+# geometry is public/models/modsnation_7416_assets_assembled.glb, which is committed.
+#
+# They remain in git history and are retrievable by blob SHA — FINAL_ASSET_MANIFEST.md has the
+# exact commands. Ignored rather than merely untracked so a stray `git add -A` from whoever has
+# them on disk cannot put 89 MB back into the object database.
+/assets/blender/modsnation_7416_assets_assembled_final.blend
+/assets/blender/modsnation_7416_assets_assembled_final.glb
