@@ -48,13 +48,13 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   const groundedYRef = useRef(0);
   /**
    * Bumped once the model is in the scene. The lift effect depends on it so the initial ride height
-   * is applied when the root appears — otherwise the effect runs only while the 39 MB GLB is still
+   * is applied when the root appears — otherwise the effect runs only while the GLB is still
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
   const environmentRef = useRef<EnvironmentRefs | null>(null);
 
-  // Latest-value refs: the setup effect must run exactly once (loading a 39 MB GLB again on every
+  // Latest-value refs: the setup effect must run exactly once (re-fetching and re-decoding the GLB on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
   // rather than listing them as dependencies. The assignment happens in an effect, not inline during
   // render — writing to `ref.current` while rendering is an impure side effect React disallows (the

@@ -1102,7 +1102,7 @@ map may still be referenced by other meshes.
 | Different vehicle entirely | full model reload | The **only** case that justifies it |
 
 Default to the cheapest row that works. Ordinary option changes must never reload the base asset
-(~28 MiB as of §15's Draco compression) — the setup effect runs once and reads callbacks through
+(~1.2 MiB as of §15's optimization pass) — the setup effect runs once and reads callbacks through
 latest-value refs precisely so a prop change can't retrigger it.
 
 ---
@@ -1616,7 +1616,7 @@ weight; this is the second, independent lever — compressing what's left, since
 file is unused.
 
 **Measured before choosing a lever.** A raw JSON-chunk dump of the (post-§1) GLB found 13 embedded
-images totalling ~0.16 MiB out of a ~38.6 MiB binary buffer — essentially none of this file's size
+images totalling ~0.16 MiB out of the then ~38.6 MiB binary buffer — essentially none of this file's size
 is texture data. The weight is geometry: positions, normals, UVs, and indices across 19 meshes.
 That rules out texture re-encoding (the usual first lever for a bloated glTF) and points at mesh
 compression instead.

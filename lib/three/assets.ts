@@ -6,7 +6,7 @@ import { clone as cloneSkinnedScene } from "three/examples/jsm/utils/SkeletonUti
 /**
  * Optional-asset loading and mesh replacement.
  *
- * The base vehicle GLB is ~28 MB (Draco-compressed, docs/INTEGRATION_GUIDE.md §15), so it is
+ * The base vehicle GLB is ~1.2 MiB (Draco-compressed and pruned, docs/INTEGRATION_GUIDE.md §15), so it is
  * loaded exactly once per session and never reloaded for an option change. Replacement parts are
  * fetched on demand, cached by URL, and cloned per mount point, so selecting the same wheel style
  * twice costs no network and no extra GPU upload.

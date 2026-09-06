@@ -16,7 +16,7 @@
 # across an edit — scripts/fix-donor-geometry.mjs and scripts/compress-glb.mjs both edit
 # public/models/*.glb in place, §1 and §15), so none of it is safe to mark `immutable`. A day's
 # cache still meaningfully cuts repeat-visit cost for what includes the single largest asset this
-# app ships (the ~28 MiB base 4Runner GLB, §15) without risking a stale asset surviving past the
+# app ships (the ~1.2 MiB base 4Runner GLB, §15) without risking a stale asset surviving past the
 # next deploy for more than a day.
 /models/*
   Cache-Control: public, max-age=86400, must-revalidate
@@ -32,3 +32,9 @@
 # matches the Cache-Control the real endpoints send for the same data (app/api/v1/vehicles/**).
 /catalog/*
   Cache-Control: public, max-age=300
+
+# The self-contained Chessathon mini-app (public/chessathon/). Hand-written filenames with no
+# content hash — `app-core.js` keeps its path across edits — so it gets the same bounded staleness
+# as the other non-hashed asset directories rather than `immutable`.
+/chessathon/*
+  Cache-Control: public, max-age=86400, must-revalidate
