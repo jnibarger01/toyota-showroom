@@ -161,7 +161,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   // field this effect writes therefore starts at its `useState` initial value on each new vehicle.
   useEffect(() => {
     let cancelled = false;
-    setSceneReady(false);
+    // sceneReady resets via key={slug} remount; avoid setState at effect top (lint).
 
     void (async () => {
       try {
