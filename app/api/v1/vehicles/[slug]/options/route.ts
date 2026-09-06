@@ -5,6 +5,7 @@ import { notFound, invalidQuery } from "../../../../../../lib/api/errors";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../../../../../../lib/types/customization";
 import { withRouteTelemetry } from "../../../../../../lib/server/apiResponse";
 import { withSecurityHeaders } from "../../../../../../lib/server/securityHeaders";
+import { enforceCatalogReadRateLimit } from "../../../../../../lib/server/rateLimit";
 
 export const dynamic = "force-static";
 
@@ -22,6 +23,7 @@ export const GET = withRouteTelemetry(
   "/api/v1/vehicles/:slug/options",
   "GET",
   async (request: NextRequest, { params }: { params: Promise<{ slug: string }> }) => {
+    await enforceCatalogReadRateLimit(request);
       const { slug } = await params;
       const vehicle = getVehicleBySlug(slug);
       if (!vehicle) throw notFound(`No vehicle found for slug "${slug}".`);

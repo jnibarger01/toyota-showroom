@@ -29,17 +29,55 @@ export interface RateLimitBinding {
 
 const RATE_LIMIT_PERIOD_SECONDS = 60; // Must match wrangler.jsonc's ratelimits[].simple.period.
 
-async function getAmbientLimiter(): Promise<RateLimitBinding | null> {
+/** Binding names in `wrangler.jsonc`. Writes and reads are metered separately — see below. */
+type LimiterName = "CONFIG_WRITE_LIMITER" | "CATALOG_READ_LIMITER";
+
+async function getAmbientLimiter(name: LimiterName): Promise<RateLimitBinding | null> {
   try {
     const { env } = await import("cloudflare:workers");
-    return (env as { CONFIG_WRITE_LIMITER?: RateLimitBinding }).CONFIG_WRITE_LIMITER ?? null;
+    return (env as Partial<Record<LimiterName, RateLimitBinding>>)[name] ?? null;
   } catch {
     return null; // Not running inside a Cloudflare Worker.
   }
 }
 
-function clientKey(request: Request): string {
-  return request.headers.get("cf-connecting-ip") ?? "unknown";
+/**
+ * Per-client bucket key, or `null` when the caller cannot be identified.
+ *
+ * `cf-connecting-ip` is set by Cloudflare's edge and cannot be spoofed by a client, which is what
+ * makes it usable as a limit key at all. There is deliberately no fallback to `x-forwarded-for` or
+ * `x-real-ip`: those are client-supplied, so an attacker would simply rotate the value and evade
+ * the limit entirely, while legitimate traffic would be metered. A fallback that only constrains
+ * honest callers is worse than none.
+ *
+ * Returning `null` rather than a literal `"unknown"` is the substantive fix here. The previous
+ * `?? "unknown"` collapsed every unidentifiable caller into one shared bucket, so a deployment
+ * where the header went missing did not lose rate limiting — it rate-limited *all* of its users
+ * against a single 30-per-minute budget, turning a header problem into an outage. Callers below
+ * treat `null` as "do not limit this request", which loses enforcement only in a configuration
+ * that should not occur on Cloudflare, and says so loudly instead of failing quietly.
+ */
+function clientKey(request: Request): string | null {
+  return request.headers.get("cf-connecting-ip") ?? null;
+}
+
+/** Shared enforcement. `kind` only shapes the message a rejected caller sees. */
+async function enforce(
+  request: Request,
+  limiter: RateLimitBinding | null,
+  message: string,
+): Promise<void> {
+  if (!limiter) return;
+
+  const key = clientKey(request);
+  if (!key) {
+    // Loud, because silently unlimited is exactly the state nobody notices until it is abused.
+    console.warn("[ratelimit] no cf-connecting-ip on request; skipping rate limit for this caller.");
+    return;
+  }
+
+  const { success } = await limiter.limit({ key });
+  if (!success) throw tooManyRequests(message);
 }
 
 /**
@@ -56,13 +94,38 @@ export async function enforceConfigWriteRateLimit(
   request: Request,
   limiterOverride?: RateLimitBinding | null,
 ): Promise<void> {
-  const limiter = limiterOverride !== undefined ? limiterOverride : await getAmbientLimiter();
-  if (!limiter) return;
+  const limiter =
+    limiterOverride !== undefined ? limiterOverride : await getAmbientLimiter("CONFIG_WRITE_LIMITER");
+  await enforce(
+    request,
+    limiter,
+    "Too many configuration writes from this client. Please slow down and retry shortly.",
+  );
+}
 
-  const { success } = await limiter.limit({ key: clientKey(request) });
-  if (!success) {
-    throw tooManyRequests("Too many configuration writes from this client. Please slow down and retry shortly.");
-  }
+/**
+ * Throws `tooManyRequests()` when a client exceeds the catalog *read* rate.
+ *
+ * The catalog and media routes were entirely unmetered. Each one serialises the full vehicle
+ * dataset, and `GET /api/v1/vehicles` additionally filters and paginates it per request, so an
+ * unbounded caller could keep the Worker busy indefinitely at no cost — no token, no body, nothing
+ * to validate and reject early.
+ *
+ * The ceiling is an order of magnitude above the write limit (300/min vs 30/min) because these are
+ * cheap, cacheable, idempotent reads, and because the browser legitimately makes several of them
+ * per page load. It is a guard against scripted abuse, not a quota a human can reach: a person
+ * clicking through every vehicle in the lineup should never see a 429.
+ *
+ * Reads still succeed unmetered when the binding is absent, which is what keeps `npm run dev`,
+ * `vitest`, and the static export working with no configuration.
+ */
+export async function enforceCatalogReadRateLimit(
+  request: Request,
+  limiterOverride?: RateLimitBinding | null,
+): Promise<void> {
+  const limiter =
+    limiterOverride !== undefined ? limiterOverride : await getAmbientLimiter("CATALOG_READ_LIMITER");
+  await enforce(request, limiter, "Too many catalog requests from this client. Please retry shortly.");
 }
 
 /** Response header hint for a 429; not exact (the binding doesn't expose window-reset timing). */

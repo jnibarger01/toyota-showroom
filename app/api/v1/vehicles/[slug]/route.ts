@@ -4,6 +4,7 @@ import { notFound } from "../../../../../lib/api/errors";
 import { VEHICLE_SCHEMA_VERSION } from "../../../../../lib/types/vehicle";
 import { errorResponse, withRouteTelemetry } from "../../../../../lib/server/apiResponse";
 import { withSecurityHeaders } from "../../../../../lib/server/securityHeaders";
+import { enforceCatalogReadRateLimit } from "../../../../../lib/server/rateLimit";
 
 export const dynamic = "force-static";
 
@@ -16,7 +17,8 @@ export function generateStaticParams() {
 export const GET = withRouteTelemetry(
   "/api/v1/vehicles/:slug",
   "GET",
-  async (_request: Request, { params }: { params: Promise<{ slug: string }> }) => {
+  async (request: Request, { params }: { params: Promise<{ slug: string }> }) => {
+    await enforceCatalogReadRateLimit(request);
     const { slug } = await params;
     const vehicle = getVehicleBySlug(slug);
 
