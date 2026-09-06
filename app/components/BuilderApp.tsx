@@ -302,17 +302,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   // A page-local preview, like `lift`/`terrain` above — not part of the persisted
   // `VehicleConfiguration` (lib/types/customization.ts), same reasoning: this is a what-if
   // calculator over the current estimate, not a saved customization.
-  const financedPrincipal = Math.max(0, estimatedTotal - downPayment);
+  // Clamp during render so principal/payment stay coherent when the live total drops below
+  // the stored down payment (e.g. options removed / cheaper grade) — no setState-in-effect.
+  const effectiveDownPayment = Math.min(downPayment, estimatedTotal);
+  const financedPrincipal = Math.max(0, estimatedTotal - effectiveDownPayment);
   const estimatedMonthlyPayment = useMemo(
     () => estimateMonthlyPayment(financedPrincipal, apr, termMonths),
     [financedPrincipal, apr, termMonths],
   );
-
-  // Keep the down-payment input inside the live total so principal/payment stay coherent when
-  // options are removed or the grade drops to a cheaper sticker.
-  useEffect(() => {
-    setDownPayment((current) => (current > estimatedTotal ? estimatedTotal : current));
-  }, [estimatedTotal]);
 
   const rememberHistory = useCallback(() => {
     if (!configuration) return;
@@ -696,7 +693,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <div className="financing-inputs">
               <label htmlFor="financing-down">
                 Down payment
-                <div><span>$</span><input id="financing-down" type="number" min={0} max={estimatedTotal} step="500" value={downPayment} onChange={(event) => setDownPayment(Math.max(0, Number(event.target.value)))} /></div>
+                <div><span>$</span><input id="financing-down" type="number" min={0} max={estimatedTotal} step="500" value={effectiveDownPayment} onChange={(event) => setDownPayment(Math.min(estimatedTotal, Math.max(0, Number(event.target.value))))} /></div>
               </label>
               <label htmlFor="financing-apr">
                 APR
