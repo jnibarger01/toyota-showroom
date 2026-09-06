@@ -271,3 +271,29 @@ describe("patch validation reaches the store", () => {
     expect(colorHexAt(fixture.root, "BODY", "body.carmain")).toBe("1558d6");
   });
 });
+
+describe("early hydrate before scene settle", () => {
+  it("publishes catalog without a controller and preserves pre-settle edits on attachScene", async () => {
+    const configuration = await seedConfiguration();
+    const red = fourRunnerOptions.find((option) => option.id === "paint-3u5-barcelona-red")!;
+
+    configurationStore.hydrate(configuration, fourRunnerOptions);
+    let state = configurationStore.getSnapshot();
+    expect(state.catalog).toHaveLength(fourRunnerOptions.length);
+    expect(state.configuration?.configurationId).toBe(configuration.configurationId);
+
+    // Pre-settle selection: no controller yet, so scene apply is skipped but state + persist work.
+    await configurationStore.selectOption(red);
+    await configurationStore.flush();
+    state = configurationStore.getSnapshot();
+    expect(state.configuration?.selections.paint).toEqual(["paint-3u5-barcelona-red"]);
+
+    const { fixture, controller, catalog } = freshScene();
+    await configurationStore.attachScene(controller, state.configuration!, catalog);
+
+    state = configurationStore.getSnapshot();
+    expect(state.configuration?.selections.paint).toEqual(["paint-3u5-barcelona-red"]);
+    expect(state.catalog.length).toBeLessThanOrEqual(fourRunnerOptions.length);
+    expect(colorHexAt(fixture.root, "BODY", "body.carmain")).toBe("9d1d20");
+  });
+});

@@ -107,11 +107,11 @@ afterEach(() => {
 
 /**
  * Renders and waits past both async gaps in bootstrap: the "4Runner" heading appears once
- * `vehicle`/`configuration` metadata loads, but grade buttons stay `disabled` and the catalog stays
- * empty until `handleSceneReady`'s `attachScene(...)` call — kicked off by the mocked VehicleCanvas's
- * `onReady` effect — resolves separately. A bare `findByRole("heading", ...)` races that second gap;
- * CI caught this for real once (BuilderApp.tsx's grade buttons rendered `disabled=""` and no paint
- * swatches existed yet, even though the heading itself was already on screen).
+ * `vehicle`/`configuration` metadata loads (and `hydrate` publishes the grade-filtered catalog so
+ * paint swatches are already present), but grade buttons stay `disabled` until `handleSceneReady`
+ * attaches a scene controller — kicked off by the mocked VehicleCanvas's `onReady` effect. A bare
+ * `findByRole("heading", ...)` races that second gap; CI caught this for real once (grade buttons
+ * rendered `disabled=""` even though the heading itself was already on screen).
  */
 async function renderBuilderReady(vehicleSlug = "4runner") {
   render(<BuilderApp vehicleSlug={vehicleSlug} />);

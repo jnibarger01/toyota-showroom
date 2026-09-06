@@ -35,9 +35,13 @@ not adaptive.
 1. Renderer + studio environment + rAF loop start immediately.
 2. Procedural stand-in (`createProceduralVehicle`) paints as first usable frame while the ~28 MiB
    GLB downloads/decodes (`lib/three/progressiveLoad.ts` phases).
-3. On success the stand-in is disposed and the detailed root is prepared, optionally gets authored
-   running gear, then `onReady` fires with a verified `VehicleSceneController`.
-4. On failure the stand-in is promoted to the permanent fallback (same UX as before).
+3. Builder chrome hydrates as soon as catalog + configuration bootstrap finishes
+   (`configurationStore.hydrate`) so option buttons and Share are usable during the placeholder
+   phase — they do **not** wait on full GLB settle.
+4. On success the stand-in is disposed and the detailed root is prepared, optionally gets authored
+   running gear, then `onReady` fires with a verified `VehicleSceneController` and the catalog is
+   narrowed to mesh-satisfied options.
+5. On failure the stand-in is promoted to the permanent fallback (same UX as before).
 
 ## Idle suspend
 
