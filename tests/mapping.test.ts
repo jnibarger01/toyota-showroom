@@ -4,7 +4,11 @@ import { createVehicleFixture } from "./fixtures/scene";
 import { requiredNodeNames, resolveMeshes, resolveNodes, verifyNodeContract } from "../lib/three/nodes";
 import { fourRunnerOptions, plannedFourRunnerOptions } from "../lib/data/options/4runner";
 import { getOptionById, getOptionsForVehicle } from "../lib/data/options";
-import { CATEGORY_APPLY_ORDER } from "../lib/types/customization";
+import {
+  plannedOptionIds,
+  plannedOptionsEligibleForCatalog,
+} from "../lib/data/options/plannedGate";
+import { CATEGORY_APPLY_ORDER, isProceduralPreview } from "../lib/types/customization";
 
 describe("option → node mapping", () => {
   it("resolves every targeted node by exact name", () => {
@@ -154,5 +158,43 @@ describe("fixture faithfulness", () => {
     const donor = root.getObjectByName("322-1790(MD010)") as THREE.Mesh;
     expect(front.material).toBe(materials.wheelFront);
     expect(donor.material).toBe(materials.wheelFront);
+  });
+});
+
+
+describe("hybrid accessories catalog contract", () => {
+  it("never serves planned option ids through getOptionsForVehicle", () => {
+    const served = new Set(getOptionsForVehicle("4runner").map((o) => o.id));
+    expect(plannedOptionIds(plannedFourRunnerOptions).some((id) => served.has(id))).toBe(false);
+  });
+
+  it("marks accessory options as procedural-preview while paint stays catalog", () => {
+    const rack = getOptionById("4runner", "accessory-roof-rack")!;
+    const paint = getOptionById("4runner", "paint-218-blueprint")!;
+    expect(isProceduralPreview(rack)).toBe(true);
+    expect(isProceduralPreview(paint)).toBe(false);
+  });
+
+  it("maps every procedural accessory target to ACCESSORY_* nodes", () => {
+    const accessories = getOptionsForVehicle("4runner").filter((o) => o.category === "accessory");
+    expect(accessories.length).toBeGreaterThan(0);
+    for (const option of accessories) {
+      expect(isProceduralPreview(option)).toBe(true);
+      expect(option.targetNodes?.every((name) => name.startsWith("ACCESSORY_"))).toBe(true);
+    }
+  });
+
+  it("promotion gate admits a planned option only when its GLB targets exist", () => {
+    const empty = plannedOptionsEligibleForCatalog(plannedFourRunnerOptions, {
+      nodeNames: new Set(),
+      materialsByNode: new Map(),
+    });
+    expect(empty).toEqual([]);
+
+    const withHood = plannedOptionsEligibleForCatalog(plannedFourRunnerOptions, {
+      nodeNames: new Set(["HOOD_STOCK", "HOOD_SPORT"]),
+      materialsByNode: new Map(),
+    });
+    expect(withHood.map((o) => o.id).sort()).toEqual(["hood-sport-scoop", "hood-stock"]);
   });
 });

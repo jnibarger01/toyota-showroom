@@ -191,9 +191,11 @@ export const fourRunnerOptions: CustomizationOption[] = [
   },
 
   // ----------------------------------------------------------- accessories
-  // Built procedurally by `buildProceduralAccessories` under these exact names, so they obey the
-  // same name contract as GLB-sourced nodes. Swapping them for authored GLB assets later is a
-  // change of `operation` to "mesh-replacement" plus an `assetUrl` — the option id is unaffected.
+  // Built procedurally by `buildProceduralAccessories` under these exact names (`geometrySource:
+  // "procedural-preview"`). They share the name contract with GLB nodes and persist by option id;
+  // the UI labels them as Preview until authored geometry ships. Promoting to catalog means
+  // changing `geometrySource` to `"glb"` (or omitting it) in the same change that delivers the
+  // mesh — typically `operation: "mesh-replacement"` + `assetUrl` — without touching the option id.
   {
     id: "accessory-roof-rack",
     category: "accessory",
@@ -201,6 +203,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
     operation: "mesh-visibility",
     targetNodes: ["ACCESSORY_ROOF_RACK"],
     priceDelta: 1150,
+    geometrySource: "procedural-preview",
     compatibleVehicleIds: VEHICLE,
   },
   {
@@ -210,6 +213,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
     operation: "mesh-visibility",
     targetNodes: ["ACCESSORY_LIGHT_BAR"],
     priceDelta: 680,
+    geometrySource: "procedural-preview",
     compatibleVehicleIds: VEHICLE,
   },
   {
@@ -219,6 +223,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
     operation: "mesh-visibility",
     targetNodes: ["ACCESSORY_ROCK_SLIDERS"],
     priceDelta: 890,
+    geometrySource: "procedural-preview",
     compatibleVehicleIds: VEHICLE,
   },
   {
@@ -228,6 +233,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
     operation: "mesh-visibility",
     targetNodes: ["ACCESSORY_UNDERGLOW"],
     priceDelta: 450,
+    geometrySource: "procedural-preview",
     compatibleVehicleIds: VEHICLE,
   },
   {
@@ -237,6 +243,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
     operation: "mesh-visibility",
     targetNodes: ["ACCESSORY_FOG_LIGHTS"],
     priceDelta: 320,
+    geometrySource: "procedural-preview",
     compatibleVehicleIds: VEHICLE,
   },
 ];
@@ -246,8 +253,9 @@ export const fourRunnerOptions: CustomizationOption[] = [
  *
  * These are deliberately not part of `fourRunnerOptions`: the nodes and materials do not exist in
  * the shipped GLB, so serving them in the active catalog would violate the CI-enforced asset
- * contract. Move an entry into `fourRunnerOptions` only in the same change that delivers its
- * authored geometry and makes `tests/glbContract.test.ts` pass without an exception.
+ * contract. `plannedOptionsEligibleForCatalog` (`plannedGate.ts`) is the promotion check — move an
+ * entry into `fourRunnerOptions` only when that helper (and `tests/glbContract.test.ts`) pass
+ * against the authored geometry, with no synthetic-node exception.
  */
 export const plannedFourRunnerOptions: CustomizationOption[] = [
   {

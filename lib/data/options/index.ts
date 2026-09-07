@@ -40,3 +40,9 @@ export function getOptionsByCategory(
 export function isOptionAvailableForGrade(option: CustomizationOption, gradeId: string): boolean {
   return !option.compatibleGradeIds?.length || option.compatibleGradeIds.includes(gradeId);
 }
+
+export {
+  plannedOptionsEligibleForCatalog,
+  optionResolvesAgainstGlb,
+  plannedOptionIds,
+} from "./plannedGate";

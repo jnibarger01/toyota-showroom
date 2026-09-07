@@ -56,6 +56,16 @@ export type CustomizationOperation =
   | "mesh-replacement"
   | "texture-update";
 
+/**
+ * Where an option's geometry comes from in the live scene.
+ *
+ * - `glb` — authored mesh/material slots in the shipped asset (default when omitted).
+ * - `procedural-preview` — runtime-built stand-in (`ACCESSORY_*` via `buildProceduralAccessories`)
+ *   shown until authored geometry ships. Still selectable and persisted by option id; UI must label
+ *   it as a preview so it is not confused with catalog GLB options.
+ */
+export type GeometrySource = "glb" | "procedural-preview";
+
 export interface MaterialConfig {
   color?: string;
   metalness?: number;
@@ -107,6 +117,11 @@ export interface CustomizationOption {
   compatibleVehicleIds: string[];
   /** Grade ids this option is restricted to. Empty/undefined means every grade of a compatible vehicle. */
   compatibleGradeIds?: string[];
+  /**
+   * Geometry provenance. Omit or `"glb"` for authored catalog assets; `"procedural-preview"` for
+   * synthetic stand-ins that remain selectable until their GLB targets land.
+   */
+  geometrySource?: GeometrySource;
 }
 
 export interface CameraState {
@@ -200,4 +215,11 @@ export function isSelected(
   option: Pick<CustomizationOption, "id" | "category">,
 ): boolean {
   return (selections[option.category] ?? []).includes(option.id);
+}
+
+/** True when the option is backed by procedural stand-in geometry, not shipped GLB nodes. */
+export function isProceduralPreview(
+  option: Pick<CustomizationOption, "geometrySource">,
+): boolean {
+  return option.geometrySource === "procedural-preview";
 }

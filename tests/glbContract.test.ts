@@ -4,9 +4,15 @@ import { describe, expect, it } from "vitest";
 import { inspectGlb, readGlbJson } from "../lib/tooling/glbInspect";
 import { requiredNodeNames } from "../lib/three/nodes";
 import { getOptionsForVehicle } from "../lib/data/options";
+import { plannedFourRunnerOptions } from "../lib/data/options/4runner";
+import {
+  plannedOptionIds,
+  plannedOptionsEligibleForCatalog,
+} from "../lib/data/options/plannedGate";
 import { VEHICLES } from "../lib/data/vehicles";
 import { ACCESSORY_NODE_NAMES } from "../lib/three/proceduralParts";
 import type { CustomizationOption } from "../lib/types/customization";
+import { isProceduralPreview } from "../lib/types/customization";
 
 /**
  * Nodes that exist in the live scene without coming from any GLB — `buildProceduralAccessories`
@@ -169,4 +175,49 @@ describe("shipped GLB carries no undrivable morph targets", () => {
       ).toEqual([]);
     });
   }
+});
+
+
+describe("hybrid accessories: planned gate + procedural preview", () => {
+  it("keeps every plannedFourRunnerOption out of the served 4runner catalog", () => {
+    const served = new Set(getOptionsForVehicle("4runner").map((option) => option.id));
+    for (const id of plannedOptionIds(plannedFourRunnerOptions)) {
+      expect(served.has(id), `${id} must stay out of getOptionsForVehicle until GLB nodes exist`).toBe(
+        false,
+      );
+    }
+  });
+
+  it("does not promote planned options against the shipped 4Runner GLB", () => {
+    const vehicle = VEHICLES.find((entry) => entry.slug === "4runner")!;
+    const filePath = path.join(process.cwd(), "public", vehicle.threeDConfig.modelUrl!);
+    const inspection = inspectGlb(filePath);
+    expect(plannedOptionsEligibleForCatalog(plannedFourRunnerOptions, inspection)).toEqual([]);
+  });
+
+  it("labels every ACCESSORY_* option as procedural-preview", () => {
+    for (const vehicle of VEHICLES) {
+      for (const option of getOptionsForVehicle(vehicle.slug)) {
+        const targets = option.targetNodes ?? [];
+        const hitsAccessory = targets.some((name) => SYNTHETIC_NODE_NAMES.has(name));
+        if (!hitsAccessory) continue;
+        expect(
+          isProceduralPreview(option),
+          `${option.id} targets procedural ACCESSORY_* nodes and must be labeled procedural-preview`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("covers every ACCESSORY_* target named in proceduralParts", () => {
+    const covered = new Set<string>();
+    for (const vehicle of VEHICLES) {
+      for (const option of getOptionsForVehicle(vehicle.slug)) {
+        for (const name of option.targetNodes ?? []) {
+          if (SYNTHETIC_NODE_NAMES.has(name)) covered.add(name);
+        }
+      }
+    }
+    expect([...SYNTHETIC_NODE_NAMES].sort()).toEqual([...covered].sort());
+  });
 });
