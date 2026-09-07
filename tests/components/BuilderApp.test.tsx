@@ -20,7 +20,15 @@ const { fakeController } = vi.hoisted(() => ({
   fakeController: {
     applyOption: async () => true,
     removeOption: async () => true,
-    applyConfiguration: async () => ({ applied: [], failed: [] }),
+    // Mirrors the real VehicleSceneController.applyConfiguration's own documented behaviour:
+    // clearing selection is not incidental, it's the point (a stale highlight must not survive a
+    // full reapply) — see tests below for the BuilderApp-side half of that contract.
+    applyConfiguration: async () => {
+      fakeController.selectedPartId = undefined;
+      return { applied: [], failed: [] };
+    },
+    selectedPartId: undefined as string | undefined,
+    getPart: (id: string) => ({ id, type: "wheel", label: "Front-left wheel", capabilities: ["selectable"] }),
   },
 }));
 
@@ -31,6 +39,7 @@ vi.mock("../../app/components/VehicleCanvas", () => ({
     tourAction?: { seq: number; type: "play" | "pause" | "cancel" } | null;
     onTourStatusChange?: (status: "idle" | "playing" | "paused") => void;
     onTourStep?: (preset: { id: string; label: string; position: [number, number, number]; target: [number, number, number] }) => void;
+    onPartSelect?: (part: { id: string; type: string; label: string; capabilities: string[] } | undefined) => void;
   }) => {
     useEffect(() => {
       props.onReady(fakeController, props.catalog);
@@ -57,7 +66,23 @@ vi.mock("../../app/components/VehicleCanvas", () => ({
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps -- stub mirrors tourAction only
     }, [props.tourAction]);
-    return <div data-testid="vehicle-canvas" />;
+    return (
+      <div data-testid="vehicle-canvas">
+        {/* Stands in for a real pointer/keyboard click in VehicleCanvas: sets both halves a real
+         * selection changes together (controller state + the onPartSelect callback), the same
+         * pairing `VehicleCanvas.tsx`'s `handlePointerUp` performs. */}
+        <button
+          type="button"
+          data-testid="simulate-3d-select"
+          onClick={() => {
+            fakeController.selectedPartId = "wheel.front-left";
+            props.onPartSelect?.(fakeController.getPart("wheel.front-left"));
+          }}
+        >
+          simulate 3D select
+        </button>
+      </div>
+    );
   },
 }));
 
@@ -129,6 +154,7 @@ beforeEach(() => {
   revision = 1;
   window.localStorage.clear();
   configurationStore.reset();
+  fakeController.selectedPartId = undefined; // fakeController is hoisted/shared across tests
 });
 
 afterEach(() => {
@@ -185,6 +211,25 @@ describe("BuilderApp", () => {
     await waitFor(() => expect(sr5).toHaveClass("active"));
     expect(screen.getByRole("button", { name: /trd pro/i })).not.toHaveClass("active");
     expect(configurationStore.getSnapshot().configuration?.gradeId).toBe("sr5");
+  });
+
+  it("clears a stale 3D-click selection badge once a configuration reapply (e.g. switching grades) resets the controller's own selection", async () => {
+    await renderBuilderReady();
+
+    // Simulate a 3D-viewport click selecting a part — the badge (app/components/BuilderApp.tsx's
+    // .selected-part-badge) appears, backed by real React state (selectedPart), not a mock return.
+    fireEvent.click(screen.getByTestId("simulate-3d-select"));
+    await waitFor(() => expect(screen.getByText("Front-left wheel")).toBeInTheDocument());
+
+    // Switching grades calls configurationStore.attachScene -> controller.applyConfiguration,
+    // which clears the controller's own selection (fakeController mirrors that above). Nothing in
+    // this flow calls onPartSelect directly — the fix under test is BuilderApp noticing the
+    // controller's selection changed underneath it and reconciling on its own.
+    const sr5 = screen.getByRole("button", { name: /^sr5/i });
+    fireEvent.click(sr5);
+    await waitFor(() => expect(sr5).toHaveClass("active"));
+
+    expect(screen.queryByText("Front-left wheel")).not.toBeInTheDocument();
   });
 
   it("drops a grade-incompatible selection when switching to a grade that doesn't offer it", async () => {

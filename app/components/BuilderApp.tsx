@@ -176,6 +176,31 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const persistenceMode = usePersistenceMode();
   const isLocalPersistence = persistenceMode === "local";
 
+  /**
+   * Reconciles `selectedPart` against `controller.selectedPartId` on every configuration change.
+   *
+   * `VehicleSceneController.applyConfiguration` clears its own selection internally (so a stale
+   * highlight can never survive a full reapply — see the controller's own doc comment), but it is
+   * called from several places that have no way to reach this component's `setSelectedPart`
+   * directly: `configurationStore.attachScene` (both call sites in this file), and
+   * `ConfigurationStore.replaceSelections`/`setPaintStudio`/its undo-redo restore, all internal to
+   * `lib/state/configurationStore.ts`. Rather than thread a callback through every one of those,
+   * this asks the controller — the actual source of truth — after the fact: cheap, and correct
+   * regardless of which path caused the change. A plain `selectOption` (the everyday "click a paint
+   * chip" flow) applies a single option and leaves `controller.selectedPartId` untouched, so this is
+   * a no-op then — the `prev.id === id` check below only clears or replaces when the controller's
+   * own state has actually moved.
+   */
+  useEffect(() => {
+    const controller = controllerRef.current;
+    const id = controller?.selectedPartId;
+    setSelectedPart((prev) => {
+      if (!id) return prev ? undefined : prev;
+      if (prev?.id === id) return prev;
+      return controller?.getPart(id);
+    });
+  }, [configuration]);
+
   // ------------------------------------------------------------------ step 1-4
   // Load vehicle metadata, then the option catalog, then the saved configuration. Nothing here
   // touches Three.js; the scene is only mutated once the GLB reports its node contract verified.

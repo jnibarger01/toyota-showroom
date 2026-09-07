@@ -69,6 +69,22 @@ export interface PickInput {
   ndcY: number;
 }
 
+/**
+ * A camera pose as plain numbers — never a live `THREE.Camera` (rule 1, module header: no raw
+ * Three.js crosses this boundary). `read.pick` builds and discards its own throwaway
+ * `THREE.PerspectiveCamera` from this each call; this module still owns no camera of its own and
+ * still doesn't move any camera the application is actually rendering with.
+ */
+export interface CameraPose {
+  position: [number, number, number];
+  /** World-space point the camera looks at. */
+  target: [number, number, number];
+  /** Vertical field of view, in degrees. */
+  fov: number;
+  /** Viewport aspect ratio (width / height). */
+  aspect: number;
+}
+
 // --- Mutation-side vocabulary ------------------------------------------------------------------
 
 export type MutationResult = { ok: true } | { ok: false; reason: string };
@@ -151,7 +167,11 @@ export class VehicleSceneAgentApi {
       return { id, center: [center.x, center.y, center.z], radius };
     },
 
-    pick: (input: PickInput, camera: THREE.Camera): PartSummary | undefined => {
+    pick: (input: PickInput, pose: CameraPose): PartSummary | undefined => {
+      const camera = new THREE.PerspectiveCamera(pose.fov, pose.aspect, 0.01, 1000);
+      camera.position.set(...pose.position);
+      camera.lookAt(...pose.target);
+      camera.updateMatrixWorld(true);
       const result = this.controller.pickAt(new THREE.Vector2(input.ndcX, input.ndcY), camera);
       return result ? toSummary(result.entry) : undefined;
     },
@@ -160,12 +180,19 @@ export class VehicleSceneAgentApi {
   // --- mutate ----------------------------------------------------------------------------------
 
   readonly mutate = {
+    // Fail closed on an unknown id rather than delegate straight to `controller.selectPart`/
+    // `hoverPart` — those are intentionally lenient at the controller layer (selecting a bogus id
+    // is a safe no-op there, by design), but silently returning `{ ok: true }` for one here would
+    // hand a future ACS-gated caller a false success for a mutation that changed nothing.
+    // `undefined` (explicitly clearing the hover/selection) is always valid.
     selectPart: (id: string | undefined): MutationResult => {
+      if (id !== undefined && !this.controller.hasPart(id)) return { ok: false, reason: `unknown part id "${id}"` };
       this.controller.selectPart(id);
       return { ok: true };
     },
 
     hoverPart: (id: string | undefined): MutationResult => {
+      if (id !== undefined && !this.controller.hasPart(id)) return { ok: false, reason: `unknown part id "${id}"` };
       this.controller.hoverPart(id);
       return { ok: true };
     },

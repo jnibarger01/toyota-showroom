@@ -67,14 +67,14 @@ describe("VehicleSceneAgentApi.read", () => {
     expect(api.read.focusPart("does-not-exist")).toBeUndefined();
   });
 
-  it("pick() resolves a raycast to a part summary without selecting it", () => {
+  it("pick() resolves a raycast to a part summary without selecting it, taking only a serializable camera pose", () => {
     const { api, controller } = makeApi();
-    const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
-    camera.position.set(10, 0, 0); // +x face of BODY -> body.carmain -> body.exterior
-    camera.lookAt(0, 0, 0);
-    camera.updateMatrixWorld(true);
+    // +x face of BODY -> body.carmain -> body.exterior. No THREE.Camera is constructed by the
+    // caller here — CameraPose is plain data, per the module's own "no raw Three.js crosses this
+    // boundary" rule.
+    const pose = { position: [10, 0, 0] as [number, number, number], target: [0, 0, 0] as [number, number, number], fov: 50, aspect: 1 };
 
-    const hit = api.read.pick({ ndcX: 0, ndcY: 0 }, camera);
+    const hit = api.read.pick({ ndcX: 0, ndcY: 0 }, pose);
     expect(hit?.id).toBe("body.exterior");
     expect(controller.selectedPartId).toBeUndefined(); // read-only: no mutation happened
   });
@@ -88,6 +88,22 @@ describe("VehicleSceneAgentApi.mutate", () => {
 
     expect(api.mutate.hoverPart("wheel.front-right")).toEqual({ ok: true });
     expect(controller.hoveredPartId).toBe("wheel.front-right");
+  });
+
+  it("selectPart()/hoverPart() fail closed on an unknown id instead of reporting a false success", () => {
+    const { api, controller } = makeApi();
+    expect(api.mutate.selectPart("does-not-exist")).toEqual({ ok: false, reason: expect.stringContaining("unknown part id") });
+    expect(controller.selectedPartId).toBeUndefined(); // the controller-level call never even ran
+
+    expect(api.mutate.hoverPart("also-not-real")).toEqual({ ok: false, reason: expect.stringContaining("unknown part id") });
+    expect(controller.hoveredPartId).toBeUndefined();
+  });
+
+  it("selectPart(undefined)/hoverPart(undefined) always succeed — clearing is always valid", () => {
+    const { api, controller } = makeApi();
+    api.mutate.selectPart("wheel.front-left");
+    expect(api.mutate.selectPart(undefined)).toEqual({ ok: true });
+    expect(controller.selectedPartId).toBeUndefined();
   });
 
   it("setPaint() applies a real paint option and rejects an id from the wrong category", async () => {

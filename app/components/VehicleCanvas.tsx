@@ -482,6 +482,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       let pointerDownAt: { x: number; y: number } | null = null;
       let isDragging = false;
       let hoverRafPending = false;
+      let hoverRafId = 0;
       let lastHoverNdc: THREE.Vector2 | null = null;
       /**
        * The one pointer this block is currently tracking for a potential tap/click, by
@@ -515,7 +516,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       const scheduleHoverPick = () => {
         if (hoverRafPending) return;
         hoverRafPending = true;
-        requestAnimationFrame(() => {
+        hoverRafId = requestAnimationFrame(() => {
           hoverRafPending = false;
           if (!controller || !lastHoverNdc) return;
           const result = controller.pickAt(lastHoverNdc, camera);
@@ -701,6 +702,13 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       cleanup = () => {
         running = false;
         cancelPendingRaf();
+        // A pending hover raycast (`scheduleHoverPick`) is scheduled independently of the render
+        // loop's own rAF chain (`cancelPendingRaf` above), so it needs its own cancellation —
+        // otherwise a hover pick queued just before unmount could still fire afterward.
+        if (hoverRafPending) {
+          cancelAnimationFrame(hoverRafId);
+          hoverRafPending = false;
+        }
         uninstallMetricsFlush();
         tourRef.current?.dispose();
         tourRef.current = null;
@@ -723,6 +731,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         renderer.domElement.remove();
         if (controller) {
           controller.dispose();
+          // Defense in depth alongside the rAF cancellation above: any other callback still
+          // holding this closure (there should be none once every listener above is removed and
+          // the hover rAF is cancelled) sees a disposed scene as "no controller" rather than a
+          // live-looking reference into torn-down state.
+          controller = null;
         } else if (rootRef.current) {
           // Placeholder (or unsettled root) is not owned by the controller yet.
           scene.remove(rootRef.current);
