@@ -76,6 +76,14 @@ can travel without D1.
 See docs/DEPLOYMENT_RUNBOOK.md for the full promote path.
 Short version: migrate remote D1, deploy the Worker, verify health, reload the builder so the demo banner clears.
 
+### Staging Worker CI (optional until secrets are set)
+
+`.github/workflows/deploy-staging.yml` deploys the API Worker to Cloudflare staging on every PR
+**when** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets are configured. If
+they are missing, the job **skips successfully** (notice only) so PRs are not red solely for that
+reason. See `docs/DEPLOYMENT_RUNBOOK.md` §3 for how to add secrets and the checklist to restore
+required staging later.
+
 
 ## Final packaged assets
 
