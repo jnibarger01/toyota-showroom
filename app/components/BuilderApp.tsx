@@ -69,6 +69,7 @@ import {
   readBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
+import { pinConfigurationToGarage } from "../../lib/showroom/garage";
 import { PAINT_CUSTOM_OPTION_ID } from "../../lib/data/paintStudio";
 
 /**
@@ -466,9 +467,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const saveToGarage = async () => {
     await configurationStore.flush();
+    const current = configurationStore.getSnapshot().configuration;
+    if (current) {
+      pinConfigurationToGarage(current);
+    }
     setGarageMessage(
       isLocalPersistence
-        ? "Build saved in this browser only (demo / offline mode)"
+        ? "Build pinned to garage (this browser only — demo / offline)"
         : "Build saved to your garage",
     );
   };
@@ -542,7 +547,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         <nav>
           <button className="active">Build</button>
           <button onClick={() => window.location.assign(pageUrl("explore"))}>Explore</button>
-          <button onClick={() => void saveToGarage()}>Garage</button>
+          <button onClick={() => window.location.assign(pageUrl("garage"))}>Garage</button>
         </nav>
         <div className="top-actions">
           <button className="ghost icon-action" title="Undo (Ctrl/⌘ Z)" disabled={!historyAvailability.canUndo} onClick={() => void restoreHistory("undo")}><Undo2 size={16} /></button>
@@ -642,7 +647,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Accessories</button>
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
-          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button onClick={() => void saveToGarage()}>Save build</button></div>
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button onClick={() => void saveToGarage()}>Save build</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
