@@ -6,11 +6,18 @@ import { verifyNodeContract } from "../lib/three/nodes";
 import { fourRunnerOptions, plannedFourRunnerOptions } from "../lib/data/options/4runner";
 import { getOptionById } from "../lib/data/options";
 import type { SelectionMap } from "../lib/types/customization";
+import { FOUR_RUNNER_SCENE_MAP } from "../lib/data/sceneMap/4runner";
 
 function makeController() {
   const fixture = createVehicleFixture();
   const { satisfied } = verifyNodeContract(fixture.root, fourRunnerOptions);
   return { fixture, controller: new VehicleSceneController(fixture.root, satisfied) };
+}
+
+function makeSemanticController() {
+  const fixture = createVehicleFixture();
+  const { satisfied } = verifyNodeContract(fixture.root, fourRunnerOptions);
+  return { fixture, controller: new VehicleSceneController(fixture.root, satisfied, FOUR_RUNNER_SCENE_MAP) };
 }
 
 function plannedOption(id: string) {
@@ -221,5 +228,138 @@ describe("disposal", () => {
     expect(controller.clonedMaterialCount).toBe(0);
     // The GLB-supplied instance was never mutated, so it still holds its authored colour.
     expect(fixture.materials.bodyPaint.color.getHexString()).toBe("1558d6");
+  });
+});
+
+describe("semantic parts", () => {
+  it("resolves registered parts and reports the ones this fixture cannot satisfy", () => {
+    const { controller } = makeSemanticController();
+
+    expect(controller.hasPart("wheel.front-left")).toBe(true);
+    expect(controller.getPart("body.exterior")?.type).toBe("body");
+    expect(controller.findPartsByType("wheel")).toHaveLength(4);
+    expect(controller.findPartsByCapability("paintable").map((p) => p.id)).toContain("body.exterior");
+
+    // The fixture's BODY mesh has no separate door/mirror/badge/roof/interior geometry.
+    expect(controller.hasPart("door.front-left")).toBe(false);
+    expect(controller.sceneMapReport.unsatisfied.map((u) => u.entry.id)).toContain("door.front-left");
+  });
+
+  it("a controller built with no scene map has no addressable parts (back-compat default)", () => {
+    const { controller } = makeController();
+    expect(controller.listParts()).toHaveLength(0);
+    expect(controller.hasPart("body.exterior")).toBe(false);
+  });
+});
+
+describe("hover and selection highlighting", () => {
+  it("tints only the selected part's mesh, not a sibling sharing the same material", () => {
+    const { fixture, controller } = makeSemanticController();
+    const donorBefore = fixture.materials.wheelFront.color.getHexString();
+
+    controller.selectPart("wheel.front-left");
+
+    expect(controller.selectedPartId).toBe("wheel.front-left");
+    const selectedMaterial = materialAt(fixture.root, "PLACED_WEISU_front_left", "wheel.metal") as THREE.MeshStandardMaterial;
+    expect(selectedMaterial.emissive.getHexString()).toBe("ffb000");
+    // front-right shares the exact same original material instance in the fixture; it must be untouched.
+    const siblingMaterial = materialAt(fixture.root, "PLACED_WEISU_front_right", "wheel.metal") as THREE.MeshStandardMaterial;
+    expect(siblingMaterial.emissive.getHexString()).toBe("000000");
+    expect(fixture.materials.wheelFront.color.getHexString()).toBe(donorBefore);
+  });
+
+  it("selection takes precedence over hover on the same part, and clearing selection falls back to the hover tint", () => {
+    const { fixture, controller } = makeSemanticController();
+
+    controller.hoverPart("wheel.front-left");
+    controller.selectPart("wheel.front-left");
+    let material = materialAt(fixture.root, "PLACED_WEISU_front_left", "wheel.metal") as THREE.MeshStandardMaterial;
+    expect(material.emissive.getHexString()).toBe("ffb000"); // "selected" tint wins
+
+    controller.clearSelection();
+    material = materialAt(fixture.root, "PLACED_WEISU_front_left", "wheel.metal") as THREE.MeshStandardMaterial;
+    expect(material.emissive.getHexString()).toBe("3d7dff"); // still hovered
+  });
+
+  it("clearing hover restores the mesh's material to its pre-highlight state, not the GLB original", async () => {
+    const { fixture, controller } = makeSemanticController();
+    // Repaint first — the mesh's "current" material is now a MaterialWriter clone whose base
+    // colour is the new paint, not the GLB-authored blue.
+    await controller.applyOption(getOptionById("4runner", "paint-3u5-barcelona-red")!);
+    const repaintedColor = colorHexAt(fixture.root, "BODY", "body.carmain");
+    expect(repaintedColor).toBe("9d1d20");
+
+    controller.hoverPart("body.exterior");
+    const tinted = materialAt(fixture.root, "BODY", "body.carmain") as THREE.MeshStandardMaterial;
+    expect(tinted.emissive.getHexString()).toBe("3d7dff"); // hover tint applied
+    expect(tinted.color.getHexString()).toBe(repaintedColor); // base colour untouched by the tint
+
+    controller.hoverPart(undefined);
+    const restored = materialAt(fixture.root, "BODY", "body.carmain") as THREE.MeshStandardMaterial;
+    expect(restored.emissive.getHexString()).toBe("000000");
+    // Restored to the *repainted* material, not the pristine GLB original.
+    expect(restored.color.getHexString()).toBe(repaintedColor);
+    expect(fixture.materials.bodyPaint.color.getHexString()).toBe("1558d6"); // GLB original, never touched
+  });
+
+  it("a part with no highlightable capability is not tinted", () => {
+    const { fixture, controller } = makeSemanticController();
+    controller.selectPart("tire.front-left"); // capabilities: ["selectable", "tire"] — no "highlightable"
+
+    expect(controller.selectedPartId).toBe("tire.front-left");
+    const material = materialAt(fixture.root, "PLACED_KO3_front_left", "tire.sidewall") as THREE.MeshStandardMaterial;
+    expect(material.emissive.getHexString()).toBe("000000");
+  });
+
+  it("selecting an unknown id is a safe no-op", () => {
+    const { controller } = makeSemanticController();
+    controller.selectPart("does-not-exist");
+    expect(controller.selectedPartId).toBe("does-not-exist");
+    controller.clearSelection();
+    expect(controller.selectedPartId).toBeUndefined();
+  });
+
+  it("applyConfiguration clears any active highlight so it cannot leak a stale material clone", async () => {
+    const { fixture, controller } = makeSemanticController();
+    controller.selectPart("body.exterior");
+    expect(colorHexAt(fixture.root, "BODY", "body.carmain")).not.toBeUndefined();
+
+    await controller.applyConfiguration({ paint: ["paint-3u5-barcelona-red"] });
+
+    expect(controller.selectedPartId).toBeUndefined();
+    expect(colorHexAt(fixture.root, "BODY", "body.carmain")).toBe("9d1d20");
+  });
+
+  it("dispose() clears highlights before tearing down the scene", () => {
+    const { controller } = makeSemanticController();
+    controller.selectPart("wheel.front-left");
+    expect(() => controller.dispose()).not.toThrow();
+    expect(controller.selectedPartId).toBeUndefined();
+  });
+});
+
+describe("pickAt", () => {
+  it("resolves a raycast through the same registry backing getPart/selectPart", () => {
+    const { controller } = makeSemanticController();
+    const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
+    // BoxGeometry's material groups are [+x, -x, +y, -y, +z, -z]; slot 0 ("body.carmain") is +x.
+    camera.position.set(10, 0, 0);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+
+    const result = controller.pickAt(new THREE.Vector2(0, 0), camera);
+    expect(result?.entry.id).toBe("body.exterior");
+  });
+
+  it("returns null for a miss", () => {
+    const { controller } = makeSemanticController();
+    const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
+    // Looking further away from the origin, not at it — every fixture mesh sits within a few
+    // units of (0,0,0), so this ray passes nowhere near any of them.
+    camera.position.set(50, 50, 50);
+    camera.lookAt(60, 60, 60);
+    camera.updateMatrixWorld(true);
+
+    expect(controller.pickAt(new THREE.Vector2(0, 0), camera)).toBeNull();
   });
 });

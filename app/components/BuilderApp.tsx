@@ -54,6 +54,7 @@ import {
   type VehicleConfiguration,
 } from "../../lib/types/customization";
 import type { VehicleSceneController } from "../../lib/three/sceneController";
+import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
 import {
   calculateBuildProgress,
   createRandomSelections,
@@ -167,10 +168,38 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
    * when the response has no Content-Length to measure against.
    */
   const [modelProgress, setModelProgress] = useState<number | null>(null);
+  /** Mirrors `VehicleSceneController.selectedPartId` — a click/tap/keyboard selection in the 3D
+   * viewport, surfaced here so the configurator chrome can react without touching Three.js. */
+  const [selectedPart, setSelectedPart] = useState<SceneRegistryEntry | undefined>(undefined);
 
   const { configuration, catalog, status, error } = useConfiguration();
   const persistenceMode = usePersistenceMode();
   const isLocalPersistence = persistenceMode === "local";
+
+  /**
+   * Reconciles `selectedPart` against `controller.selectedPartId` on every configuration change.
+   *
+   * `VehicleSceneController.applyConfiguration` clears its own selection internally (so a stale
+   * highlight can never survive a full reapply — see the controller's own doc comment), but it is
+   * called from several places that have no way to reach this component's `setSelectedPart`
+   * directly: `configurationStore.attachScene` (both call sites in this file), and
+   * `ConfigurationStore.replaceSelections`/`setPaintStudio`/its undo-redo restore, all internal to
+   * `lib/state/configurationStore.ts`. Rather than thread a callback through every one of those,
+   * this asks the controller — the actual source of truth — after the fact: cheap, and correct
+   * regardless of which path caused the change. A plain `selectOption` (the everyday "click a paint
+   * chip" flow) applies a single option and leaves `controller.selectedPartId` untouched, so this is
+   * a no-op then — the `prev.id === id` check below only clears or replaces when the controller's
+   * own state has actually moved.
+   */
+  useEffect(() => {
+    const controller = controllerRef.current;
+    const id = controller?.selectedPartId;
+    setSelectedPart((prev) => {
+      if (!id) return prev ? undefined : prev;
+      if (prev?.id === id) return prev;
+      return controller?.getPart(id);
+    });
+  }, [configuration]);
 
   // ------------------------------------------------------------------ step 1-4
   // Load vehicle metadata, then the option catalog, then the saved configuration. Nothing here
@@ -721,6 +750,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
             <VehicleCanvas
               threeDConfig={vehicle.threeDConfig}
+              slug={vehicle.slug}
               catalog={bootstrap.catalog}
               cameraPreset={preset}
               lift={lift}
@@ -733,9 +763,25 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               tourAction={cinematicTourAction}
               onTourStatusChange={setCinematicTourStatus}
               onTourStep={handleTourStep}
+              onPartSelect={setSelectedPart}
             />
             </Suspense>
           </CanvasErrorBoundary>
+          {selectedPart && (
+            <div className="selected-part-badge">
+              <span>{selectedPart.label}</span>
+              <button
+                type="button"
+                aria-label={`Deselect ${selectedPart.label}`}
+                onClick={() => {
+                  controllerRef.current?.clearSelection();
+                  setSelectedPart(undefined);
+                }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
           {modelProgress !== null && modelProgress < 1 && (
             <div
               className="model-progress"
