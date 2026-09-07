@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ApiError, invalidBody } from "../../../../lib/api/errors";
+import { invalidBody } from "../../../../lib/api/errors";
 import { getConfigurationRepository } from "../../../../lib/server/configurationRepository";
 import { priceSelections, validateCreateConfiguration } from "../../../../lib/validation/configuration";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../../../../lib/types/customization";
 import { enforceConfigWriteRateLimit } from "../../../../lib/server/rateLimit";
-import { errorResponse } from "../../../../lib/server/apiResponse";
+import { withRouteTelemetry } from "../../../../lib/server/apiResponse";
 import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 
 /**
@@ -29,29 +29,28 @@ async function readJson(request: NextRequest): Promise<unknown> {
  * it via the `X-Owner-Token` header on every future PATCH/DELETE to this configuration; it is not
  * required for GET, which stays open so a shared configuration link keeps working unauthenticated.
  */
-export async function POST(request: NextRequest) {
-  try {
-    await enforceConfigWriteRateLimit(request);
-    const input = validateCreateConfiguration(await readJson(request));
-    const { configuration, ownerToken } = await getConfigurationRepository().create(input);
+export const POST = withRouteTelemetry(
+  "/api/v1/configurations",
+  "POST",
+  async (request: NextRequest) => {
+      await enforceConfigWriteRateLimit(request);
+      const input = validateCreateConfiguration(await readJson(request));
+      const { configuration, ownerToken } = await getConfigurationRepository().create(input);
 
-    return NextResponse.json(
-      {
-        schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
-        data: configuration,
-        ownerToken,
-        pricing: { optionsTotal: priceSelections(configuration.vehicleId, configuration.selections) },
-      },
-      {
-        status: 201,
-        headers: withSecurityHeaders({
-          Location: `/api/v1/configurations/${configuration.configurationId}`,
-          "Cache-Control": "no-store",
-        }),
-      },
-    );
-  } catch (err) {
-    if (err instanceof ApiError) return errorResponse(err);
-    throw err;
-  }
-}
+      return NextResponse.json(
+        {
+          schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
+          data: configuration,
+          ownerToken,
+          pricing: { optionsTotal: priceSelections(configuration.vehicleId, configuration.selections) },
+        },
+        {
+          status: 201,
+          headers: withSecurityHeaders({
+            Location: `/api/v1/configurations/${configuration.configurationId}`,
+            "Cache-Control": "no-store",
+          }),
+        },
+      );
+  },
+);

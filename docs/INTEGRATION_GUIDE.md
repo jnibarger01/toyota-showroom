@@ -1106,7 +1106,7 @@ map may still be referenced by other meshes.
 | Different vehicle entirely | full model reload | The **only** case that justifies it |
 
 Default to the cheapest row that works. Ordinary option changes must never reload the base asset
-(~28 MiB as of §15's Draco compression) — the setup effect runs once and reads callbacks through
+(~1.2 MiB as of §15's optimization pass) — the setup effect runs once and reads callbacks through
 latest-value refs precisely so a prop change can't retrigger it.
 
 ---
@@ -1617,14 +1617,14 @@ silently; `waitForLoadState("networkidle")` closed it.
 
 ---
 
-## 15. Compressing the Base GLB Payload (`scripts/compress-glb.mjs`)
+## 15. Compressing the Base GLB Payload (`scripts/optimize-models.mjs`)
 
 §1's donor-geometry fix got the shipped 4Runner GLB from 56.9 MiB to 38.7 MiB by deleting dead
 weight; this is the second, independent lever — compressing what's left, since nothing more in the
 file is unused.
 
 **Measured before choosing a lever.** A raw JSON-chunk dump of the (post-§1) GLB found 13 embedded
-images totalling ~0.16 MiB out of a ~38.6 MiB binary buffer — essentially none of this file's size
+images totalling ~0.16 MiB out of the then ~38.6 MiB binary buffer — essentially none of this file's size
 is texture data. The weight is geometry: positions, normals, UVs, and indices across 19 meshes.
 That rules out texture re-encoding (the usual first lever for a bloated glTF) and points at mesh
 compression instead.
@@ -1738,7 +1738,7 @@ it** — confirmed empirically, not assumed: a build with only a `/models/*` rul
 `public/_headers` produced a `dist/client/_headers` with no `/assets/*` rule left in it at all.
 `public/_headers`'s own first rule is therefore that same `/assets/*` immutable line, carried
 forward on purpose, plus new rules for the real weight vinext's default doesn't cover — none of it
-content-hashed, since `scripts/fix-donor-geometry.mjs` and `scripts/compress-glb.mjs` (§1, §15)
+content-hashed, since `scripts/fix-donor-geometry.mjs` and `scripts/optimize-models.mjs` (§1, §15)
 both edit `public/models/*.glb` in place rather than renaming it on change, so `immutable` would be
 wrong there: `/models/*`, `/draco/*`, `/renders/*`, and `/images/*` each get `public,
 max-age=86400, must-revalidate` — a real cache win for what includes the single largest asset this

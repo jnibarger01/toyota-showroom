@@ -54,7 +54,7 @@ full E2E run to take about a minute even locally.
   DOM — so a typo'd node name or a swapped asset is caught at `npm test` time, not only in a
   browser. Follow this pattern for any change that touches
   `public/models/modsnation_7416_assets_assembled.glb`; see `scripts/fix-donor-geometry.mjs` and
-  `scripts/compress-glb.mjs` for examples of editing that file programmatically (via
+  `scripts/optimize-models.mjs` for examples of editing that file programmatically (via
   `@gltf-transform/*`) with a before/after node-list diff instead of a blind overwrite.
 - **Async UI has real race conditions — assume nothing is instant.** `tests/components/
   BuilderApp.test.tsx`'s `renderBuilderReady()` helper exists because grade buttons and the option

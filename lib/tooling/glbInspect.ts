@@ -19,6 +19,8 @@ interface GltfMaterial {
 
 interface GltfMeshPrimitive {
   material?: number;
+  /** Morph target attribute sets. Absent on the overwhelming majority of primitives. */
+  targets?: Record<string, number>[];
 }
 
 interface GltfMesh {
@@ -36,8 +38,19 @@ interface GltfDocument {
   nodes?: GltfNode[];
   meshes?: GltfMesh[];
   materials?: GltfMaterial[];
+  animations?: unknown[];
   scenes?: { nodes?: number[] }[];
   scene?: number;
+}
+
+/**
+ * The raw glTF JSON of a `.glb`, for checks that need structure `GlbInspection` deliberately drops
+ * (morph targets, animation presence). Kept as a separate, explicitly-typed entry point so
+ * `inspectGlb` stays the narrow node/material answer the catalog contract asks for.
+ */
+export interface GlbJson {
+  meshes: GltfMesh[];
+  animations: unknown[];
 }
 
 export interface GlbInspection {
@@ -63,6 +76,12 @@ function readGlbJsonChunk(buffer: Buffer): GltfDocument {
     offset += 8 + chunkLength + ((4 - (chunkLength % 4)) % 4);
   }
   throw new Error("No JSON chunk found in .glb file.");
+}
+
+/** Reads the raw glTF JSON chunk of the `.glb` at `filePath`, without decoding any geometry. */
+export function readGlbJson(filePath: string): GlbJson {
+  const document = readGlbJsonChunk(readFileSync(filePath));
+  return { meshes: document.meshes ?? [], animations: document.animations ?? [] };
 }
 
 /** Parses a `.glb` file at `filePath` into the node/material name maps the catalog checks against. */

@@ -1,7 +1,7 @@
 import path from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { inspectGlb } from "../lib/tooling/glbInspect";
+import { inspectGlb, readGlbJson } from "../lib/tooling/glbInspect";
 import { requiredNodeNames } from "../lib/three/nodes";
 import { getOptionsForVehicle } from "../lib/data/options";
 import { VEHICLES } from "../lib/data/vehicles";
@@ -86,6 +86,87 @@ describe("catalog vs. shipped GLB", () => {
           ).toBe(false);
         });
       }
+    });
+  }
+});
+
+/**
+ * Payload budgets for the GLBs this app actually downloads.
+ *
+ * These exist because the hero 4Runner asset once shipped at 28.1 MiB, of which ~24.5 MiB was data
+ * the runtime provably never read: 18 MiB of morph targets on the four wheel meshes (every weight
+ * zero, and the file contains no animations and no skins to drive them) plus 6.5 MiB of bufferViews
+ * referenced by nothing at all. `scripts/optimize-models.mjs` strips both and re-encodes with Draco,
+ * taking the file to ~1.2 MiB with every node name, every material name, and the rendered triangle
+ * count intact.
+ *
+ * The budget is the guard against that regressing silently, which is the realistic failure: a
+ * re-export from Blender reintroduces the morph targets, the file is committed because it loads
+ * fine locally on a fast connection, and mobile users pay 28 MiB again. A failure here means run
+ * `node scripts/optimize-models.mjs` (idempotent) before committing the asset — not raise the number.
+ */
+describe("shipped GLB payload budget", () => {
+  const BUDGETS_BYTES: Record<string, number> = {
+    // ~1.21 MiB today. Headroom for genuine geometry additions, far below the 28 MiB regression.
+    "/models/modsnation_7416_assets_assembled.glb": 3 * 1024 * 1024,
+    // ~0.81 MiB today; a minimal FBX2glTF export with one shared material.
+    "/models/toyota-ae86-ivofficial.glb": 2 * 1024 * 1024,
+  };
+
+  for (const vehicle of VEHICLES) {
+    const { modelUrl, hasModel } = vehicle.threeDConfig;
+    if (!hasModel || !modelUrl) continue;
+
+    const filePath = path.join(process.cwd(), "public", modelUrl);
+    if (!existsSync(filePath)) continue;
+
+    it(`${vehicle.slug}: ${modelUrl} stays within its download budget`, () => {
+      const budget = BUDGETS_BYTES[modelUrl];
+      expect(
+        budget,
+        `${modelUrl} is shipped to browsers but has no entry in BUDGETS_BYTES. Add one rather ` +
+          `than deleting this assertion — an unbudgeted asset is how the 28 MiB regression happened.`,
+      ).toBeDefined();
+
+      const actual = statSync(filePath).size;
+      expect(
+        actual,
+        `${modelUrl} is ${(actual / 1024 / 1024).toFixed(2)} MiB, over its ` +
+          `${(budget / 1024 / 1024).toFixed(2)} MiB budget. Run \`node scripts/optimize-models.mjs\`.`,
+      ).toBeLessThanOrEqual(budget);
+    });
+  }
+});
+
+/**
+ * The optimizer's own invariant, asserted against the committed asset rather than trusted.
+ *
+ * Morph targets are the single largest thing `scripts/optimize-models.mjs` removes, and they are also
+ * the thing a Blender re-export silently puts back. Checking the file directly means this fails at
+ * commit time on the real artifact, not on a description of it.
+ */
+describe("shipped GLB carries no undrivable morph targets", () => {
+  for (const vehicle of VEHICLES) {
+    const { modelUrl, hasModel } = vehicle.threeDConfig;
+    if (!hasModel || !modelUrl) continue;
+
+    const filePath = path.join(process.cwd(), "public", modelUrl);
+    if (!existsSync(filePath)) continue;
+
+    it(`${vehicle.slug}: ${modelUrl}`, () => {
+      const { meshes, animations } = readGlbJson(filePath);
+      // A file with real blend-shape animation is allowed to keep its targets; the optimizer skips
+      // those meshes too. Only assert the dead case this project actually hit.
+      if (animations.length > 0) return;
+
+      const withTargets = meshes.filter((mesh) =>
+        mesh.primitives.some((primitive) => (primitive.targets?.length ?? 0) > 0),
+      );
+      expect(
+        withTargets.map((mesh) => mesh.name ?? "<unnamed>"),
+        `These meshes carry morph targets that no weight and no animation can drive — dead ` +
+          `download weight. Run \`node scripts/optimize-models.mjs\`.`,
+      ).toEqual([]);
     });
   }
 });

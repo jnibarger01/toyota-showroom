@@ -25,6 +25,22 @@ const PUBLIC_DIR = path.resolve(__dirname, "../public");
  */
 const GENERATED_AT_BUILD_TIME = new Set(["/assets/*", "/catalog/*"]);
 
+/** The catch-all rule carrying security headers rather than caching policy. */
+const SECURITY_RULE_PATTERN = "/*";
+
+const LAYOUT_PATH = path.resolve(__dirname, "../app/layout.tsx");
+
+/** Parses a CSP string into directive name -> sorted source list, so comparison is order-insensitive. */
+function parsePolicy(policy: string): Map<string, string[]> {
+  const directives = new Map<string, string[]>();
+  for (const part of policy.split(";")) {
+    const tokens = part.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) continue;
+    directives.set(tokens[0]!, tokens.slice(1).sort());
+  }
+  return directives;
+}
+
 type Rule = { pattern: string; headers: Record<string, string> };
 
 function parseHeadersFile(contents: string): Rule[] {
@@ -64,6 +80,10 @@ describe("public/_headers", () => {
     // wrong for any of these — every one of these rules must bound its staleness with a real
     // max-age instead.
     for (const rule of rules) {
+      // `/*` carries security headers for every response and deliberately sets no Cache-Control:
+      // it matches HTML and `.rsc` payloads too, whose caching is left to Cloudflare's default.
+      if (rule.pattern === SECURITY_RULE_PATTERN) continue;
+
       expect(rule.headers["Cache-Control"], `rule for ${rule.pattern}`).toBeDefined();
       if (rule.pattern === "/assets/*") continue; // content-hashed, so genuinely immutable
       expect(rule.headers["Cache-Control"]).not.toMatch(/immutable/);
@@ -83,9 +103,81 @@ describe("public/_headers", () => {
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name);
 
-    const covered = new Set(rules.map((rule) => rule.pattern.replace(/^\//, "").replace(/\/\*$/, "")));
+    const covered = new Set(
+      rules
+        .filter((rule) => rule.pattern !== SECURITY_RULE_PATTERN)
+        .map((rule) => rule.pattern.replace(/^\//, "").replace(/\/\*$/, "")),
+    );
     for (const dir of topLevelDirs) {
       expect(covered.has(dir), `public/${dir}/ has no matching rule in public/_headers`).toBe(true);
+    }
+  });
+});
+
+
+/**
+ * Keeps the two Content-Security-Policy delivery mechanisms from drifting apart.
+ *
+ * This app has two deployment targets that need the same policy delivered differently: the
+ * Cloudflare Worker can send a real header (`public/_headers`), while GitHub Pages has no server
+ * and can only carry a `<meta http-equiv>` tag in `app/layout.tsx`. Two copies of one policy is a
+ * setup that silently diverges — someone loosens `connect-src` to make a feature work, tests it on
+ * one target, and ships a policy mismatch nobody sees until the other target breaks in production.
+ */
+describe("Content-Security-Policy across both deployment targets", () => {
+  const headerRule = parseHeadersFile(readFileSync(HEADERS_PATH, "utf8")).find(
+    (rule) => rule.pattern === SECURITY_RULE_PATTERN,
+  );
+  const headerPolicy = headerRule?.headers["Content-Security-Policy"];
+
+  const layout = readFileSync(LAYOUT_PATH, "utf8");
+  const metaPolicy = layout.match(/content="(default-src[^"]*)"/)?.[1];
+
+  it("sends a CSP header on the Cloudflare deployment", () => {
+    expect(headerPolicy, "public/_headers has no Content-Security-Policy on /*").toBeTruthy();
+  });
+
+  it("still ships the meta policy, the only mechanism GitHub Pages has", () => {
+    // `_headers` is a Cloudflare Workers Static Assets feature; GitHub Pages does not read it, so
+    // removing the meta tag would leave that target with no policy at all.
+    expect(metaPolicy, "app/layout.tsx has no meta CSP").toBeTruthy();
+  });
+
+  it("enforces frame-ancestors in the header, which a meta tag structurally cannot", () => {
+    // frame-ancestors and sandbox are header-only per spec and silently ignored in a meta tag.
+    // This directive is the reason the header exists at all.
+    expect(parsePolicy(headerPolicy!).get("frame-ancestors")).toEqual(["'none'"]);
+  });
+
+  it("agrees with the meta policy on every directive they share", () => {
+    const header = parsePolicy(headerPolicy!);
+    const meta = parsePolicy(metaPolicy!);
+
+    for (const [directive, sources] of meta) {
+      expect(header.get(directive), `directive "${directive}" differs between the two policies`).toEqual(
+        sources,
+      );
+    }
+  });
+
+  it("adds nothing beyond frame-ancestors to the header", () => {
+    // The header may carry header-only directives the meta tag cannot express, but anything else
+    // extra would mean the two targets enforce genuinely different policies.
+    const header = parsePolicy(headerPolicy!);
+    const meta = parsePolicy(metaPolicy!);
+    const extra = [...header.keys()].filter((directive) => !meta.has(directive));
+
+    expect(extra.sort()).toEqual(["frame-ancestors"]);
+  });
+
+  it("keeps the non-CSP security headers on the catch-all rule", () => {
+    for (const header of [
+      "X-Content-Type-Options",
+      "Referrer-Policy",
+      "Permissions-Policy",
+      "X-Frame-Options",
+    ]) {
+      expect(headerRule?.headers[header], `${header} missing from /*`).toBeTruthy();
     }
   });
 });

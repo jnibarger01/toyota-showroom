@@ -18,6 +18,14 @@ export interface ConfigurationRepository {
   create(input: ValidatedConfigurationInput): Promise<{ configuration: VehicleConfiguration; ownerToken: string }>;
   /** Unauthenticated by design: reads are what the sharing feature depends on. */
   get(configurationId: string): Promise<VehicleConfiguration | null>;
+  /**
+   * Throws `notFound()` for an unknown id and `forbidden()` when `ownerToken` does not match.
+   *
+   * Exists so a route can authorize *before* doing validation work on a caller's behalf. `update`
+   * still performs its own check — this is an additional gate, never a replacement, so no write
+   * path can depend on a caller having remembered to call this first.
+   */
+  requireOwner(configurationId: string, ownerToken: string): Promise<void>;
   /** Throws `forbidden()` if `ownerToken` doesn't match the record's stored hash. */
   update(configurationId: string, patch: ValidatedPatch, ownerToken: string): Promise<VehicleConfiguration>;
   /** Throws `forbidden()` if `ownerToken` doesn't match; returns `false` only for a genuinely missing id. */
@@ -60,6 +68,14 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
 
   async get(configurationId: string): Promise<VehicleConfiguration | null> {
     return this.records.get(configurationId)?.configuration ?? null;
+  }
+
+  async requireOwner(configurationId: string, ownerToken: string): Promise<void> {
+    const stored = this.records.get(configurationId);
+    if (!stored) throw notFound(`No configuration found with id "${configurationId}".`);
+    if (!(await verifyOwnerToken(ownerToken, stored.ownerTokenHash))) {
+      throw forbidden(`Owner token missing or does not match for configuration "${configurationId}".`);
+    }
   }
 
   async update(configurationId: string, patch: ValidatedPatch, ownerToken: string): Promise<VehicleConfiguration> {

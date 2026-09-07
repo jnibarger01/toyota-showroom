@@ -206,7 +206,7 @@ re-run a prior successful "Deploy Toyota Showroom" workflow run from the Actions
   `--config wrangler.jsonc`, comparing which D1 database name each reports.
 - **The Worker does not serve the static site.** `npm run deploy`/`deploy:staging` deploy
   `dist/server/index.js` only, `--no-bundle`, with no assets binding — `wrangler.jsonc` deliberately
-  declares no `assets` block. The base vehicle GLB (~28 MiB even after
+  declares no `assets` block. The base vehicle GLB (~1.2 MiB after
   `docs/INTEGRATION_GUIDE.md` §15's Draco compression) exceeds Workers Static Assets' 25 MiB
   single-file cap, so an assets-inclusive deploy fails outright (`wrangler deploy --dry-run` against
   a config with an assets directory reproduces "Asset too large" for real). Until the GLB drops

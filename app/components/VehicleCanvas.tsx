@@ -22,6 +22,9 @@ import {
   initialProgressiveState,
   reduceProgressiveLoad,
 } from "../../lib/three/progressiveLoad";
+import { QualityGovernor } from "../../lib/three/qualityGovernor";
+import { motionDuration, prefersReducedMotion } from "../../lib/three/motionPreference";
+import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
 
 export type CameraPreset = {
   id: string;
@@ -29,6 +32,18 @@ export type CameraPreset = {
   position: [number, number, number];
   target: [number, number, number];
 };
+
+/**
+ * Radians per arrow-key press.
+ *
+ * ~7 degrees: coarse enough that circling the vehicle takes a reasonable number of presses (about
+ * 52 for a full revolution, or a second of held key repeat), fine enough to line up on a detail
+ * like a wheel or a badge.
+ */
+const KEYBOARD_ORBIT_STEP_RADIANS = 0.12;
+
+/** Metres of dolly per +/- press, against the 4-15 m distance range OrbitControls is clamped to. */
+const KEYBOARD_ZOOM_STEP = 0.6;
 
 export type Terrain = "Studio" | "Trail" | "Night";
 export type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
@@ -48,9 +63,18 @@ type Props = {
    */
   onReady: (controller: VehicleSceneController, applicable: CustomizationOption[]) => void;
   onError: (message: string) => void;
+  /**
+   * Download progress for the main vehicle asset, 0..1. Optional, and deliberately not a substitute
+   * for `onReady`: the placeholder is already on screen while this fires, so it drives a progress
+   * affordance rather than a blocking spinner.
+   *
+   * Only reported when the server sends `Content-Length`. A Draco GLB served with
+   * `Content-Encoding: gzip` often does not, and inventing a percentage is worse than showing none.
+   */
+  onProgress?: (fraction: number) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, onReady, onError }: Props) {
+export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, onReady, onError, onProgress }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -72,12 +96,18 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   // render function may run more than once before committing); an effect runs only after commit.
   const onReadyRef = useRef(onReady);
   const onErrorRef = useRef(onError);
+  const onProgressRef = useRef(onProgress);
   const catalogRef = useRef(catalog);
+  // Read by the Home-key handler, which lives in the run-once setup effect and so cannot close over
+  // the prop directly — it would reset to whichever preset was active at mount.
+  const cameraPresetRef = useRef(cameraPreset);
   useEffect(() => {
     onReadyRef.current = onReady;
     onErrorRef.current = onError;
+    onProgressRef.current = onProgress;
     catalogRef.current = catalog;
-  }, [catalog, onError, onReady]);
+    cameraPresetRef.current = cameraPreset;
+  }, [cameraPreset, catalog, onError, onProgress, onReady]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -95,7 +125,7 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       camera.position.set(...cameraPreset.position);
       cameraRef.current = camera;
 
-      const quality = resolveQuality(collectBrowserDeviceHints());
+      let quality = resolveQuality(collectBrowserDeviceHints());
       const { renderer, mode } = await createRenderer(quality.antialias);
       if (cancelled) {
         renderer.dispose();
@@ -106,11 +136,15 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.05;
       renderer.domElement.dataset.renderer = mode;
+      recordMetric({ name: "renderer_selected", labels: { renderer: mode, tier: quality.tier } });
       renderer.domElement.dataset.quality = quality.tier;
       host.appendChild(renderer.domElement);
 
       const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
+      // Damping is inertia: the scene keeps moving after the user stops dragging. That is exactly
+      // the "motion I did not ask for and cannot stop" the reduced-motion preference covers, so it
+      // is a preference check rather than a constant.
+      controls.enableDamping = !prefersReducedMotion();
       controls.minDistance = 4;
       controls.maxDistance = 15;
       controls.maxPolarAngle = Math.PI * 0.49;
@@ -195,12 +229,161 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       const resizeObserver = new ResizeObserver(resize);
       resizeObserver.observe(host);
 
+      /**
+       * Keyboard orbit, zoom, and reset.
+       *
+       * OrbitControls' own `listenToKeyEvents` binds the arrows to *panning*, which slides the whole
+       * scene sideways and is close to useless for inspecting a vehicle — what a user wants from the
+       * arrows here is to walk around it. So the orbit is computed directly, in spherical
+       * coordinates about the control target, honouring the same polar and distance limits the
+       * mouse path is constrained by. Without this the entire 3D stage was reachable by pointer only.
+       */
+      const handleKeyDown = (event: KeyboardEvent) => {
+        // Never swallow a modified key: those are browser and OS shortcuts, and stealing
+        // Cmd/Ctrl+arrow from a keyboard user is a worse bug than the one this fixes.
+        if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+        const offset = camera.position.clone().sub(controls.target);
+        const spherical = new THREE.Spherical().setFromVector3(offset);
+
+        switch (event.key) {
+          case "ArrowLeft":
+            spherical.theta -= KEYBOARD_ORBIT_STEP_RADIANS;
+            break;
+          case "ArrowRight":
+            spherical.theta += KEYBOARD_ORBIT_STEP_RADIANS;
+            break;
+          case "ArrowUp":
+            spherical.phi -= KEYBOARD_ORBIT_STEP_RADIANS;
+            break;
+          case "ArrowDown":
+            spherical.phi += KEYBOARD_ORBIT_STEP_RADIANS;
+            break;
+          case "+":
+          case "=":
+            spherical.radius -= KEYBOARD_ZOOM_STEP;
+            break;
+          case "-":
+          case "_":
+            spherical.radius += KEYBOARD_ZOOM_STEP;
+            break;
+          case "Home":
+            // Back to the active preset — a predictable escape hatch from an orbit the user has
+            // lost their bearings in.
+            camera.position.set(...cameraPresetRef.current.position);
+            controls.target.set(...cameraPresetRef.current.target);
+            controls.update();
+            event.preventDefault();
+            return;
+          default:
+            return;
+        }
+
+        // The same clamps OrbitControls applies to pointer input. `phi` additionally avoids exactly
+        // 0, where the camera's up-vector becomes degenerate and the view flips.
+        spherical.phi = Math.min(Math.max(spherical.phi, 0.05), controls.maxPolarAngle);
+        spherical.radius = Math.min(
+          Math.max(spherical.radius, controls.minDistance),
+          controls.maxDistance,
+        );
+
+        camera.position.copy(offset.setFromSpherical(spherical).add(controls.target));
+        controls.update();
+        // Only after a key was actually handled — an unrecognised key already returned above, so
+        // page scrolling and browser shortcuts are left alone.
+        event.preventDefault();
+      };
+      host.addEventListener("keydown", handleKeyDown);
+
+      /**
+       * WebGL context loss.
+       *
+       * The GPU process can drop a context at any time — a driver reset, the OS reclaiming VRAM, a
+       * background tab being evicted, too many live contexts. It arrives as an *event*, not an
+       * exception, so neither the try/catch around model loading nor `CanvasErrorBoundary` sees it:
+       * the render loop just keeps calling into a dead context and the viewport freezes on its last
+       * frame with nothing logged anywhere.
+       *
+       * `preventDefault` on `webglcontextlost` is what makes the context eligible for restoration at
+       * all — without it the browser never fires `webglcontextrestored`.
+       */
+      const canvasElement = renderer.domElement;
+      const handleContextLost = (event: Event) => {
+        event.preventDefault();
+        running = false;
+        cancelPendingRaf();
+        console.warn("[canvas] WebGL context lost; pausing render loop until it is restored.");
+        onErrorRef.current("Rendering was interrupted. Attempting to recover the 3D view.");
+      };
+      const handleContextRestored = () => {
+        console.info("[canvas] WebGL context restored; resuming render loop.");
+        // Reallocates the drawing buffer against the restored context; without it the renderer keeps
+        // the dimensions of a buffer that no longer exists.
+        resize();
+        if (running) return;
+        running = true;
+        frameStats.reset();
+        governor.reset();
+        loop?.();
+      };
+      canvasElement.addEventListener("webglcontextlost", handleContextLost);
+      canvasElement.addEventListener("webglcontextrestored", handleContextRestored);
+
+      const uninstallMetricsFlush = installMetricsFlush();
+
       // Start the render loop before the ~28 MiB GLB settles so the placeholder paints immediately.
       let running = true;
       let suspended = false;
       let contactShadow: THREE.Mesh | null = null;
       let controller: VehicleSceneController | null = null;
       const frameStats = new FrameTimeTracker(60);
+
+      /**
+       * Applies a quality tier to the live renderer and scene.
+       *
+       * `resolveQuality` picks a tier once from device hints; this is what makes that choice
+       * revisable mid-session (the adaptive policy `lib/three/quality.ts` defers to issue #33).
+       * Everything a tier controls that can be changed after construction is re-applied here.
+       *
+       * `antialias` and `loadAuthoredRunningGear` deliberately are not: antialias is fixed at
+       * renderer construction and changing it would mean tearing down the WebGL context mid-
+       * session, and the running gear is either already mounted or already skipped. Both settle at
+       * the opening tier, which is the right trade — the expensive, adjustable knobs are pixel
+       * ratio and shadows, and those are the ones that move.
+       */
+      const applyTier = (next: QualitySettings) => {
+        quality = next;
+        applyRendererQuality(renderer, next);
+        renderer.domElement.dataset.quality = next.tier;
+        key.castShadow = next.shadowsEnabled;
+        if (next.shadowsEnabled) {
+          key.shadow.mapSize.set(next.shadowMapSize, next.shadowMapSize);
+          // three caches the shadow render target and will not reallocate it just because mapSize
+          // changed, so without this the new resolution is stored and never takes effect — the
+          // expensive half of a downgrade would silently do nothing.
+          key.shadow.map?.dispose();
+          key.shadow.map = null;
+        }
+        floor.receiveShadow = next.shadowsEnabled;
+        rim.intensity = 1.6 * next.secondaryLightScale;
+        fill.intensity = 1.1 * next.secondaryLightScale;
+        resize();
+      };
+
+      const governor = new QualityGovernor({
+        initialTier: quality.tier,
+        onChange: (next, { from, reason }) => {
+          applyTier(next);
+          recordMetric({
+            name: "quality_changed",
+            value: Math.round(governor.averageFrameTimeMs),
+            labels: { from, to: next.tier, reason },
+          });
+          // Left in production rather than dev-gated: when someone reports "the showroom looks
+          // blurry on my phone", this line is the answer, and it fires a handful of times a session.
+          console.info(`[quality] ${reason}: ${from} -> ${next.tier}`);
+        },
+      });
       let loop: (() => void) | undefined;
       /** Pending rAF handle — must be cancelled on idle/suspend/cleanup to avoid forked loops. */
       let rafId = 0;
@@ -233,6 +416,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         if (running) {
           cancelPendingRaf();
           frameStats.reset();
+          // The frames either side of an idle gap describe the pause, not the renderer; feeding
+          // them to the governor would drive a downgrade on resume.
+          governor.reset();
           loop?.();
         }
       });
@@ -243,6 +429,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         if (!running) return;
         if (suspended) return;
         const stats = frameStats.record(performance.now());
+        // Reuses the delta frameStats already computed rather than timing the loop a second time.
+        governor.recordFrame(stats.lastFrameMs);
         framePublishCount += 1;
         if (stats.samples > 0 && framePublishCount % 30 === 0) {
           renderer.domElement.dataset.frameStats = formatFrameStats(stats);
@@ -261,6 +449,10 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       cleanup = () => {
         running = false;
         cancelPendingRaf();
+        uninstallMetricsFlush();
+        host.removeEventListener("keydown", handleKeyDown);
+        canvasElement.removeEventListener("webglcontextlost", handleContextLost);
+        canvasElement.removeEventListener("webglcontextrestored", handleContextRestored);
         idleGate.dispose();
         resizeObserver.disconnect();
         controls.dispose();
@@ -351,7 +543,12 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
 
         let detailed: THREE.Object3D | null = null;
         try {
-          detailed = await loadVehicleRoot(threeDConfig);
+          const modelStartedAt = performance.now();
+          detailed = await loadVehicleRoot(threeDConfig, (fraction) => onProgressRef.current?.(fraction));
+          // Download *and* Draco decode together, which is the number that matters: after
+          // scripts/optimize-models.mjs took the payload to ~1.2 MiB, decode is expected to
+          // dominate, and that is exactly the assumption worth checking against real devices.
+          recordMetric({ name: "model_loaded", value: Math.round(performance.now() - modelStartedAt) });
           progressive = reduceProgressiveLoad(progressive, { type: "glb-decoded" });
         } catch (error) {
           console.error("High-detail glTF failed to load; using procedural fallback.", error);
@@ -420,7 +617,11 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     // Lift is an offset from the grounded baseline, not an absolute position: writing `lift * 0.045`
     // straight into `position.y` would discard the grounding offset computed at load and drop the
     // vehicle through the floor.
-    gsap.to(root.position, { y: groundedYRef.current + lift * 0.045, duration: 0.35, ease: "power2.out" });
+    gsap.to(root.position, {
+      y: groundedYRef.current + lift * 0.045,
+      duration: motionDuration(0.35),
+      ease: "power2.out",
+    });
   }, [lift, sceneRevision]);
 
   useEffect(() => {
@@ -428,18 +629,22 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     const controls = controlsRef.current;
     if (!camera || !controls) return;
 
+    // The longest movement on the stage, and the one most likely to provoke motion sickness: the
+    // camera swings bodily across the scene. Under reduced motion it cuts, preserving the
+    // destination without the journey.
+    const duration = motionDuration(0.85);
     gsap.to(camera.position, {
       x: cameraPreset.position[0],
       y: cameraPreset.position[1],
       z: cameraPreset.position[2],
-      duration: 0.85,
+      duration,
       ease: "power3.inOut",
     });
     gsap.to(controls.target, {
       x: cameraPreset.target[0],
       y: cameraPreset.target[1],
       z: cameraPreset.target[2],
-      duration: 0.85,
+      duration,
       ease: "power3.inOut",
     });
   }, [cameraPreset]);
@@ -448,7 +653,22 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, environmentPreset);
   }, [terrain, environmentPreset]);
 
-  return <div ref={hostRef} className="vehicle-canvas" />;
+  return (
+    <div
+      ref={hostRef}
+      className="vehicle-canvas"
+      // `tabIndex` is what puts the 3D stage in the tab order at all; before this the entire
+      // viewport was pointer-only. `group` rather than `application`: the element is a composite
+      // widget the user steps into, and `application` would suppress the screen reader's own
+      // navigation keys everywhere inside it in exchange for nothing this needs.
+      tabIndex={0}
+      role="group"
+      aria-label={
+        "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
+        "and Home to return to the selected camera angle."
+      }
+    />
+  );
 }
 
 type EnvironmentRefs = {
@@ -645,9 +865,19 @@ async function createRenderer(antialias: boolean): Promise<{ renderer: RendererL
   return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
 }
 
-async function loadVehicleRoot(threeDConfig: Vehicle3DConfig): Promise<THREE.Object3D> {
+async function loadVehicleRoot(
+  threeDConfig: Vehicle3DConfig,
+  onProgress?: (fraction: number) => void,
+): Promise<THREE.Object3D> {
   if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
-  const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl);
+  const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl, (event) => {
+    // `lengthComputable` is false whenever the response has no usable `Content-Length` — common for
+    // a gzipped GLB. Reporting `loaded / 0` would emit Infinity, and guessing a denominator would
+    // show a progress bar that lies; skipping the callback lets the UI fall back to the
+    // placeholder's own indeterminate affordance.
+    if (!event.lengthComputable || event.total <= 0) return;
+    onProgress?.(Math.min(event.loaded / event.total, 1));
+  });
   return gltf.scene;
 }
 

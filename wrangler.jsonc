@@ -58,6 +58,34 @@
       "name": "CONFIG_WRITE_LIMITER",
       "namespace_id": "1001",
       "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      // Catalog and media reads. An order of magnitude above the write limit because these are
+      // cheap, cacheable, idempotent, and one page load legitimately makes several — a guard
+      // against scripted abuse, not a quota a person clicking through the lineup can reach.
+      //
+      // 1003, not 1002: staging's write limiter already holds 1002, and namespaces are scoped to
+      // the account rather than the Worker.
+      "name": "CATALOG_READ_LIMITER",
+      "namespace_id": "1003",
+      "simple": { "limit": 300, "period": 60 }
+    }
+  ],
+
+  // Analytics Engine dataset for the structured request telemetry in `lib/server/telemetry.ts`.
+  //
+  // Optional at runtime by design, exactly like `CONFIG_WRITE_LIMITER`: `recordRequest` resolves
+  // the binding ambiently and skips the data point when it is absent, so `npm run dev`, `vitest`,
+  // and the GitHub Pages export need no binding and no account. The structured `console.log` it
+  // always emits is the baseline channel — `wrangler tail` streams it and Logpush ships it — and
+  // this binding adds queryable aggregates on top.
+  //
+  // Unlike D1, no resource has to be created first: an Analytics Engine dataset is created on
+  // first write, so this binding is complete as committed.
+  "analytics_engine_datasets": [
+    {
+      "binding": "TELEMETRY",
+      "dataset": "toyota_showroom_requests"
     }
   ],
 
@@ -82,6 +110,14 @@
           "migrations_dir": "db/migrations"
         }
       ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "TELEMETRY",
+          // Separate from production's, so a PR's staging traffic cannot skew the numbers the
+          // quality governor's thresholds will be tuned against.
+          "dataset": "toyota_showroom_requests_staging"
+        }
+      ],
       "ratelimits": [
         {
           "name": "CONFIG_WRITE_LIMITER",
@@ -90,6 +126,12 @@
           // budget between every PR's staging deploy and production itself.
           "namespace_id": "1002",
           "simple": { "limit": 30, "period": 60 }
+        },
+        {
+          "name": "CATALOG_READ_LIMITER",
+          // Distinct from production's 1003, for the same account-scoping reason as above.
+          "namespace_id": "1004",
+          "simple": { "limit": 300, "period": 60 }
         }
       ]
     }

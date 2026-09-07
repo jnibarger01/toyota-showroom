@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import type { CameraPreset } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
+import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
@@ -148,6 +149,16 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const undoStack = useRef<SelectionMap[]>([]);
   const redoStack = useRef<SelectionMap[]>([]);
 
+  /**
+   * Main-asset download progress, 0..1, or null when the size is unknown.
+   *
+   * Distinct from "is the scene ready": since the render loop now starts before any geometry
+   * exists, the showroom is already drawn and interactive while this counts up. It drives a thin
+   * determinate bar over a live scene, not a spinner over a blank one — and stays null (bar hidden)
+   * when the response has no Content-Length to measure against.
+   */
+  const [modelProgress, setModelProgress] = useState<number | null>(null);
+
   const { configuration, catalog, status, error } = useConfiguration();
   const persistenceMode = usePersistenceMode();
   const isLocalPersistence = persistenceMode === "local";
@@ -211,6 +222,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     (controller: VehicleSceneController, applicable: CustomizationOption[]) => {
       controllerRef.current = controller;
       fullApplicableRef.current = applicable;
+      // The vehicle is in the scene; the bar has nothing left to report.
+      setModelProgress(null);
       if (!bootstrap) return;
       setSceneReady(true);
       // Prefer live store config (early hydrate + any pre-settle edits) over the bootstrap snapshot.
@@ -648,7 +661,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <SlidersHorizontal size={16} /> Customize
           </button>
 
-          <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
+          {/*
+            * Boundary outside Suspense, not inside: a failed `lazy()` chunk fetch — the most likely
+            * failure here, since a deploy invalidates hashed chunks for anyone with the page open —
+            * throws from the Suspense boundary itself, so a boundary nested within it never sees it.
+            */}
+          <CanvasErrorBoundary fallbackImage={vehicle.media.hero} onError={(error) => setLoadError(error.message)}>
+            <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
             <VehicleCanvas
               threeDConfig={vehicle.threeDConfig}
               catalog={bootstrap.catalog}
@@ -658,8 +677,22 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               environmentPreset={environmentPreset}
               onReady={handleSceneReady}
               onError={handleSceneError}
+              onProgress={setModelProgress}
             />
-          </Suspense>
+            </Suspense>
+          </CanvasErrorBoundary>
+          {modelProgress !== null && modelProgress < 1 && (
+            <div
+              className="model-progress"
+              role="progressbar"
+              aria-label="Loading vehicle model"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(modelProgress * 100)}
+            >
+              <div className="model-progress-fill" style={{ transform: `scaleX(${modelProgress})` }} />
+            </div>
+          )}
 
           <div className="gpu-status">
             <span><i /> WebGPU preferred</span>

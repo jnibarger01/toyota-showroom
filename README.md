@@ -15,9 +15,9 @@ This project integrates the uploaded `modsnation_7416_assets_assembled.glb` as t
 ## Integrated model
 
 - File: `public/models/modsnation_7416_assets_assembled.glb`
-- Size: approximately 57 MB
+- Size: approximately 1.2 MiB (down from 28 MiB; see `scripts/optimize-models.mjs`)
 - 69 geometry objects
-- Approximately 591,604 triangles
+- Approximately 497,000 rendered triangles
 - Includes body, placed wheels/tires, front and rear brakes, grille, headlights, taillights, exhaust, logo, and materials
 - Vehicle paint material: `body.carmain`
 
