@@ -6,6 +6,7 @@ import {
   type VehicleConfiguration,
 } from "../types/customization";
 import type { Vehicle } from "../types/vehicle";
+import { paintStudioPriceDelta, PAINT_CUSTOM_OPTION_ID } from "../data/paintStudio";
 
 /**
  * Grade sticker price for a build total. Falls back to the vehicle's cheapest published MSRP when
@@ -28,7 +29,12 @@ export function resolveGradeMsrp(vehicle: Vehicle | null | undefined, gradeId: s
 export function estimateBuildTotal(baseMsrp: number, catalog: CustomizationOption[], configuration: VehicleConfiguration | null): number {
   if (!configuration) return baseMsrp;
   const selected = new Set(Object.values(configuration.selections).flat());
-  return baseMsrp + catalog.reduce((total, option) => total + (selected.has(option.id) ? (option.priceDelta ?? 0) : 0), 0);
+  const optionsTotal = catalog.reduce((total, option) => total + (selected.has(option.id) ? (option.priceDelta ?? 0) : 0), 0);
+  // Custom studio fee lives on paint-custom's catalog priceDelta; HDRI presets add on top.
+  const hdriExtra = paintStudioPriceDelta(
+    configuration.paintStudio ? { ...configuration.paintStudio, mode: "oem" } : undefined,
+  );
+  return baseMsrp + optionsTotal + hdriExtra;
 }
 
 /**
@@ -84,7 +90,9 @@ export function createRandomSelections(
 ): SelectionMap {
   const selections: SelectionMap = {};
   for (const category of CATEGORY_APPLY_ORDER) {
-    const options = catalog.filter((option) => option.category === category);
+    const options = catalog.filter(
+      (option) => option.category === category && option.id !== PAINT_CUSTOM_OPTION_ID,
+    );
     if (options.length === 0) continue;
     const count = isMultiSelect(category) ? Math.min(options.length, random() > 0.65 ? 2 : 1) : 1;
     const shuffled = [...options];

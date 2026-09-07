@@ -73,6 +73,26 @@ export const fourRunnerOptions: CustomizationOption[] = [
     compatibleGradeIds: ["trd-pro"],
   },
 
+  // Custom paint studio sentinel — material numbers persist on VehicleConfiguration.paintStudio,
+  // not as GLB material names. Targets stay catalog-owned (BODY / body.carmain).
+  {
+    id: "paint-custom",
+    category: "paint",
+    label: "Custom Paint Studio",
+    operation: "material-update",
+    targetNodes: PAINT_NODES,
+    targetMaterials: PAINT_MATERIALS,
+    materialConfig: {
+      color: "#1558d6",
+      metalness: 0.65,
+      roughness: 0.28,
+      clearcoat: 1,
+      clearcoatRoughness: 0.06,
+    },
+    priceDelta: 595,
+    compatibleVehicleIds: VEHICLE,
+  },
+
   // ---------------------------------------------------------- wheel finish
   // `wheel.metal` is also used by the hidden donor node `322-1790(MD010)`, so these updates go
   // through clone-on-write: the four visible wheels get their own material instance.

@@ -4,6 +4,7 @@ import type {
   SelectionMap,
   VehicleConfiguration,
 } from "../types/customization";
+import type { PaintStudioState } from "../types/paintStudio";
 import { ApiError, type ApiErrorBody } from "./errors";
 import { isOptionAvailableForGrade } from "../data/options";
 import { localConfigurationTransport } from "./localConfigurationTransport";
@@ -152,11 +153,13 @@ export interface CreateConfigurationInput {
   gradeId: string;
   selections?: SelectionMap;
   cameraState?: CameraState;
+  paintStudio?: PaintStudioState;
 }
 
 export interface UpdateConfigurationInput {
   selections?: SelectionMap;
   cameraState?: CameraState;
+  paintStudio?: PaintStudioState;
   /** Optimistic concurrency: the revision the client believes it is editing. */
   expectedRevision?: number;
 }

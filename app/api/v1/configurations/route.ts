@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { invalidBody } from "../../../../lib/api/errors";
 import { getConfigurationRepository } from "../../../../lib/server/configurationRepository";
-import { priceSelections, validateCreateConfiguration } from "../../../../lib/validation/configuration";
+import { priceConfiguration, validateCreateConfiguration } from "../../../../lib/validation/configuration";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../../../../lib/types/customization";
 import { enforceConfigWriteRateLimit } from "../../../../lib/server/rateLimit";
 import { withRouteTelemetry } from "../../../../lib/server/apiResponse";
@@ -42,7 +42,7 @@ export const POST = withRouteTelemetry(
           schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
           data: configuration,
           ownerToken,
-          pricing: { optionsTotal: priceSelections(configuration.vehicleId, configuration.selections) },
+          pricing: { optionsTotal: priceConfiguration(configuration.vehicleId, configuration.selections, configuration.paintStudio) },
         },
         {
           status: 201,

@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import type { CameraPreset, TourAction, TourStatus } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
+import { PaintStudioPanel } from "./PaintStudioPanel";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
@@ -67,6 +68,7 @@ import {
   readBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
+import { PAINT_CUSTOM_OPTION_ID } from "../../lib/data/paintStudio";
 
 /**
  * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
@@ -477,6 +479,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       gradeId: configuration.gradeId,
       selections: configuration.selections,
       cameraState: configuration.cameraState,
+      paintStudio: configuration.paintStudio,
     });
     try {
       await navigator.clipboard.writeText(url);
@@ -717,6 +720,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               lift={lift}
               terrain={terrain}
               environmentPreset={environmentPreset}
+              hdriPresetId={configuration?.paintStudio?.hdriPresetId}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}
@@ -771,11 +775,37 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <p className="panel-empty">Preparing customization options&hellip;</p>
           ) : null}
 
-          {visibleGrouped.filter(({ category }) => category === activeCategory).map(({ category, options }) => (
+          {activeCategory === "paint" ? (
+            <PaintStudioPanel
+              paintStudio={configuration?.paintStudio}
+              oemPaintOptions={catalog.filter(
+                (option) => option.category === "paint" && option.id !== PAINT_CUSTOM_OPTION_ID,
+              )}
+              selectedPaintId={(configuration?.selections.paint ?? [])[0]}
+              catalog={catalog}
+              onBeforeChange={rememberHistory}
+            />
+          ) : null}
+
+          {visibleGrouped.filter(({ category }) => category === activeCategory).map(({ category, options }) => {
+            const visibleOptions =
+              category === "paint"
+                ? options.filter((option) => option.id !== PAINT_CUSTOM_OPTION_ID)
+                : options;
+            const paintMode = configuration?.paintStudio?.mode ?? "oem";
+            if (category === "paint" && paintMode === "custom") {
+              return (
+                <section className="control-section" key={category}>
+                  <label>{CATEGORY_LABELS[category]}</label>
+                  <p className="panel-empty">Custom studio controls the body finish. Switch to OEM to pick a catalog colour.</p>
+                </section>
+              );
+            }
+            return (
             <section className="control-section" key={category}>
               <label>{CATEGORY_LABELS[category]}</label>
-              <div className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"}>
-                {options.map((option) => (
+              <div className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"} data-testid={category === "paint" ? "oem-paint-swatches" : undefined}>
+                {visibleOptions.map((option) => (
                   <CustomizationButton
                     key={option.id}
                     option={option}
@@ -784,9 +814,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   />
                 ))}
               </div>
-              {options.length === 0 ? <p className="panel-empty">No matching options in this system.</p> : null}
+              {visibleOptions.length === 0 ? <p className="panel-empty">No matching options in this system.</p> : null}
             </section>
-          ))}
+            );
+          })}
 
           <section className="control-section">
             <label>Lift height</label>
@@ -920,6 +951,7 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
       gradeId: deepLink.gradeId,
       selections: deepLink.selections,
       cameraState: deepLink.cameraState,
+      paintStudio: deepLink.paintStudio,
     });
     rememberConfigurationId(vehicle.slug, created.configurationId);
     return created;

@@ -63,3 +63,21 @@ test("builder chrome renders consistently (3D canvas masked out)", async ({ page
   await page.waitForLoadState("networkidle");
   expect(errors).toEqual([]);
 });
+
+test("paint studio OEM preset chrome renders consistently", async ({ page }) => {
+  const errors = collectPageErrors(page);
+  await page.goto("4runner/");
+  await page.waitForSelector("[data-testid='paint-studio']");
+  await page.waitForSelector("[data-testid='oem-paint-swatches'] button");
+  // Select the Blueprint OEM paint swatch (first swatch) for a stable preset.
+  const swatches = page.locator("[data-testid='oem-paint-swatches'] button");
+  await swatches.first().click();
+  await expect(page.locator("[data-testid='paint-mode-oem']")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-testid='paint-hdri-presets'] button").first()).toBeVisible();
+  await expect(page).toHaveScreenshot("paint-studio-oem.png", {
+    ...SCREENSHOT_OPTIONS,
+    mask: [page.locator(".vehicle-canvas")],
+  });
+  await page.waitForLoadState("networkidle");
+  expect(errors).toEqual([]);
+});

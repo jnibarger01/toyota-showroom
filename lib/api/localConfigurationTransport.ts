@@ -63,6 +63,7 @@ export const localConfigurationTransport = {
       gradeId: validated.gradeId,
       selections: validated.selections,
       cameraState: validated.cameraState,
+      paintStudio: validated.paintStudio,
       revision: 1,
       schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
       createdAt: now,
@@ -97,6 +98,7 @@ export const localConfigurationTransport = {
     const validated: ValidatedPatch = validatePatchConfiguration(patch, {
       vehicleId: existing.vehicleId,
       gradeId: existing.gradeId,
+      selections: existing.selections,
     });
 
     if (validated.expectedRevision !== undefined && validated.expectedRevision !== existing.revision) {
@@ -109,6 +111,7 @@ export const localConfigurationTransport = {
       ...existing,
       selections: validated.selections ?? existing.selections,
       cameraState: validated.cameraState ?? existing.cameraState,
+      paintStudio: validated.paintStudio ?? existing.paintStudio,
       revision: existing.revision + 1,
       updatedAt: new Date().toISOString(),
     };
