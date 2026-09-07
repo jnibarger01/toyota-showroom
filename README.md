@@ -42,7 +42,11 @@ contract: a React control calls `configurationStore.selectOption(option)`, which
 mutates the scene via `VehicleSceneController`, and persists the selection by option id.
 
 See **[`docs/INTEGRATION_GUIDE.md`](docs/INTEGRATION_GUIDE.md)** for the schema, the GLB node and
-material naming contract, endpoint design, and the restoration flow.
+material naming contract, endpoint design, and the restoration flow — §19 covers semantic scene
+identity, BVH-accelerated part picking, and the agent-authorable scene API layered on top of it
+(`docs/AGENT_API.md`), plus the evidence behind the asset pipeline and compression choices
+(`docs/ASSET_PIPELINE_REPORT.md`, `docs/COMPRESSION_BENCHMARK.md`, `docs/KTX2_EVALUATION.md`,
+`docs/POSTPROCESSING_EVALUATION.md`).
 
 ## Run
 

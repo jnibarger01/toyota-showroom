@@ -1786,4 +1786,77 @@ WebGPU/WebGL render path; `canvas.dataset.frameStats` exposes a short summary.
 **Idle suspend.** `lib/three/canvasIdle.ts` pauses rendering when the document is hidden or the
 canvas host is not intersecting the viewport, and resumes cleanly.
 
+## 19. Semantic Scene Identity, BVH Picking, and the Agent-Authorable API
+
+The "evolve into a production-grade agent-authorable 3D vehicle platform" mission. Extends
+`VehicleSceneController` from a mutation-only API (§6) into the runtime's formal boundary for
+*identity* (what is this part, where is it) and *interaction* (what did the user click), on top of
+the same architecture — no renderer swap, no React Three Fiber, nothing here changes how §1's
+diagram looks at the top level.
+
+**Semantic scene identity.** `lib/types/sceneMap.ts` declares a `SceneMapEntry[]` per vehicle
+(`lib/data/sceneMap/{4runner,ae86}.ts`) mapping GLB node/material names to stable semantic IDs
+(`wheel.front-left`, `body.exterior`, `headlight.assembly`, ...) — the same "declare the contract,
+verify it against the real asset" shape §3's node-contract already uses for customization options,
+now for identity rather than behavior. `lib/three/sceneRegistry.ts`'s `SceneRegistry`
+(register/unregister/get/has/findByType/findByCapability) is populated by `buildSceneRegistry`,
+which resolves each entry against the loaded root and reports the ones that don't resolve —
+forward-declared parts (door, mirror, badge, roof, interior — this GLB has no separate geometry for
+them yet) or vehicles with no scene map at all (Camry, Tacoma: `hasModel: false`) degrade to "not
+found" rather than throwing. `VehicleSceneController` builds its own registry at construction from
+an optional third constructor argument, defaulting to empty so every pre-existing call site keeps
+compiling unchanged.
+
+**BVH-accelerated picking.** `lib/three/picking.ts`'s `VehiclePicker` wraps `three-mesh-bvh`
+(`computeBoundsTree`/`acceleratedRaycast`, the library's documented `Mesh.prototype`/
+`BufferGeometry.prototype` integration point) and resolves a raycast hit to a `SceneRegistry`
+semantic ID — disambiguating a multi-material mesh (`BODY`'s ten material slots) by the hit face's
+material index. `VehicleSceneController.pickAt(pointer, camera)` is the one entry point a consumer
+needs; nothing outside the controller holds a `THREE.Raycaster`. `VehicleCanvas.tsx` wires pointer
+hover (rAF-gated to one raycast/frame) and click/tap selection, with a 6px drag threshold and
+single-`activePointerId` tracking so an `OrbitControls` drag or a two-finger pinch never fires a
+selection, plus a `]`/`[`/`Enter`/`Escape` keyboard equivalent. `lib/three/highlight.ts`'s
+`PartHighlighter` gives hover/selection a visual tint via a per-mesh material clone — the same
+clone-on-write discipline `MaterialWriter` (§6) already uses, for the same reason: `wheel.metal` is
+shared across the front wheel pair, and tinting it directly would highlight both.
+
+**The asset pipeline now verifies the scene-map contract, not just node names.**
+`scripts/asset-pipeline-report.ts` (read-only; `scripts/optimize-models.mjs`, §15, remains the only
+script that writes `public/models/*`) inspects every shipped GLB — mesh/triangle/material/texture
+counts, largest textures, detected compression extension, and a `SceneMapContract` check
+(`lib/tooling/sceneMapContract.ts`, the same registry-validation logic reimplemented against the
+dependency-free `GlbInspection` parse so it runs with no WebGL context) — and writes
+`docs/ASSET_PIPELINE_REPORT.md` as evidence. `npm run assets:report` runs it with
+`--fail-on-contract-violation`; `tests/assetPipelineReport.test.ts` runs the same check on every
+`vitest run` against the real committed assets, so a re-exported GLB that silently drops a node a
+scene map depends on fails CI instead of only failing the first time a browser loads it.
+
+**Compression strategy is evidence-backed, not assumed.** `scripts/benchmark-compression.mjs`
+benchmarked `EXT_meshopt_compression` against this repo's current Draco settings on the real
+committed assets — raw *and* gzip-compressed size, since Draco's buffers are already
+near-entropy-limit while Meshopt's are designed to compress well under a downstream gzip pass.
+Result, in `docs/COMPRESSION_BENCHMARK.md`: Draco wins decisively on every asset, both raw and
+post-gzip. **Draco stays; Meshopt was not adopted.** KTX2/Basis Universal was evaluated
+(`docs/KTX2_EVALUATION.md`) and deferred for two independent reasons: no `toktx`/`basisu` tooling
+is reachable in this environment (checked directly, not assumed), and the entire texture payload
+across every shipped vehicle is 167 KiB — smaller than one texture KTX2 is meant to shrink.
+Postprocessing (`docs/POSTPROCESSING_EVALUATION.md`) was evaluated and deferred too: no GPU is
+available here to measure real frame-time cost, and three.js's WebGL (`EffectComposer`) and WebGPU
+(`three/webgpu`'s node-based `PostProcessing`) postprocessing systems are structurally
+non-interoperable, so adopting an effect would mean implementing and testing it twice against this
+app's dual-renderer selection (§1) or accepting a silent gap on whichever path doesn't get it.
+
+**The agent-authorable boundary.** `lib/agent/sceneApi.ts`'s `VehicleSceneAgentApi` — documented in
+full in `docs/AGENT_API.md` — is the typed local capability layer a future governed MCP adapter
+would expose to an agent, built entirely on the runtime API above. `read.*` returns only
+serializable data (never a `THREE.Object3D`); `mutate.*` resolves an opaque catalog `optionId`
+through `controller.getOption`, never a raw node/material name or asset URL supplied by the caller.
+It is not wired to MCP — every capability is called from plain TypeScript today, and stays that way
+whether or not an MCP server is ever built on top. Camera/environment/lighting/showroom capabilities
+the mission's example vocabulary names are **not** implemented: that state lives in
+`VehicleCanvas`/`BuilderApp` React props and `useState`, not on `VehicleSceneController`, and
+`docs/AGENT_API.md` records why building them now would mean either a silent no-op or this module
+reaching into component internals — both worse than the documented seam (`scene.focusPart`, which
+already returns the world-space bounding info a future camera controller would need).
+
 Budgets and acceptance notes: `docs/PERF_BUDGETS.md`.
