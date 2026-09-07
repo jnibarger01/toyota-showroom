@@ -119,6 +119,8 @@ export const tacoma: Vehicle = {
     // (lib/three/proceduralParts.ts) still needs *somewhere* to point the camera at.
     cameraPresets: [
       { id: "hero", label: "Hero", position: [7.5, 4.0, 8.5], target: [0, 1.1, 0] },
+      { id: "wheels", label: "Wheels", position: [4.5, 1.05, 4.8], target: [-0.9, 0.55, 1.3] },
+      { id: "interior", label: "Interior", position: [5.2, 2.35, 1.1], target: [0, 1.35, 0] },
       { id: "front", label: "Front", position: [0, 2.2, -10], target: [0, 1.0, 0] },
       { id: "side", label: "Side", position: [10, 2.2, 0], target: [0, 1.0, 0] },
       { id: "rear", label: "Rear", position: [0, 2.2, 10], target: [0, 1.0, 0] },

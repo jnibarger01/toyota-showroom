@@ -20,6 +20,8 @@ import {
   Mountain,
   Map,
   PaintBucket,
+  Pause,
+  Play,
   RotateCcw,
   Search,
   Shuffle,
@@ -34,7 +36,7 @@ import {
   X,
   ZoomIn,
 } from "lucide-react";
-import type { CameraPreset } from "./VehicleCanvas";
+import type { CameraPreset, TourAction, TourStatus } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
@@ -138,6 +140,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [termMonths, setTermMonths] = useState(60);
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
   const [tourOpen, setTourOpen] = useState(false);
+  /** Cinematic camera tour (hero → wheels → interior), distinct from the onboarding tour card. */
+  const [cinematicTourStatus, setCinematicTourStatus] = useState<TourStatus>("idle");
+  const [cinematicTourAction, setCinematicTourAction] = useState<TourAction | null>(null);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const controllerRef = useRef<VehicleSceneController | null>(null);
   const stageRef = useRef<HTMLElement>(null);
@@ -244,6 +249,27 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   );
 
   const handleSceneError = useCallback((message: string) => setLoadError(message), []);
+
+  const dispatchCinematicTour = useCallback((type: TourAction["type"]) => {
+    setCinematicTourAction({ seq: Date.now(), type });
+  }, []);
+
+  const toggleCinematicTour = useCallback(() => {
+    if (cinematicTourStatus === "playing") {
+      dispatchCinematicTour("pause");
+      return;
+    }
+    dispatchCinematicTour("play");
+  }, [cinematicTourStatus, dispatchCinematicTour]);
+
+  const handleTourStep = useCallback((next: CameraPreset) => {
+    setPreset(next);
+    configurationStore.setCameraState({
+      presetId: next.id,
+      position: next.position,
+      target: next.target,
+    });
+  }, []);
 
   /**
    * Switches the active grade. `gradeId` is immutable on a persisted configuration (the server
@@ -630,6 +656,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   key={item.id}
                   className={preset.id === item.id ? "selected" : ""}
                   onClick={() => {
+                    // Manual preset picks cancel an in-flight tour so OrbitControls / preset GSAP
+                    // take over cleanly instead of racing the timeline.
+                    if (cinematicTourStatus !== "idle") {
+                      dispatchCinematicTour("cancel");
+                    }
                     setPreset(item);
                     configurationStore.setCameraState({
                       presetId: item.id,
@@ -641,6 +672,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   {item.label}
                 </button>
               ))}
+              <button
+                type="button"
+                data-testid="cinematic-tour-toggle"
+                className={cinematicTourStatus !== "idle" ? "selected" : ""}
+                aria-pressed={cinematicTourStatus === "playing"}
+                title={cinematicTourStatus === "playing" ? "Pause cinematic tour" : "Play cinematic tour"}
+                onClick={toggleCinematicTour}
+              >
+                {cinematicTourStatus === "playing" ? <Pause size={14} /> : <Play size={14} />}
+                <span>{cinematicTourStatus === "playing" ? "Pause" : cinematicTourStatus === "paused" ? "Resume" : "Tour"}</span>
+              </button>
             </div>
             <div className="viewport-actions">
               <button title="Zoom"><ZoomIn size={17} /></button>
@@ -678,6 +720,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}
+              tourAction={cinematicTourAction}
+              onTourStatusChange={setCinematicTourStatus}
+              onTourStep={handleTourStep}
             />
             </Suspense>
           </CanvasErrorBoundary>

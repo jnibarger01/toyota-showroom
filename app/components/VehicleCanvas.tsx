@@ -24,7 +24,15 @@ import {
 } from "../../lib/three/progressiveLoad";
 import { QualityGovernor } from "../../lib/three/qualityGovernor";
 import { motionDuration, prefersReducedMotion } from "../../lib/three/motionPreference";
+import {
+  createCinematicTour,
+  type CinematicTour,
+  type TourStatus,
+} from "../../lib/three/cinematicTour";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
+
+export type { TourStatus };
+export type TourAction = { seq: number; type: "play" | "pause" | "cancel" };
 
 export type CameraPreset = {
   id: string;
@@ -72,12 +80,24 @@ type Props = {
    * `Content-Encoding: gzip` often does not, and inventing a percentage is worse than showing none.
    */
   onProgress?: (fraction: number) => void;
+  /**
+   * Imperative tour command from builder chrome. Each click bumps `seq` so play→pause→play
+   * replays even when `type` repeats. The canvas owns the GSAP timeline; the parent only
+   * mirrors status for the Play/Pause control.
+   */
+  tourAction?: TourAction | null;
+  onTourStatusChange?: (status: TourStatus) => void;
+  /** Fired as each catalog preset becomes the tour's current shot (toolbar highlight + cameraState). */
+  onTourStep?: (preset: CameraPreset) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, onReady, onError, onProgress }: Props) {
+export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
+  const tourRef = useRef<CinematicTour | null>(null);
+  /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
+  const tourActiveRef = useRef(false);
   const rootRef = useRef<THREE.Object3D | null>(null);
   /** Grounded `position.y` from `prepareVehicleRoot`; lift is applied relative to it. */
   const groundedYRef = useRef(0);
@@ -98,6 +118,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   const onErrorRef = useRef(onError);
   const onProgressRef = useRef(onProgress);
   const catalogRef = useRef(catalog);
+  const onTourStatusChangeRef = useRef(onTourStatusChange);
+  const onTourStepRef = useRef(onTourStep);
   // Read by the Home-key handler, which lives in the run-once setup effect and so cannot close over
   // the prop directly — it would reset to whichever preset was active at mount.
   const cameraPresetRef = useRef(cameraPreset);
@@ -107,7 +129,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     onProgressRef.current = onProgress;
     catalogRef.current = catalog;
     cameraPresetRef.current = cameraPreset;
-  }, [cameraPreset, catalog, onError, onProgress, onReady]);
+    onTourStatusChangeRef.current = onTourStatusChange;
+    onTourStepRef.current = onTourStep;
+  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -150,6 +174,28 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       controls.maxPolarAngle = Math.PI * 0.49;
       controls.target.set(...cameraPreset.target);
       controlsRef.current = controls;
+
+      // Cinematic tour seizes these controls while playing; pointer/wheel on the canvas cancels.
+      tourRef.current = createCinematicTour(
+        {
+          cameraPosition: camera.position,
+          cameraTarget: controls.target,
+          setControlsEnabled: (enabled) => {
+            controls.enabled = enabled;
+          },
+          domElement: renderer.domElement,
+        },
+        threeDConfig.cameraPresets,
+        {
+          onStatusChange: (status) => {
+            tourActiveRef.current = status !== "idle";
+            onTourStatusChangeRef.current?.(status);
+          },
+          onStep: (preset) => {
+            onTourStepRef.current?.(preset);
+          },
+        },
+      );
 
       const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 1.8);
       scene.add(hemi);
@@ -242,6 +288,12 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         // Never swallow a modified key: those are browser and OS shortcuts, and stealing
         // Cmd/Ctrl+arrow from a keyboard user is a worse bug than the one this fixes.
         if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+        // Keyboard orbit is the same hand-off as pointer: cancel the tour first so GSAP and the
+        // spherical write never fight over camera.position for a frame.
+        if (tourRef.current && tourRef.current.status !== "idle") {
+          tourRef.current.cancel();
+        }
 
         const offset = camera.position.clone().sub(controls.target);
         const spherical = new THREE.Spherical().setFromVector3(offset);
@@ -450,6 +502,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         running = false;
         cancelPendingRaf();
         uninstallMetricsFlush();
+        tourRef.current?.dispose();
+        tourRef.current = null;
+        tourActiveRef.current = false;
         host.removeEventListener("keydown", handleKeyDown);
         canvasElement.removeEventListener("webglcontextlost", handleContextLost);
         canvasElement.removeEventListener("webglcontextrestored", handleContextRestored);
@@ -628,6 +683,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     const camera = cameraRef.current;
     const controls = controlsRef.current;
     if (!camera || !controls) return;
+    // Tour owns the same vectors via its timeline; a toolbar highlight update from onTourStep must
+    // not start a parallel tween that fights it.
+    if (tourActiveRef.current) return;
 
     // The longest movement on the stage, and the one most likely to provoke motion sickness: the
     // camera swings bodily across the scene. Under reduced motion it cuts, preserving the
@@ -648,6 +706,22 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       ease: "power3.inOut",
     });
   }, [cameraPreset]);
+
+  // Builder chrome play/pause/cancel — seq bumps so repeated identical actions still fire.
+  useEffect(() => {
+    if (!tourAction) return;
+    const tour = tourRef.current;
+    if (!tour) return;
+    if (tourAction.type === "play") tour.play();
+    else if (tourAction.type === "pause") tour.pause();
+    else tour.cancel();
+  }, [tourAction]);
+
+  useEffect(() => {
+    // Keep the tour path in sync if the vehicle's catalog presets change (vehicle switch remounts
+    // the canvas via threeDConfig, but setPresets is cheap insurance for hot catalog edits).
+    tourRef.current?.setPresets(threeDConfig.cameraPresets);
+  }, [threeDConfig.cameraPresets]);
 
   useEffect(() => {
     if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, environmentPreset);

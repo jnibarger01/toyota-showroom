@@ -86,6 +86,16 @@ describe("VehicleCanvas animation call sites", () => {
     ).toEqual([]);
   });
 
+  it("routes cinematic tour gsap durations through motionDuration", () => {
+    const tourSource = readFileSync(path.join(process.cwd(), "lib/three/cinematicTour.ts"), "utf8");
+    const rawDurations = tourSource.match(/duration:\s*[\d.]+/g) ?? [];
+    expect(
+      rawDurations,
+      "cinematicTour: a gsap duration is hard-coded instead of passing through motionDuration().",
+    ).toEqual([]);
+    expect(tourSource).toContain("motionDuration(");
+  });
+
   it("makes damping conditional on the preference", () => {
     // Damping is inertia — the scene keeps moving after the user stops dragging — which is exactly
     // the motion the preference covers, and it is not a gsap tween so the check above misses it.

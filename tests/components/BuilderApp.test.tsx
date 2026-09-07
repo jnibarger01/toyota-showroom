@@ -25,7 +25,13 @@ const { fakeController } = vi.hoisted(() => ({
 }));
 
 vi.mock("../../app/components/VehicleCanvas", () => ({
-  VehicleCanvas: (props: { catalog: unknown[]; onReady: (controller: unknown, applicable: unknown[]) => void }) => {
+  VehicleCanvas: (props: {
+    catalog: unknown[];
+    onReady: (controller: unknown, applicable: unknown[]) => void;
+    tourAction?: { seq: number; type: "play" | "pause" | "cancel" } | null;
+    onTourStatusChange?: (status: "idle" | "playing" | "paused") => void;
+    onTourStep?: (preset: { id: string; label: string; position: [number, number, number]; target: [number, number, number] }) => void;
+  }) => {
     useEffect(() => {
       props.onReady(fakeController, props.catalog);
       // Deliberately once: BuilderApp's own contract is that the base model is not reloaded for
@@ -33,6 +39,24 @@ vi.mock("../../app/components/VehicleCanvas", () => ({
       // #9) — re-firing onReady on every prop change would silently mask a regression there.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    // Mirror the real canvas tour command surface so chrome play/pause tests do not need WebGPU.
+    useEffect(() => {
+      if (!props.tourAction) return;
+      if (props.tourAction.type === "play") {
+        props.onTourStatusChange?.("playing");
+        props.onTourStep?.({
+          id: "wheels",
+          label: "Wheels",
+          position: [4.5, 1.05, 4.8],
+          target: [-0.9, 0.55, 1.3],
+        });
+      } else if (props.tourAction.type === "pause") {
+        props.onTourStatusChange?.("paused");
+      } else {
+        props.onTourStatusChange?.("idle");
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- stub mirrors tourAction only
+    }, [props.tourAction]);
     return <div data-testid="vehicle-canvas" />;
   },
 }));
@@ -259,5 +283,34 @@ describe("BuilderApp", () => {
     expect(expected).toBe(53_900 + 425 + 1_150);
     await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expected.toLocaleString()}`));
     expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expected.toLocaleString()}`);
+  });
+
+  it("plays and pauses the cinematic tour from builder chrome", async () => {
+    await renderBuilderReady();
+
+    const toggle = await screen.findByTestId("cinematic-tour-toggle");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveTextContent(/Tour/i);
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(toggle).toHaveTextContent(/Pause/i);
+    expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("wheels");
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveTextContent(/Resume/i));
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("cancels the cinematic tour when a camera preset is chosen manually", async () => {
+    await renderBuilderReady();
+
+    const toggle = await screen.findByTestId("cinematic-tour-toggle");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+
+    fireEvent.click(screen.getByRole("button", { name: /^Hero$/i }));
+    await waitFor(() => expect(toggle).toHaveTextContent(/Tour/i));
+    expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("hero");
   });
 });

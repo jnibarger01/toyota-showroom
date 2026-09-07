@@ -111,6 +111,8 @@ export const ae86: Vehicle = {
     // manual pass to fine-tune framing is a documented follow-up.
     cameraPresets: [
       { id: "hero", label: "Hero", position: [5.0, 2.2, 5.5], target: [0, 0.55, 0] },
+      { id: "wheels", label: "Wheels", position: [3.0, 0.65, 3.1], target: [-0.55, 0.35, 0.85] },
+      { id: "interior", label: "Interior", position: [3.6, 1.35, 0.7], target: [0, 0.75, 0] },
       { id: "front", label: "Front", position: [0, 1.4, -6.5], target: [0, 0.5, 0] },
       { id: "side", label: "Side", position: [6.5, 1.4, 0], target: [0, 0.5, 0] },
       { id: "rear", label: "Rear", position: [0, 1.4, 6.5], target: [0, 0.5, 0] },
