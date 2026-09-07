@@ -176,6 +176,7 @@ button { font: inherit; color: inherit; }
 .camera-group button, .viewport-actions button {
   border: 0; background: transparent; height: 32px; border-radius: 7px; padding: 0 9px; color: #9aa4b0; font-size: 11px;
 }
+.camera-group button { display: inline-flex; align-items: center; gap: 4px; }
 .camera-group button.selected { background: #2b333e; color: white; }
 .viewport-actions button { width: 34px; padding: 0; display: grid; place-items: center; }
 .gpu-status {

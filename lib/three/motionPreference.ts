@@ -1,8 +1,8 @@
 /**
  * Respects `prefers-reduced-motion` across the showroom's animated surfaces.
  *
- * The 3D stage animates in four places — ride-height changes, camera preset moves, the
- * placeholder-to-vehicle cross-fade, and OrbitControls' inertial damping — and none of them
+ * The 3D stage animates in five places — ride-height changes, camera preset moves, the
+ * cinematic tour timeline, the placeholder-to-vehicle cross-fade, and OrbitControls' inertial damping — and none of them
  * consulted the user's motion preference. For someone with a vestibular disorder, a camera that
  * swings across the scene over 0.85 s is not a flourish; it is the specific thing the OS-level
  * setting exists to turn off.
