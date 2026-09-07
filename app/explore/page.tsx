@@ -141,6 +141,10 @@ export default function ExplorePage() {
             <span>SHOWROOM</span>
           </div>
         </a>
+        <nav className="explore-nav">
+          <a href={pageUrl("garage")}>Garage</a>
+          <a href={pageUrl("compare")}>Compare</a>
+        </nav>
         <h1>Explore the lineup</h1>
         <p>Pick a model to open its 3D builder.</p>
       </header>

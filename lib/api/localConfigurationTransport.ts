@@ -163,4 +163,12 @@ export const localConfigurationTransport = {
       // Recovery cleanup must never turn a successful durable write into an error.
     }
   },
+
+  /**
+   * Every configuration currently in this browser's local store — used by the multi-vehicle garage
+   * to list builds when Worker/D1 is unavailable. Read-only; does not require owner tokens.
+   */
+  list(): VehicleConfiguration[] {
+    return Object.values(readStore()).map((record) => record.configuration);
+  },
 };
