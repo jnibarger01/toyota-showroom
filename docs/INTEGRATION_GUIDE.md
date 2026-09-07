@@ -1479,14 +1479,13 @@ D1 migrations to a separate `toyota-showroom-staging` database, then deploys the
 `wrangler.jsonc`'s new `env.staging` block — its own Worker name (`toyota-showroom-staging`), its
 own D1 database, its own rate-limiter namespace (`1002`, distinct from production's `1001` — a
 namespace id is account-scoped, not Worker-scoped, so reusing production's would mean a PR's
-staging traffic and production traffic drew from the same 30-writes/minute budget). Both the
-migration and deploy steps never run — a "Require Cloudflare credentials" step fails the check
-outright with `::error::` when `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repository secrets
-aren't set, so every PR's "Deploy Staging Worker" check is red until they are. (An earlier revision
-skipped gracefully with `::notice::` instead of failing; changed deliberately so the missing
-secrets show up as a red check, not an easy-to-miss log line.) Same underlying gap §1's D1 note
-takes toward credentials this environment doesn't have — both databases are real now; the
-`wrangler`-CLI-authenticated deploy/migrate credentials still aren't.
+staging traffic and production traffic drew from the same 30-writes/minute budget). When `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` repository secrets aren't set, a
+"Check Cloudflare credentials" step emits `::notice::` and sets `skip=true`; migrate and deploy
+steps are skipped and the job **succeeds** (quarantine — missing secrets must not leave PRs
+UNSTABLE). When the secrets *are* present, migrate + deploy still fail hard on real errors.
+Same underlying gap §1's D1 note takes toward credentials this environment doesn't have — both
+databases are real now; the `wrangler`-CLI-authenticated deploy/migrate credentials still aren't.
+See `docs/DEPLOYMENT_RUNBOOK.md` §3 for the restore-required-staging checklist.
 To actually make this deploy something (this repo's own `env.staging.d1_databases[0].database_id`
 is already real — §2's "Status" note — so only the second step is left here):
 

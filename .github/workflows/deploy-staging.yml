@@ -1,9 +1,13 @@
 name: Deploy Staging Worker
 
-# Deploys the /api/v1/** Worker (not the static site — that's .github/workflows/pages.yml, which
-# only ever deploys `main`) to a separate "staging" Cloudflare Worker + D1 database on every pull
-# request, so a change to the API can be exercised against a real Worker before it reaches
-# production. See docs/INTEGRATION_GUIDE.md §12 for what this needs to actually deploy anything.
+# Deploys the /api/v1/** Worker (not the static site — that is .github/workflows/pages.yml, which
+# only ever deploys main) to a separate staging Cloudflare Worker + D1 database on every pull
+# request. See docs/INTEGRATION_GUIDE.md section 12 and docs/DEPLOYMENT_RUNBOOK.md section 3.
+#
+# Staging is optional until Cloudflare credentials are configured. When those secrets are
+# absent the job exits successfully after a notice (quarantine) so open PRs are not UNSTABLE
+# solely due to missing credentials. When secrets ARE present, migrate + deploy still fail
+# hard on real errors — do not use continue-on-error: true for that path.
 on:
   pull_request:
     branches:
@@ -22,29 +26,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-
-      - name: Require Cloudflare credentials
+      - name: Check Cloudflare credentials
+        id: creds
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN" || { echo "::error::Missing CLOUDFLARE_API_TOKEN; staging deployment was not attempted."; exit 1; }
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "::error::Missing CLOUDFLARE_ACCOUNT_ID; staging deployment was not attempted."; exit 1; }
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Staging deploy skipped: CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID are not set. Staging is optional until secrets are configured — see docs/DEPLOYMENT_RUNBOOK.md §3 (quarantine checklist to restore required staging)."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.creds.outputs.skip != 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.creds.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.creds.outputs.skip != 'true'
+        run: npm ci
 
       - name: Apply D1 migrations to staging
+        if: steps.creds.outputs.skip != 'true'
         run: npm run db:migrate:staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Worker to staging
+        if: steps.creds.outputs.skip != 'true'
         run: npm run deploy:staging
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
