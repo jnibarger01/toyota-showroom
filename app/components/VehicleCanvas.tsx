@@ -11,6 +11,9 @@ import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
 import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
+import { getSceneMapForVehicle } from "../../lib/data/sceneMap";
+import { pointerToNdc } from "../../lib/three/picking";
+import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 import {
   collectBrowserDeviceHints,
@@ -59,6 +62,10 @@ export type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 
 type Props = {
   threeDConfig: Vehicle3DConfig;
+  /** Vehicle catalog slug — resolves the semantic scene map (`lib/data/sceneMap`) the controller
+   * builds its `SceneRegistry` from. A slug with no map yields a controller with no addressable
+   * parts, the same graceful-empty behaviour `buildSceneRegistry` gives any partial map. */
+  slug: string;
   /** Full server catalog. Only the options this GLB can satisfy are handed back via `onReady`. */
   catalog: CustomizationOption[];
   cameraPreset: CameraPreset;
@@ -92,9 +99,18 @@ type Props = {
   onTourStatusChange?: (status: TourStatus) => void;
   /** Fired as each catalog preset becomes the tour's current shot (toolbar highlight + cameraState). */
   onTourStep?: (preset: CameraPreset) => void;
+  /**
+   * Fired on every hover change over a semantically-addressable part (`undefined` when the
+   * pointer/keyboard cursor leaves one). Mirrors `VehicleSceneController.hoveredPartId`, which the
+   * canvas already drives — this is how the surrounding configurator chrome finds out without
+   * polling the controller or touching `THREE.Object3D` itself.
+   */
+  onPartHover?: (part: SceneRegistryEntry | undefined) => void;
+  /** Fired on every selection change — a part click/tap/Enter, or a click on empty space/Escape clearing it. */
+  onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -125,6 +141,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   const catalogRef = useRef(catalog);
   const onTourStatusChangeRef = useRef(onTourStatusChange);
   const onTourStepRef = useRef(onTourStep);
+  const onPartHoverRef = useRef(onPartHover);
+  const onPartSelectRef = useRef(onPartSelect);
   // Read by the Home-key handler, which lives in the run-once setup effect and so cannot close over
   // the prop directly — it would reset to whichever preset was active at mount.
   const cameraPresetRef = useRef(cameraPreset);
@@ -136,7 +154,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
     cameraPresetRef.current = cameraPreset;
     onTourStatusChangeRef.current = onTourStatusChange;
     onTourStepRef.current = onTourStep;
-  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep]);
+    onPartHoverRef.current = onPartHover;
+    onPartSelectRef.current = onPartSelect;
+  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -283,6 +303,14 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       resizeObserver.observe(host);
 
       /**
+       * Keyboard cursor into `controller.findPartsByCapability("selectable")` — the "]"/"["/"Enter"
+       * cases below cycle and select through it. A plain index rather than a semantic ID because
+       * the list itself can change (a swapped GLB, a satisfied scene map growing); re-deriving the
+       * list on every keypress and reusing the index is simpler than tracking staleness.
+       */
+      let keyboardPartIndex = -1;
+
+      /**
        * Keyboard orbit, zoom, and reset.
        *
        * OrbitControls' own `listenToKeyEvents` binds the arrows to *panning*, which slides the whole
@@ -334,6 +362,46 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
             controls.update();
             event.preventDefault();
             return;
+          case "]":
+          case "[": {
+            // Keyboard equivalent of pointer hover: cycles a cursor through every selectable
+            // semantic part and previews it with the same hover tint, so a part is reachable and
+            // inspectable without a pointer at all.
+            if (!controller) return;
+            const parts = controller.findPartsByCapability("selectable");
+            if (parts.length === 0) return;
+            keyboardPartIndex = (keyboardPartIndex + (event.key === "]" ? 1 : -1) + parts.length) % parts.length;
+            const part = parts[keyboardPartIndex]!;
+            controller.hoverPart(part.id);
+            canvasElement.dataset.hoveredPart = part.id;
+            onPartHoverRef.current?.(part);
+            event.preventDefault();
+            return;
+          }
+          case "Enter": {
+            // Selects whatever the "]"/"[" cursor is currently on. A no-op (falls through to the
+            // browser default) until that cursor has been used at least once.
+            if (!controller || keyboardPartIndex < 0) return;
+            const part = controller.findPartsByCapability("selectable")[keyboardPartIndex];
+            if (!part) return;
+            controller.selectPart(part.id);
+            canvasElement.dataset.selectedPart = part.id;
+            onPartSelectRef.current?.(part);
+            event.preventDefault();
+            return;
+          }
+          case "Escape": {
+            if (!controller) return;
+            controller.clearSelection();
+            controller.hoverPart(undefined);
+            canvasElement.dataset.selectedPart = "";
+            canvasElement.dataset.hoveredPart = "";
+            keyboardPartIndex = -1;
+            onPartSelectRef.current?.(undefined);
+            onPartHoverRef.current?.(undefined);
+            event.preventDefault();
+            return;
+          }
           default:
             return;
         }
@@ -396,6 +464,101 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       let contactShadow: THREE.Mesh | null = null;
       let controller: VehicleSceneController | null = null;
       const frameStats = new FrameTimeTracker(60);
+
+      /**
+       * Direct part interaction: pointer hover previews a part, a click/tap selects it (or clears
+       * the selection when it misses everything selectable), and dragging to orbit never triggers
+       * either — `three-mesh-bvh`-accelerated picking (`VehicleSceneController.pickAt`) makes the
+       * raycast itself cheap; this block is what keeps it from running when nothing needs it.
+       *
+       * Distinguishing a click from the start of a drag is what makes this safe to layer on top of
+       * `OrbitControls`, which is listening to the same `pointerdown`/`pointermove`/`pointerup`
+       * sequence on this element: a `pointerup` only selects when the pointer moved less than
+       * `DRAG_THRESHOLD_PX` since `pointerdown`, and hover raycasting is suppressed entirely while
+       * the pointer is down and past that threshold, so an orbit drag never fights a hover pick for
+       * the same frame.
+       */
+      const DRAG_THRESHOLD_PX = 6;
+      let pointerDownAt: { x: number; y: number } | null = null;
+      let isDragging = false;
+      let hoverRafPending = false;
+      let lastHoverNdc: THREE.Vector2 | null = null;
+
+      const reportHover = (entry: SceneRegistryEntry | undefined) => {
+        canvasElement.dataset.hoveredPart = entry?.id ?? "";
+        onPartHoverRef.current?.(entry);
+      };
+      const reportSelection = (entry: SceneRegistryEntry | undefined) => {
+        canvasElement.dataset.selectedPart = entry?.id ?? "";
+        onPartSelectRef.current?.(entry);
+      };
+
+      const clearHover = () => {
+        lastHoverNdc = null;
+        if (!controller) return;
+        controller.hoverPart(undefined);
+        reportHover(undefined);
+      };
+
+      // Bounded cost: at most one raycast per animation frame no matter how many pointermove
+      // events the browser delivers in between (touchpads and high-polling mice can fire well
+      // past 60/s).
+      const scheduleHoverPick = () => {
+        if (hoverRafPending) return;
+        hoverRafPending = true;
+        requestAnimationFrame(() => {
+          hoverRafPending = false;
+          if (!controller || !lastHoverNdc) return;
+          const result = controller.pickAt(lastHoverNdc, camera);
+          controller.hoverPart(result?.entry.id);
+          reportHover(result?.entry);
+        });
+      };
+
+      const isPrimaryPointer = (event: PointerEvent) => event.pointerType !== "mouse" || event.button === 0;
+
+      const handlePointerDown = (event: PointerEvent) => {
+        if (!isPrimaryPointer(event)) return;
+        pointerDownAt = { x: event.clientX, y: event.clientY };
+        isDragging = false;
+      };
+
+      const handlePointerMove = (event: PointerEvent) => {
+        if (pointerDownAt) {
+          const dx = event.clientX - pointerDownAt.x;
+          const dy = event.clientY - pointerDownAt.y;
+          if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) isDragging = true;
+          return; // Orbiting (or about to be) — no hover raycast until the pointer is released.
+        }
+        lastHoverNdc = pointerToNdc(event.clientX, event.clientY, canvasElement.getBoundingClientRect());
+        scheduleHoverPick();
+      };
+
+      const handlePointerUp = (event: PointerEvent) => {
+        const downAt = pointerDownAt;
+        const wasDragging = isDragging;
+        pointerDownAt = null;
+        isDragging = false;
+        if (!downAt || wasDragging || !controller || !isPrimaryPointer(event)) return;
+
+        const ndc = pointerToNdc(event.clientX, event.clientY, canvasElement.getBoundingClientRect());
+        const result = controller.pickAt(ndc, camera);
+        controller.selectPart(result?.entry.id);
+        reportSelection(result?.entry);
+        keyboardPartIndex = -1; // A pointer selection invalidates the keyboard cursor's meaning.
+      };
+
+      const handlePointerLeave = () => {
+        pointerDownAt = null;
+        isDragging = false;
+        clearHover();
+      };
+
+      canvasElement.addEventListener("pointerdown", handlePointerDown);
+      canvasElement.addEventListener("pointermove", handlePointerMove);
+      canvasElement.addEventListener("pointerup", handlePointerUp);
+      canvasElement.addEventListener("pointerleave", handlePointerLeave);
+      canvasElement.addEventListener("pointercancel", handlePointerLeave);
 
       /**
        * Applies a quality tier to the live renderer and scene.
@@ -515,6 +678,11 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         host.removeEventListener("keydown", handleKeyDown);
         canvasElement.removeEventListener("webglcontextlost", handleContextLost);
         canvasElement.removeEventListener("webglcontextrestored", handleContextRestored);
+        canvasElement.removeEventListener("pointerdown", handlePointerDown);
+        canvasElement.removeEventListener("pointermove", handlePointerMove);
+        canvasElement.removeEventListener("pointerup", handlePointerUp);
+        canvasElement.removeEventListener("pointerleave", handlePointerLeave);
+        canvasElement.removeEventListener("pointercancel", handlePointerLeave);
         idleGate.dispose();
         resizeObserver.disconnect();
         hdriHandleRef.current?.dispose();
@@ -556,7 +724,16 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
             { missingNodes: entry.missingNodes, missingMaterials: entry.missingMaterials },
           );
         }
-        controller = new VehicleSceneController(root, report.satisfied);
+        controller = new VehicleSceneController(root, report.satisfied, getSceneMapForVehicle(slug));
+        for (const unsatisfied of controller.sceneMapReport.unsatisfied) {
+          // Distinct wording from the customization-option warning just above on purpose: a
+          // forward-declared scene-map entry with no matching geometry yet (tests/e2e/model-
+          // integrity.spec.ts asserts zero of *those*) is an expected, documented state for a part
+          // this GLB doesn't model separately — not the same failure as a catalog option whose
+          // node the asset pipeline accidentally dropped.
+          console.warn(`[scene] part "${unsatisfied.entry.id}" has no matching geometry in this asset: ${unsatisfied.reason}`);
+        }
+        keyboardPartIndex = -1;
         onReadyRef.current(controller, report.satisfied);
       };
 
@@ -777,7 +954,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
       role="group"
       aria-label={
         "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
-        "and Home to return to the selected camera angle."
+        "and Home to return to the selected camera angle. Use the right and left bracket keys " +
+        "to cycle through selectable vehicle parts, Enter to select the highlighted part, and " +
+        "Escape to clear the selection. Click or tap a part directly to select it."
       }
     />
   );

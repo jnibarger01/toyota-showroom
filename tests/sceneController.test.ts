@@ -337,3 +337,29 @@ describe("hover and selection highlighting", () => {
     expect(controller.selectedPartId).toBeUndefined();
   });
 });
+
+describe("pickAt", () => {
+  it("resolves a raycast through the same registry backing getPart/selectPart", () => {
+    const { controller } = makeSemanticController();
+    const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
+    // BoxGeometry's material groups are [+x, -x, +y, -y, +z, -z]; slot 0 ("body.carmain") is +x.
+    camera.position.set(10, 0, 0);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld(true);
+
+    const result = controller.pickAt(new THREE.Vector2(0, 0), camera);
+    expect(result?.entry.id).toBe("body.exterior");
+  });
+
+  it("returns null for a miss", () => {
+    const { controller } = makeSemanticController();
+    const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100);
+    // Looking further away from the origin, not at it — every fixture mesh sits within a few
+    // units of (0,0,0), so this ray passes nowhere near any of them.
+    camera.position.set(50, 50, 50);
+    camera.lookAt(60, 60, 60);
+    camera.updateMatrixWorld(true);
+
+    expect(controller.pickAt(new THREE.Vector2(0, 0), camera)).toBeNull();
+  });
+});

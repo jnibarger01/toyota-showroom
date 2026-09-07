@@ -54,6 +54,7 @@ import {
   type VehicleConfiguration,
 } from "../../lib/types/customization";
 import type { VehicleSceneController } from "../../lib/three/sceneController";
+import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
 import {
   calculateBuildProgress,
   createRandomSelections,
@@ -167,6 +168,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
    * when the response has no Content-Length to measure against.
    */
   const [modelProgress, setModelProgress] = useState<number | null>(null);
+  /** Mirrors `VehicleSceneController.selectedPartId` — a click/tap/keyboard selection in the 3D
+   * viewport, surfaced here so the configurator chrome can react without touching Three.js. */
+  const [selectedPart, setSelectedPart] = useState<SceneRegistryEntry | undefined>(undefined);
 
   const { configuration, catalog, status, error } = useConfiguration();
   const persistenceMode = usePersistenceMode();
@@ -721,6 +725,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
             <VehicleCanvas
               threeDConfig={vehicle.threeDConfig}
+              slug={vehicle.slug}
               catalog={bootstrap.catalog}
               cameraPreset={preset}
               lift={lift}
@@ -733,9 +738,25 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               tourAction={cinematicTourAction}
               onTourStatusChange={setCinematicTourStatus}
               onTourStep={handleTourStep}
+              onPartSelect={setSelectedPart}
             />
             </Suspense>
           </CanvasErrorBoundary>
+          {selectedPart && (
+            <div className="selected-part-badge">
+              <span>{selectedPart.label}</span>
+              <button
+                type="button"
+                aria-label={`Deselect ${selectedPart.label}`}
+                onClick={() => {
+                  controllerRef.current?.clearSelection();
+                  setSelectedPart(undefined);
+                }}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
           {modelProgress !== null && modelProgress < 1 && (
             <div
               className="model-progress"

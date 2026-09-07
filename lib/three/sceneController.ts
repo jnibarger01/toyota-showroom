@@ -17,6 +17,7 @@ import {
 import { buildSceneRegistry, SceneRegistry, type SceneMapReport } from "./sceneRegistry";
 import { PartHighlighter, type HighlightState } from "./highlight";
 import type { SceneMapEntry } from "../types/sceneMap";
+import { VehiclePicker, type PickResult } from "./picking";
 
 /**
  * Owns every mutation applied to a loaded vehicle scene.
@@ -31,6 +32,7 @@ export class VehicleSceneController {
   private readonly catalog: Map<string, CustomizationOption>;
   private readonly highlighter = new PartHighlighter();
   private readonly registry: SceneRegistry;
+  private readonly picker: VehiclePicker;
   readonly sceneMapReport: SceneMapReport;
   private hoveredId: string | undefined;
   private selectedId: string | undefined;
@@ -47,6 +49,18 @@ export class VehicleSceneController {
     const built = buildSceneRegistry(root, sceneMap);
     this.registry = built.registry;
     this.sceneMapReport = built.report;
+    this.picker = new VehiclePicker(this.registry);
+    this.picker.prepare(root);
+  }
+
+  /**
+   * Accelerated raycast pick, resolved to a semantic part — the one entry point consumers need for
+   * "what did the user click", so nothing outside this controller has to hold its own
+   * `THREE.Raycaster` or reach into `root` directly. `pointer` is normalized device coordinates
+   * (each axis in [-1, 1]; `pointerToNdc` in `lib/three/picking.ts` converts a client-space event).
+   */
+  pickAt(pointer: THREE.Vector2, camera: THREE.Camera): PickResult | null {
+    return this.picker.pick(pointer, camera, this.root);
   }
 
   getOption(optionId: string): CustomizationOption | undefined {
@@ -244,6 +258,10 @@ export class VehicleSceneController {
     for (const mount of mounts) {
       attachToMount(mount, instantiateAsset(source), option.id);
     }
+    // Newly-mounted geometry has no bounds tree yet; `prepare` only builds one for meshes that
+    // don't already have it, so this is cheap for every mesh already covered by the constructor's
+    // initial pass.
+    this.picker.prepare(this.root);
     return true;
   }
 
@@ -307,6 +325,7 @@ export class VehicleSceneController {
     this.highlighter.clearAll();
     this.hoveredId = undefined;
     this.selectedId = undefined;
+    this.picker.dispose();
     for (const option of this.catalog.values()) {
       for (const mount of resolveNodes(this.root, option.mountNodes ?? []).found) {
         detachFromMount(mount);
