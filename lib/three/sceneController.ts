@@ -8,6 +8,12 @@ import {
 import { MaterialWriter } from "./materials";
 import { resolveMeshes, resolveNodes } from "./nodes";
 import { attachToMount, detachFromMount, disposeSubtree, instantiateAsset, loadAsset } from "./assets";
+import type { PaintStudioState } from "../types/paintStudio";
+import {
+  materialConfigFromPaintStudio,
+  PAINT_STUDIO_TARGET_MATERIALS,
+  PAINT_STUDIO_TARGET_NODES,
+} from "../data/paintStudio";
 
 /**
  * Owns every mutation applied to a loaded vehicle scene.
@@ -65,6 +71,18 @@ export class VehicleSceneController {
   private restoreDisplaced(option: CustomizationOption): void {
     const { found } = resolveNodes(this.root, option.hidesNodes ?? []);
     for (const node of found) node.visible = true;
+  }
+
+  /**
+   * Applies custom paint-studio material params to the catalog paint slot.
+   * Targets are resolved from the trusted catalog constants — never from the persisted payload.
+   */
+  applyPaintStudio(paintStudio: PaintStudioState | undefined): boolean {
+    if (!paintStudio || paintStudio.mode !== "custom" || !paintStudio.material) return false;
+    const meshes = resolveMeshes(this.root, [...PAINT_STUDIO_TARGET_NODES]);
+    if (meshes.length === 0) return false;
+    const config = materialConfigFromPaintStudio(paintStudio.material);
+    return this.writer.applyMaterialConfig(meshes, [...PAINT_STUDIO_TARGET_MATERIALS], config) > 0;
   }
 
   private applyMaterialUpdate(option: CustomizationOption): boolean {
@@ -142,7 +160,10 @@ export class VehicleSceneController {
    * saved configuration produces the same scene regardless of what was on screen beforehand. That
    * idempotence is what makes a browser refresh reproduce the saved build exactly.
    */
-  async applyConfiguration(selections: SelectionMap): Promise<{ applied: string[]; failed: string[] }> {
+  async applyConfiguration(
+    selections: SelectionMap,
+    paintStudio?: PaintStudioState,
+  ): Promise<{ applied: string[]; failed: string[] }> {
     const applied: string[] = [];
     const failed: string[] = [];
 
@@ -165,6 +186,10 @@ export class VehicleSceneController {
         const ok = await this.applyOption(option);
         (ok ? applied : failed).push(optionId);
       }
+    }
+
+    if (paintStudio?.mode === "custom") {
+      this.applyPaintStudio(paintStudio);
     }
 
     return { applied, failed };

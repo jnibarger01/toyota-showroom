@@ -1,4 +1,5 @@
 import { integer, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
+import type { PaintStudioState } from "../lib/types/paintStudio";
 
 /**
  * Persisted vehicle configurations.
@@ -28,6 +29,8 @@ export const configurations = sqliteTable(
       position: [number, number, number];
       target: [number, number, number];
     } | null>(),
+    /** OEM vs custom paint studio — schema-safe material params + HDRI preset ids (no GLB names). */
+    paintStudio: text("paint_studio", { mode: "json" }).$type<PaintStudioState | null>(),
     /** Incremented on every accepted mutation; drives optimistic-concurrency checks. */
     revision: integer("revision").notNull().default(1),
     schemaVersion: text("schema_version").notNull(),
@@ -49,6 +52,7 @@ export const configurationRevisions = sqliteTable(
     revision: integer("revision").notNull(),
     selections: text("selections", { mode: "json" }).notNull().$type<Record<string, string[]>>(),
     cameraState: text("camera_state", { mode: "json" }),
+    paintStudio: text("paint_studio", { mode: "json" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("configuration_revisions_config_idx").on(table.configurationId, table.revision)],

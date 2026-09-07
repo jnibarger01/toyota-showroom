@@ -8,6 +8,13 @@
       "when": 1785846324334,
       "tag": "0000_worried_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788773480280,
+      "tag": "0001_paint_studio",
+      "breakpoints": true
     }
   ]
 }

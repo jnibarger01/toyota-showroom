@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { invalidBody, notFound } from "../../../../../lib/api/errors";
 import { getConfigurationRepository } from "../../../../../lib/server/configurationRepository";
-import { priceSelections, validatePatchConfiguration } from "../../../../../lib/validation/configuration";
+import { priceConfiguration, validatePatchConfiguration } from "../../../../../lib/validation/configuration";
 import { CUSTOMIZATION_SCHEMA_VERSION, type VehicleConfiguration } from "../../../../../lib/types/customization";
 import { enforceConfigWriteRateLimit } from "../../../../../lib/server/rateLimit";
 import { withRouteTelemetry } from "../../../../../lib/server/apiResponse";
@@ -35,7 +35,7 @@ function respond(record: VehicleConfiguration, status = 200) {
     {
       schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
       data: record,
-      pricing: { optionsTotal: priceSelections(record.vehicleId, record.selections) },
+      pricing: { optionsTotal: priceConfiguration(record.vehicleId, record.selections, record.paintStudio) },
     },
     {
       status,
@@ -82,7 +82,7 @@ export const PATCH = withRouteTelemetry(
       const ownerToken = ownerTokenFrom(request);
       await repository.requireOwner(configurationId, ownerToken);
 
-      const patch = validatePatchConfiguration(await readJson(request), existing);
+      const patch = validatePatchConfiguration(await readJson(request), { vehicleId: existing.vehicleId, gradeId: existing.gradeId, selections: existing.selections });
       return respond(await repository.update(configurationId, patch, ownerToken));
   },
 );

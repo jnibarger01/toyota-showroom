@@ -512,3 +512,13 @@ button { font: inherit; color: inherit; }
   color: #e6ebf2; text-decoration: none; font-size: 13px;
 }
 .not-found-vehicles a:hover { border-color: var(--accent); }
+
+/* Real-time paint studio (#19) */
+.paint-studio label { display: flex; align-items: center; gap: 6px; }
+.paint-studio-sub { margin-top: 12px !important; color: #84909d !important; font-size: 11px !important; }
+.paint-hdri-row { flex-wrap: wrap; }
+.paint-micro-controls { display: grid; gap: 10px; margin-top: 12px; }
+.paint-micro-controls label { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; font-size: 11px; color: #cfd5dc; }
+.paint-micro-controls label span { color: #84909d; font-variant-numeric: tabular-nums; }
+.paint-micro-controls input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: #c45c5c; }
+.paint-micro-controls input[type="color"] { width: 42px; height: 28px; border: 1px solid #343d48; border-radius: 6px; background: transparent; padding: 0; }

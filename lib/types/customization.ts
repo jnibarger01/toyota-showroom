@@ -1,3 +1,7 @@
+import type { PaintStudioState } from "./paintStudio";
+
+export type { PaintStudioMode, PaintStudioMaterialParams, PaintStudioState } from "./paintStudio";
+
 /**
  * Customization schema (v1) — the contract that binds a UI control to a 3D mutation and to a
  * persisted record. Every layer (React control, Three.js scene, REST API, database) refers to an
@@ -122,6 +126,8 @@ export interface VehicleConfiguration {
   gradeId: string;
   selections: SelectionMap;
   cameraState?: CameraState;
+  /** OEM vs custom paint studio; material params never include GLB names. */
+  paintStudio?: PaintStudioState;
   /** Bumped by the server on every accepted mutation; used for optimistic-concurrency checks. */
   revision: number;
   schemaVersion: string;

@@ -12,6 +12,7 @@ import {
   type SelectionMap,
   type VehicleConfiguration,
 } from "../types/customization";
+import type { PaintStudioState } from "../types/paintStudio";
 import type { ValidatedConfigurationInput, ValidatedPatch } from "../validation/configuration";
 import { forbidden, notFound, revisionConflict } from "../api/errors";
 import { generateOwnerToken, hashOwnerToken, verifyOwnerToken } from "../shared/ownerToken";
@@ -50,6 +51,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
     const ownerTokenHash = await hashOwnerToken(ownerToken);
     const selections = input.selections;
     const cameraState = input.cameraState ?? null;
+    const paintStudio = input.paintStudio ?? null;
 
     await this.db.batch([
       this.db.insert(configurations).values({
@@ -61,6 +63,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
         ownerTokenHash,
         selections,
         cameraState,
+        paintStudio,
         revision: 1,
         schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
         createdAt: now,
@@ -72,6 +75,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
         revision: 1,
         selections,
         cameraState,
+        paintStudio,
         createdAt: now,
       }),
     ]);
@@ -85,6 +89,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
         gradeId: input.gradeId,
         selections,
         cameraState: cameraState ?? undefined,
+        paintStudio: paintStudio ?? undefined,
         revision: 1,
         schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
         createdAt: now.toISOString(),
@@ -125,10 +130,11 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
     const nextRevision = row.revision + 1;
     const nextSelections = patch.selections ?? row.selections;
     const nextCameraState = patch.cameraState ?? row.cameraState;
+    const nextPaintStudio = patch.paintStudio !== undefined ? patch.paintStudio : row.paintStudio;
 
     const updateStatement = this.db
       .update(configurations)
-      .set({ selections: nextSelections, cameraState: nextCameraState, revision: nextRevision, updatedAt: now })
+      .set({ selections: nextSelections, cameraState: nextCameraState, paintStudio: nextPaintStudio, revision: nextRevision, updatedAt: now })
       // `AND revision = row.revision` costs nothing and closes most of the narrow race window
       // documented on the class: if another write slipped in between the read above and this
       // statement, this condition fails to match and the batch's second statement (below) would
@@ -142,6 +148,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
       revision: nextRevision,
       selections: nextSelections,
       cameraState: nextCameraState,
+      paintStudio: nextPaintStudio,
       createdAt: now,
     });
 
@@ -159,6 +166,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
       ...row,
       selections: nextSelections,
       cameraState: nextCameraState,
+      paintStudio: nextPaintStudio,
       revision: nextRevision,
       updatedAt: now,
     });
@@ -197,6 +205,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
       gradeId: parent.gradeId,
       selections: revisionRow.selections as SelectionMap,
       cameraState: (revisionRow.cameraState as CameraState | null) ?? undefined,
+      paintStudio: (revisionRow.paintStudio as PaintStudioState | null) ?? undefined,
       revision: revisionRow.revision,
       schemaVersion: parent.schemaVersion,
       // `configurations.createdAt` is never touched by `update()`, so it is still the original
@@ -221,6 +230,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
       gradeId: row.gradeId,
       selections: row.selections as SelectionMap,
       cameraState: (row.cameraState as CameraState | null) ?? undefined,
+      paintStudio: (row.paintStudio as PaintStudioState | null) ?? undefined,
       revision: row.revision,
       schemaVersion: row.schemaVersion,
       createdAt: row.createdAt.toISOString(),

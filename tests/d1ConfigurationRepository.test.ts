@@ -79,7 +79,17 @@ beforeAll(async () => {
           .replace(/^CREATE UNIQUE INDEX `/, "CREATE UNIQUE INDEX IF NOT EXISTS `")
           .replace(/^CREATE INDEX `/, "CREATE INDEX IF NOT EXISTS `"),
       );
-    await db.exec(statements.join("\n"));
+    // ALTER TABLE ADD COLUMN is not idempotent in SQLite — tolerate re-runs against persisted
+    // Miniflare state the same way CREATE TABLE is relaxed above.
+    for (const statement of statements) {
+      try {
+        await db.exec(statement);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/duplicate column name/i.test(message)) continue;
+        throw error;
+      }
+    }
   }
 
   repo = new D1ConfigurationRepository(db);

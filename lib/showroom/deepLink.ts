@@ -1,9 +1,11 @@
 import {
   validateCameraState,
+  validatePaintStudio,
   validateSelections,
   validateVehicleIdentity,
 } from "../validation/configuration";
 import type { CameraState, SelectionMap } from "../types/customization";
+import type { PaintStudioState } from "../types/paintStudio";
 import { invalidBody } from "../api/errors";
 
 /**
@@ -24,23 +26,37 @@ interface CompactCamera {
   t: [number, number, number];
 }
 
+/** Compact paint-studio — short keys; never GLB node/material names. */
+interface CompactPaintStudio {
+  m: "o" | "c";
+  h?: string;
+  col?: string;
+  me?: number;
+  r?: number;
+  cc?: number;
+  cr?: number;
+}
+
 interface CompactPayload {
   v: typeof DEEP_LINK_SCHEMA_VERSION;
   g: string;
   s: SelectionMap;
   c?: CompactCamera;
+  p?: CompactPaintStudio;
 }
 
 export interface BuildDeepLinkInput {
   gradeId: string;
   selections: SelectionMap;
   cameraState?: CameraState;
+  paintStudio?: PaintStudioState;
 }
 
 export interface DecodedBuildDeepLink {
   gradeId: string;
   selections: SelectionMap;
   cameraState?: CameraState;
+  paintStudio?: PaintStudioState;
 }
 
 const CAMERA_DECIMALS = 3;
@@ -63,6 +79,41 @@ function expandCamera(raw: CompactCamera): CameraState {
     ...(raw.i ? { presetId: raw.i } : {}),
     position: raw.p,
     target: raw.t,
+  };
+}
+
+function compactPaintStudio(paintStudio: PaintStudioState): CompactPaintStudio {
+  const compact: CompactPaintStudio = {
+    m: paintStudio.mode === "custom" ? "c" : "o",
+  };
+  if (paintStudio.hdriPresetId) compact.h = paintStudio.hdriPresetId;
+  if (paintStudio.mode === "custom" && paintStudio.material) {
+    compact.col = paintStudio.material.color;
+    compact.me = paintStudio.material.metalness;
+    compact.r = paintStudio.material.roughness;
+    compact.cc = paintStudio.material.clearcoat;
+    compact.cr = paintStudio.material.clearcoatRoughness;
+  }
+  return compact;
+}
+
+function expandPaintStudio(raw: CompactPaintStudio): PaintStudioState {
+  if (raw.m === "c") {
+    return {
+      mode: "custom",
+      ...(raw.h ? { hdriPresetId: raw.h } : {}),
+      material: {
+        color: raw.col ?? "#1558d6",
+        metalness: raw.me ?? 0.65,
+        roughness: raw.r ?? 0.28,
+        clearcoat: raw.cc ?? 1,
+        clearcoatRoughness: raw.cr ?? 0.06,
+      },
+    };
+  }
+  return {
+    mode: "oem",
+    ...(raw.h ? { hdriPresetId: raw.h } : {}),
   };
 }
 
@@ -98,6 +149,9 @@ export function encodeBuildDeepLink(input: BuildDeepLinkInput): string {
   };
   if (input.cameraState) {
     payload.c = compactCamera(input.cameraState);
+  }
+  if (input.paintStudio) {
+    payload.p = compactPaintStudio(input.paintStudio);
   }
   const json = JSON.stringify(payload);
   return toBase64Url(new TextEncoder().encode(json));
@@ -156,10 +210,23 @@ export function decodeBuildDeepLink(encoded: string): DecodedBuildDeepLink {
     });
   }
 
+  let paintStudio: PaintStudioState | undefined;
+  if (candidate.p !== undefined && candidate.p !== null) {
+    if (typeof candidate.p !== "object" || Array.isArray(candidate.p)) {
+      throw invalidBody(`Deep-link "p" (paintStudio) must be an object when present.`);
+    }
+    const rawPaint = candidate.p as Record<string, unknown>;
+    if (rawPaint.m !== "o" && rawPaint.m !== "c") {
+      throw invalidBody(`Deep-link "p.m" must be "o" (oem) or "c" (custom).`);
+    }
+    paintStudio = expandPaintStudio(rawPaint as unknown as CompactPaintStudio);
+  }
+
   return {
     gradeId: candidate.g,
     selections: candidate.s as SelectionMap,
     cameraState,
+    paintStudio,
   };
 }
 
@@ -176,7 +243,8 @@ export function validateBuildDeepLink(
   validateVehicleIdentity(vehicleId, modelYear, decoded.gradeId);
   const selections = validateSelections(vehicleId, decoded.gradeId, decoded.selections);
   const cameraState = validateCameraState(decoded.cameraState);
-  return { gradeId: decoded.gradeId, selections, cameraState };
+  const paintStudio = validatePaintStudio(decoded.paintStudio, selections);
+  return { gradeId: decoded.gradeId, selections, cameraState, paintStudio };
 }
 
 /** Reads the `c` query param from a search string (`?c=…` or bare `c=…`). */

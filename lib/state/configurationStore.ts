@@ -7,6 +7,8 @@ import {
   type SelectionMap,
   type VehicleConfiguration,
 } from "../types/customization";
+import type { PaintStudioState } from "../types/paintStudio";
+import { DEFAULT_HDRI_PRESET_ID, PAINT_CUSTOM_OPTION_ID } from "../data/paintStudio";
 import type { VehicleSceneController } from "../three/sceneController";
 import * as configurationsApi from "../api/configurations";
 
@@ -88,7 +90,10 @@ export class ConfigurationStore {
       if (!this.lastPersisted) this.lastPersisted = configuration;
     }
 
-    const { failed } = await controller.applyConfiguration(configuration.selections);
+    const { failed } = await controller.applyConfiguration(
+      configuration.selections,
+      this.state.configuration?.paintStudio ?? configuration.paintStudio,
+    );
     if (failed.length > 0) {
       this.setState({ status: "error", error: `Could not apply saved options: ${failed.join(", ")}` });
     }
@@ -121,9 +126,20 @@ export class ConfigurationStore {
       // The catalog is needed to resolve selection groups: a single-select choice must evict only
       // the other members of its own group, not everything filed under the category.
       : withOptionSelected(current.selections, option, this.state.catalog);
+
+    // Selecting a catalog OEM paint exits custom studio while preserving the HDRI preset id.
+    let paintStudio = current.paintStudio;
+    if (option.category === "paint" && option.id !== PAINT_CUSTOM_OPTION_ID && !alreadyOn) {
+      paintStudio = {
+        mode: "oem",
+        hdriPresetId: current.paintStudio?.hdriPresetId ?? DEFAULT_HDRI_PRESET_ID,
+      };
+    }
+
     const next: VehicleConfiguration = {
       ...current,
       selections,
+      paintStudio,
       updatedAt: new Date().toISOString(),
     };
 
@@ -149,9 +165,39 @@ export class ConfigurationStore {
     this.setState({ configuration: next, status: "saving", error: null, pending: new Set() });
 
     if (this.controller) {
-      const { failed } = await this.controller.applyConfiguration(selections);
+      const { failed } = await this.controller.applyConfiguration(
+        selections,
+        this.state.configuration?.paintStudio,
+      );
       if (failed.length > 0) {
         await this.rollback(`Could not apply options: ${failed.join(", ")}`);
+        return;
+      }
+    }
+    this.queueFlush();
+  }
+
+  /**
+   * Updates OEM/custom paint-studio state. Custom material params are schema-safe numbers/hex —
+   * GLB targets are applied via the scene controller's catalog constants.
+   */
+  async setPaintStudio(paintStudio: PaintStudioState, selections?: SelectionMap): Promise<void> {
+    const current = this.state.configuration;
+    if (!current) return;
+
+    const next: VehicleConfiguration = {
+      ...current,
+      selections: selections ?? current.selections,
+      paintStudio,
+      updatedAt: new Date().toISOString(),
+    };
+    this.mutationVersion += 1;
+    this.setState({ configuration: next, status: "saving", error: null });
+
+    if (this.controller) {
+      const { failed } = await this.controller.applyConfiguration(next.selections, paintStudio);
+      if (failed.length > 0) {
+        await this.rollback(`Could not apply paint studio: ${failed.join(", ")}`);
         return;
       }
     }
@@ -228,6 +274,7 @@ export class ConfigurationStore {
           {
             selections: configuration.selections,
             cameraState: configuration.cameraState,
+            paintStudio: configuration.paintStudio,
             expectedRevision: this.lastPersisted?.revision,
           },
           options,
@@ -266,7 +313,8 @@ export class ConfigurationStore {
     if (!persisted) return false;
     return (
       JSON.stringify(configuration.selections) === JSON.stringify(persisted.selections) &&
-      JSON.stringify(configuration.cameraState ?? null) === JSON.stringify(persisted.cameraState ?? null)
+      JSON.stringify(configuration.cameraState ?? null) === JSON.stringify(persisted.cameraState ?? null) &&
+      JSON.stringify(configuration.paintStudio ?? null) === JSON.stringify(persisted.paintStudio ?? null)
     );
   }
 
@@ -282,7 +330,7 @@ export class ConfigurationStore {
       pending: withoutIds(this.state.pending, batched.length ? batched : [...this.state.pending]),
     });
     if (restored && this.controller) {
-      await this.controller.applyConfiguration(restored.selections);
+      await this.controller.applyConfiguration(restored.selections, restored.paintStudio);
     }
   }
 

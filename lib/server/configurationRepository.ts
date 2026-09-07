@@ -52,6 +52,7 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
       gradeId: input.gradeId,
       selections: input.selections,
       cameraState: input.cameraState,
+      paintStudio: input.paintStudio,
       revision: 1,
       schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
       createdAt: now,
@@ -97,6 +98,7 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
       ...existing,
       selections: patch.selections ?? existing.selections,
       cameraState: patch.cameraState ?? existing.cameraState,
+      paintStudio: patch.paintStudio ?? existing.paintStudio,
       revision: existing.revision + 1,
       updatedAt: new Date().toISOString(),
     };

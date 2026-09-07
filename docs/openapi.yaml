@@ -559,6 +559,29 @@ components:
         position: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
         target: { type: array, items: { type: number }, minItems: 3, maxItems: 3 }
 
+    PaintStudioState:
+      type: object
+      description: OEM vs custom paint studio. Custom material params are numbers/hex only — never GLB node or material names.
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [oem, custom]
+        hdriPresetId:
+          type: string
+          description: Catalog HDRI preset id (for example hdri-studio)
+        material:
+          type: object
+          required: [color, metalness, roughness, clearcoat, clearcoatRoughness]
+          properties:
+            color:
+              type: string
+              pattern: "^#[0-9a-fA-F]{6}$"
+            metalness: { type: number, minimum: 0, maximum: 1 }
+            roughness: { type: number, minimum: 0, maximum: 1 }
+            clearcoat: { type: number, minimum: 0, maximum: 1 }
+            clearcoatRoughness: { type: number, minimum: 0, maximum: 1 }
+
     SelectionMap:
       type: object
       description: Keyed by CustomizationCategory; each value is an array of option ids (at most one for a single-select category).
@@ -575,6 +598,7 @@ components:
         gradeId: { type: string, description: Must be a grade the vehicle actually offers. }
         selections: { $ref: "#/components/schemas/SelectionMap" }
         cameraState: { $ref: "#/components/schemas/CameraState" }
+        paintStudio: { $ref: "#/components/schemas/PaintStudioState" }
 
     PatchConfigurationBody:
       type: object
@@ -582,6 +606,7 @@ components:
       properties:
         selections: { $ref: "#/components/schemas/SelectionMap" }
         cameraState: { $ref: "#/components/schemas/CameraState" }
+        paintStudio: { $ref: "#/components/schemas/PaintStudioState" }
         expectedRevision:
           type: integer
           description: If given, must equal the record's current `revision` or the request is rejected with 409.
@@ -597,6 +622,7 @@ components:
         gradeId: { type: string }
         selections: { $ref: "#/components/schemas/SelectionMap" }
         cameraState: { $ref: "#/components/schemas/CameraState" }
+        paintStudio: { $ref: "#/components/schemas/PaintStudioState" }
         revision:
           type: integer
           description: Bumped by the server on every accepted mutation; used for the `expectedRevision` optimistic-concurrency check.

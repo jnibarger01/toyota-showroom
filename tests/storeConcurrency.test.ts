@@ -51,7 +51,7 @@ vi.mock("../lib/api/configurations", () => ({
     if (gate) await gate.opened;
     const existing = await repo.get(id);
     if (!existing) throw new Error("missing");
-    return repo.update(id, validatePatchConfiguration(patch, existing), ownerTokens.get(id) ?? "");
+    return repo.update(id, validatePatchConfiguration(patch, { vehicleId: existing.vehicleId, gradeId: existing.gradeId, selections: existing.selections }), ownerTokens.get(id) ?? "");
   },
   async deleteConfiguration(id: string) {
     await repo.delete(id, ownerTokens.get(id) ?? "");

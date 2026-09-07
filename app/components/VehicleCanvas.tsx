@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import * as THREE from "three";
+import { applyHdriPreset, type HdriEnvironmentHandle } from "../../lib/three/hdriEnvironment";
 import * as THREE_WEBGPU from "three/webgpu";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
@@ -65,6 +66,8 @@ type Props = {
   lift: number;
   terrain: Terrain;
   environmentPreset: EnvironmentPreset;
+  /** Catalog HDRI preset id from paint studio — resolved server-side, never a raw URL. */
+  hdriPresetId?: string;
   /**
    * Fired once the model is loaded, cleaned up, and verified. The controller is the caller's
    * handle for every subsequent scene mutation — the canvas itself never applies an option.
@@ -91,7 +94,7 @@ type Props = {
   onTourStep?: (preset: CameraPreset) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep }: Props) {
+export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -108,6 +111,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
    */
   const [sceneRevision, setSceneRevision] = useState(0);
   const environmentRef = useRef<EnvironmentRefs | null>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const hdriHandleRef = useRef<HdriEnvironmentHandle | null>(null);
 
   // Latest-value refs: the setup effect must run exactly once (loading a 39 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
@@ -155,6 +160,8 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         renderer.dispose();
         return;
       }
+      // Paint-studio HDRI (PMREM) needs the live renderer; WebGPU skips the HDR file path.
+      rendererRef.current = renderer as unknown as THREE.WebGLRenderer;
 
       applyRendererQuality(renderer, quality);
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -510,6 +517,9 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
         canvasElement.removeEventListener("webglcontextrestored", handleContextRestored);
         idleGate.dispose();
         resizeObserver.disconnect();
+        hdriHandleRef.current?.dispose();
+        hdriHandleRef.current = null;
+        rendererRef.current = null;
         controls.dispose();
         renderer.dispose();
         renderer.domElement.remove();
@@ -726,6 +736,34 @@ export function VehicleCanvas({ threeDConfig, catalog, cameraPreset, lift, terra
   useEffect(() => {
     if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, environmentPreset);
   }, [terrain, environmentPreset]);
+
+  useEffect(() => {
+    const environment = environmentRef.current;
+    const renderer = rendererRef.current;
+    if (!environment || !renderer || !hdriPresetId) return;
+    let cancelled = false;
+    void applyHdriPreset(
+      {
+        scene: environment.scene,
+        hemi: environment.hemi,
+        key: environment.key,
+        rim: environment.rim,
+        fill: environment.fill,
+      },
+      renderer,
+      hdriPresetId,
+      hdriHandleRef.current,
+    ).then((handle) => {
+      if (cancelled) {
+        handle?.dispose();
+        return;
+      }
+      hdriHandleRef.current = handle;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 
   return (
     <div

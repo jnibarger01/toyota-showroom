@@ -10,6 +10,13 @@ import {
   type CustomizationOption,
   type SelectionMap,
 } from "../types/customization";
+import type { PaintStudioMaterialParams, PaintStudioState } from "../types/paintStudio";
+import {
+  DEFAULT_HDRI_PRESET_ID,
+  isHdriPresetId,
+  PAINT_CUSTOM_OPTION_ID,
+  paintStudioPriceDelta,
+} from "../data/paintStudio";
 
 /**
  * Server-side validation and trusted asset resolution.
@@ -28,6 +35,7 @@ export interface ValidatedConfigurationInput {
   gradeId: string;
   selections: SelectionMap;
   cameraState?: CameraState;
+  paintStudio?: PaintStudioState;
 }
 
 interface RawConfigurationBody {
@@ -36,6 +44,7 @@ interface RawConfigurationBody {
   gradeId?: unknown;
   selections?: unknown;
   cameraState?: unknown;
+  paintStudio?: unknown;
 }
 
 function asString(value: unknown, field: string): string {
@@ -167,6 +176,100 @@ export function validateCameraState(raw: unknown): CameraState | undefined {
   };
 }
 
+
+const HEX_COLOR = /^#([0-9a-fA-F]{6})$/;
+
+function clampUnit(value: number, field: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw invalidBody(`"paintStudio.${field}" must be a finite number.`);
+  }
+  if (value < 0 || value > 1) {
+    throw invalidBody(`"paintStudio.${field}" must be between 0 and 1.`);
+  }
+  return value;
+}
+
+function validatePaintStudioMaterial(raw: unknown): PaintStudioMaterialParams {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw invalidBody(`"paintStudio.material" must be an object.`);
+  }
+  const candidate = raw as Record<string, unknown>;
+  if (typeof candidate.color !== "string" || !HEX_COLOR.test(candidate.color)) {
+    throw invalidBody(`"paintStudio.material.color" must be a #rrggbb hex string.`);
+  }
+  return {
+    color: candidate.color.toLowerCase(),
+    metalness: clampUnit(candidate.metalness as number, "material.metalness"),
+    roughness: clampUnit(candidate.roughness as number, "material.roughness"),
+    clearcoat: clampUnit(candidate.clearcoat as number, "material.clearcoat"),
+    clearcoatRoughness: clampUnit(candidate.clearcoatRoughness as number, "material.clearcoatRoughness"),
+  };
+}
+
+/**
+ * Validates paint-studio state: OEM vs custom modes, HDRI preset ids, and numeric material params.
+ * Never accepts GLB node or material names — those stay in the server catalog.
+ */
+export function validatePaintStudio(
+  raw: unknown,
+  selections: SelectionMap = {},
+): PaintStudioState | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw invalidBody(`"paintStudio" must be an object.`);
+  }
+
+  const candidate = raw as Record<string, unknown>;
+  const mode = candidate.mode;
+  if (mode !== "oem" && mode !== "custom") {
+    throw invalidBody(`"paintStudio.mode" must be "oem" or "custom".`);
+  }
+
+  let hdriPresetId: string | undefined;
+  if (candidate.hdriPresetId !== undefined && candidate.hdriPresetId !== null) {
+    if (typeof candidate.hdriPresetId !== "string" || !isHdriPresetId(candidate.hdriPresetId)) {
+      throw invalidBody(`Unknown HDRI preset id "${String(candidate.hdriPresetId)}".`);
+    }
+    hdriPresetId = candidate.hdriPresetId;
+  }
+
+  const paintIds = selections.paint ?? [];
+  const hasCustomPaint = paintIds.includes(PAINT_CUSTOM_OPTION_ID);
+
+  if (mode === "oem") {
+    if (hasCustomPaint) {
+      throw invalidBody(
+        `OEM paint mode cannot select "${PAINT_CUSTOM_OPTION_ID}"; use a catalog OEM paint option id.`,
+      );
+    }
+    if (candidate.material !== undefined && candidate.material !== null) {
+      throw invalidBody(`"paintStudio.material" is only valid in custom mode.`);
+    }
+    return { mode: "oem", ...(hdriPresetId ? { hdriPresetId } : { hdriPresetId: DEFAULT_HDRI_PRESET_ID }) };
+  }
+
+  // custom
+  if (!hasCustomPaint) {
+    throw invalidBody(
+      `Custom paint mode requires selections.paint to include "${PAINT_CUSTOM_OPTION_ID}".`,
+    );
+  }
+  if (paintIds.length !== 1 || paintIds[0] !== PAINT_CUSTOM_OPTION_ID) {
+    throw invalidBody(
+      `Custom paint mode accepts only "${PAINT_CUSTOM_OPTION_ID}" in selections.paint.`,
+    );
+  }
+  if (candidate.material === undefined || candidate.material === null) {
+    throw invalidBody(`"paintStudio.material" is required in custom mode.`);
+  }
+
+  return {
+    mode: "custom",
+    hdriPresetId: hdriPresetId ?? DEFAULT_HDRI_PRESET_ID,
+    material: validatePaintStudioMaterial(candidate.material),
+  };
+}
+
 /** Full body validation for `POST /api/v1/configurations`. */
 export function validateCreateConfiguration(body: unknown): ValidatedConfigurationInput {
   if (typeof body !== "object" || body === null) throw invalidBody("Request body must be a JSON object.");
@@ -178,26 +281,29 @@ export function validateCreateConfiguration(body: unknown): ValidatedConfigurati
 
   const { vehicle } = validateVehicleIdentity(vehicleId, modelYear, gradeId);
 
+  const selections = validateSelections(vehicleId, gradeId, raw.selections);
   return {
     vehicleId,
     modelYear,
     model: vehicle.model,
     gradeId,
-    selections: validateSelections(vehicleId, gradeId, raw.selections),
+    selections,
     cameraState: validateCameraState(raw.cameraState),
+    paintStudio: validatePaintStudio(raw.paintStudio, selections),
   };
 }
 
 export interface ValidatedPatch {
   selections?: SelectionMap;
   cameraState?: CameraState;
+  paintStudio?: PaintStudioState;
   expectedRevision?: number;
 }
 
 /** Partial body validation for `PATCH /api/v1/configurations/:id`. */
 export function validatePatchConfiguration(
   body: unknown,
-  existing: { vehicleId: string; gradeId: string },
+  existing: { vehicleId: string; gradeId: string; selections?: SelectionMap },
 ): ValidatedPatch {
   if (typeof body !== "object" || body === null) throw invalidBody("Request body must be a JSON object.");
   const raw = body as RawConfigurationBody & { expectedRevision?: unknown };
@@ -209,6 +315,12 @@ export function validatePatchConfiguration(
   }
   if ("cameraState" in raw && raw.cameraState !== undefined) {
     patch.cameraState = validateCameraState(raw.cameraState);
+  }
+  if ("paintStudio" in raw && raw.paintStudio !== undefined) {
+    // Prefer selections from the same patch; otherwise the persisted selection map so custom-mode
+    // material updates validate against the live paint option without re-sending it.
+    const effectiveSelections = patch.selections ?? existing.selections ?? {};
+    patch.paintStudio = validatePaintStudio(raw.paintStudio, effectiveSelections);
   }
   if (raw.expectedRevision !== undefined) {
     if (!Number.isInteger(raw.expectedRevision)) {
@@ -240,4 +352,21 @@ export function resolveOptions(vehicleId: string, selections: SelectionMap): Cus
 /** Sum of `priceDelta` across a validated selection map. */
 export function priceSelections(vehicleId: string, selections: SelectionMap): number {
   return resolveOptions(vehicleId, selections).reduce((total, option) => total + (option.priceDelta ?? 0), 0);
+}
+
+/**
+ * Catalog option deltas plus paint-studio extras (HDRI presets).
+ * `paint-custom` already carries the custom studio fee in its catalog `priceDelta`.
+ */
+export function priceConfiguration(
+  vehicleId: string,
+  selections: SelectionMap,
+  paintStudio?: PaintStudioState,
+): number {
+  const optionsTotal = priceSelections(vehicleId, selections);
+  // paint-custom's catalog priceDelta already includes PAINT_CUSTOM_PRICE_DELTA — only add HDRI.
+  const hdriOnly = paintStudio
+    ? paintStudioPriceDelta({ ...paintStudio, mode: "oem" })
+    : 0;
+  return optionsTotal + hdriOnly;
 }
