@@ -43,7 +43,16 @@ export interface PickResult {
  * `prepare`/`dispose` rather than a singleton.
  */
 export class VehiclePicker {
-  private readonly meshesWithBoundsTree: THREE.Mesh[] = [];
+  /**
+   * Deliberately *not* a running list of every mesh a bounds tree was ever built for: a
+   * mesh-replacement option (a wheel/tire style swap) detaches and disposes the previous mesh
+   * mid-session, well before this picker's own `dispose()` runs at controller teardown. A
+   * remembered array would keep referencing — and so keep alive — every such retired mesh's
+   * geometry (bounds tree included) for the rest of the session, one leaked mesh per swap. Instead
+   * `dispose()` below re-traverses whatever is actually under `root` *at teardown time*, which only
+   * ever touches geometry that is still live.
+   */
+  private root: THREE.Object3D | null = null;
   private readonly raycaster = new THREE.Raycaster();
 
   constructor(private readonly registry: SceneRegistry) {
@@ -61,6 +70,7 @@ export class VehiclePicker {
    * accessory attach) since it only (re)builds meshes that do not already carry a tree.
    */
   prepare(root: THREE.Object3D): void {
+    this.root = root;
     root.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
       const geometry = object.geometry;
@@ -69,7 +79,6 @@ export class VehiclePicker {
       // Bounded cost: `computeBoundsTree` is a one-time O(n log n) build, not a per-frame cost, and
       // is skipped entirely for empty/placeholder geometry above.
       geometry.computeBoundsTree();
-      this.meshesWithBoundsTree.push(object);
     });
   }
 
@@ -92,12 +101,18 @@ export class VehiclePicker {
     return { entry, point: hit.point, distance: hit.distance, object: hit.object };
   }
 
-  /** Releases every bounds tree this instance built. Call from the same teardown that disposes the root. */
+  /**
+   * Releases the bounds tree of every mesh still under `root` at call time. Call from the same
+   * teardown that disposes the root — after this, `root`'s geometries no longer carry a bounds
+   * tree for `acceleratedRaycast` to fall back from, matching their disposed state.
+   */
   dispose(): void {
-    for (const mesh of this.meshesWithBoundsTree) {
-      if (mesh.geometry.boundsTree) mesh.geometry.disposeBoundsTree();
-    }
-    this.meshesWithBoundsTree.length = 0;
+    this.root?.traverse((object) => {
+      if (object instanceof THREE.Mesh && object.geometry?.boundsTree) {
+        object.geometry.disposeBoundsTree();
+      }
+    });
+    this.root = null;
   }
 }
 

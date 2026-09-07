@@ -37,6 +37,25 @@ describe("VehicleCanvas direct part interaction", () => {
     expect(source).toMatch(/if \(pointerDownAt\) \{[\s\S]{0,300}return;/);
   });
 
+  it("tracks a single pointerId so a second finger touching down mid-gesture cannot hijack the first finger's tap/drag state", () => {
+    expect(source).toContain("activePointerId");
+    // pointermove and pointerup must both ignore events from any pointer other than the tracked one.
+    expect(source).toMatch(/handlePointerMove = \(event: PointerEvent\) => \{\s*if \(event\.pointerId !== activePointerId\) return;/);
+    expect(source).toMatch(/handlePointerUp = \(event: PointerEvent\) => \{\s*if \(event\.pointerId !== activePointerId\) return;/);
+  });
+
+  it("still clears hover on pointerleave for a plain (non-dragging) hover, not only for the tracked drag pointer", () => {
+    // Regression guard: an early return keyed on activePointerId would silently break the common
+    // case (mouse hovers with no pointerdown, so activePointerId is null; then the mouse leaves).
+    // Extract the handlePointerLeave function body and assert it has no early return before the
+    // unconditional clearHover() call at its end.
+    const match = source.match(/const handlePointerLeave = \(event: PointerEvent\) => \{([\s\S]*?)\n {6}\};/);
+    expect(match, "handlePointerLeave not found").not.toBeNull();
+    const body = match![1]!;
+    expect(body).toContain("clearHover();");
+    expect(body).not.toMatch(/if \(event\.pointerId !== activePointerId\) return;/);
+  });
+
   it("gates hover raycasts to at most one per animation frame (bounded cost)", () => {
     expect(source).toContain("hoverRafPending");
     expect(source).toMatch(/scheduleHoverPick[\s\S]{0,200}requestAnimationFrame/);

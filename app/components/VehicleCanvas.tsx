@@ -483,6 +483,15 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       let isDragging = false;
       let hoverRafPending = false;
       let lastHoverNdc: THREE.Vector2 | null = null;
+      /**
+       * The one pointer this block is currently tracking for a potential tap/click, by
+       * `PointerEvent.pointerId`. Without this, a second finger touching down mid-gesture (the
+       * start of a two-finger pinch/pan — `OrbitControls` handles that gesture itself, via its own
+       * listeners on this same element) would overwrite `pointerDownAt`/`isDragging`, which were
+       * mid-flight for the first finger, and could turn a pinch into a spurious selection when
+       * either finger lifts. `null` means no candidate tap is in flight.
+       */
+      let activePointerId: number | null = null;
 
       const reportHover = (entry: SceneRegistryEntry | undefined) => {
         canvasElement.dataset.hoveredPart = entry?.id ?? "";
@@ -519,11 +528,22 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
       const handlePointerDown = (event: PointerEvent) => {
         if (!isPrimaryPointer(event)) return;
+        if (activePointerId !== null) {
+          // A second pointer went down while the first is still active — a pinch/pan gesture
+          // starting, not a tap. Abandon whatever tap was in flight for the first pointer rather
+          // than let this one hijack its state; its own pointerup is now a no-op (below, the
+          // pointerId check on pointerup only acts for whichever pointer is still active).
+          pointerDownAt = null;
+          isDragging = false;
+          return;
+        }
+        activePointerId = event.pointerId;
         pointerDownAt = { x: event.clientX, y: event.clientY };
         isDragging = false;
       };
 
       const handlePointerMove = (event: PointerEvent) => {
+        if (event.pointerId !== activePointerId) return; // a second finger's own movement, not ours to track
         if (pointerDownAt) {
           const dx = event.clientX - pointerDownAt.x;
           const dy = event.clientY - pointerDownAt.y;
@@ -535,6 +555,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       };
 
       const handlePointerUp = (event: PointerEvent) => {
+        if (event.pointerId !== activePointerId) return; // a second finger lifting must not trigger a selection
+        activePointerId = null;
         const downAt = pointerDownAt;
         const wasDragging = isDragging;
         pointerDownAt = null;
@@ -548,9 +570,17 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         keyboardPartIndex = -1; // A pointer selection invalidates the keyboard cursor's meaning.
       };
 
-      const handlePointerLeave = () => {
-        pointerDownAt = null;
-        isDragging = false;
+      const handlePointerLeave = (event: PointerEvent) => {
+        // Unlike pointermove/pointerup, this must not early-return for an untracked pointerId: a
+        // plain hover (mouse moving with no pointerdown at all, so activePointerId is still null)
+        // needs its own leave to clear the hover tint, which is the common case this handler
+        // exists for. Drag-tracking state is only reset when the *tracked* pointer is the one
+        // leaving — a second finger's own leave/cancel must not cancel the first finger's drag.
+        if (event.pointerId === activePointerId) {
+          activePointerId = null;
+          pointerDownAt = null;
+          isDragging = false;
+        }
         clearHover();
       };
 

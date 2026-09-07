@@ -104,6 +104,37 @@ describe("VehiclePicker", () => {
     picker.dispose();
     expect(body.geometry.boundsTree).toBeFalsy();
   });
+
+  it("dispose() only ever touches meshes still reachable from root, never a mesh detached earlier", () => {
+    // Regression guard: an earlier version tracked every mesh a bounds tree was ever built for in
+    // a running array, so a mesh-replacement option (a wheel/tire style swap, which detaches and
+    // disposes the previous mesh mid-session) leaked one retired mesh's geometry per swap — kept
+    // alive by the array reference alone until the whole controller tore down. `dispose()` now
+    // re-traverses whatever is actually under `root` at call time instead of a remembered list.
+    // Proven here by two meshes prepared together, one detached (simulating a mesh-replacement
+    // swap via the same shape `detachFromMount`/`disposeSubtree` in lib/three/assets.ts use) before
+    // `dispose()` runs: the still-attached mesh's tree is released as normal, and disposing the
+    // detached one's geometry ahead of time (as the real removal path does) causes no error —
+    // dispose() never had to reach for it via a stale reference.
+    const fixture = createVehicleFixture();
+    const { registry } = buildSceneRegistry(fixture.root, FOUR_RUNNER_SCENE_MAP);
+    const picker = new VehiclePicker(registry);
+
+    const staysAttached = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    staysAttached.name = "TEMP_STAYS_ATTACHED";
+    const getsSwappedOut = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    getsSwappedOut.name = "TEMP_SWAPPED_OUT";
+    fixture.root.add(staysAttached, getsSwappedOut);
+    picker.prepare(fixture.root);
+    expect(staysAttached.geometry.boundsTree).toBeTruthy();
+    expect(getsSwappedOut.geometry.boundsTree).toBeTruthy();
+
+    fixture.root.remove(getsSwappedOut);
+    getsSwappedOut.geometry.dispose(); // the real removal path disposes geometry entirely, not just the bounds tree
+
+    expect(() => picker.dispose()).not.toThrow();
+    expect(staysAttached.geometry.boundsTree).toBeFalsy(); // still-attached mesh: released as normal
+  });
 });
 
 describe("pointerToNdc", () => {
