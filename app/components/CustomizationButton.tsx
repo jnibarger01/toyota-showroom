@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Loader2 } from "lucide-react";
-import type { CustomizationOption } from "../../lib/types/customization";
+import { isProceduralPreview, type CustomizationOption } from "../../lib/types/customization";
 import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
 
 /**
@@ -49,12 +49,20 @@ export function CustomizationButton({ option, variant = "chip", onBeforeSelect }
   return (
     <button
       type="button"
+      aria-label={
+        isProceduralPreview(option) ? `${option.label} (Preview)` : option.label
+      }
       aria-pressed={selected}
-      className={`option-chip ${selected ? "active" : ""}`}
+      className={`option-chip ${selected ? "active" : ""} ${isProceduralPreview(option) ? "is-preview" : ""}`.trim()}
       disabled={busy}
       onClick={onClick}
     >
       <span>{option.label}</span>
+      {isProceduralPreview(option) ? (
+        <small className="option-preview-badge" data-testid="procedural-preview-badge">
+          Preview
+        </small>
+      ) : null}
       {option.priceDelta ? <small>+${option.priceDelta.toLocaleString()}</small> : null}
       {busy ? <Loader2 size={13} className="spin" /> : selected ? <Check size={13} /> : null}
     </button>

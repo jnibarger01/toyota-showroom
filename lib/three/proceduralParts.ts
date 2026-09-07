@@ -5,8 +5,9 @@ import * as THREE from "three";
  *
  * These parts exist in code rather than in a GLB, but they join the scene under the same node-name
  * contract as authored geometry (`ACCESSORY_*`), so the customization catalog addresses them
- * exactly like GLB nodes. Replacing them with authored assets later means changing the option's
- * `operation` to "mesh-replacement" and giving it an `assetUrl` — the option ids, and therefore
+ * exactly like GLB nodes. Catalog entries that target them set `geometrySource: "procedural-preview"`
+ * so the UI can label them Preview. Replacing them with authored assets later means clearing that
+ * flag (and usually switching to `mesh-replacement` + `assetUrl`) — the option ids, and therefore
  * every saved configuration, are unaffected.
  */
 

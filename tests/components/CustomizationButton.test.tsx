@@ -74,6 +74,7 @@ const roofRack: CustomizationOption = {
   operation: "mesh-visibility",
   targetNodes: ["ACCESSORY_ROOF_RACK"],
   priceDelta: 1150,
+  geometrySource: "procedural-preview",
   compatibleVehicleIds: ["4runner"],
 };
 
@@ -147,4 +148,21 @@ describe("CustomizationButton", () => {
 
     await waitFor(() => expect(rackButton).not.toBeDisabled());
   });
+
+  it("labels procedural-preview accessories with a Preview badge distinct from catalog options", async () => {
+    await attach();
+    render(
+      <>
+        <CustomizationButton option={paint} variant="swatch" />
+        <CustomizationButton option={roofRack} />
+      </>,
+    );
+
+    expect(screen.getByTestId("procedural-preview-badge")).toHaveTextContent("Preview");
+    expect(screen.getByRole("button", { name: /overland roof rack \(preview\)/i })).toHaveClass(
+      "is-preview",
+    );
+    expect(screen.queryByRole("button", { name: /blueprint \(preview\)/i })).not.toBeInTheDocument();
+  });
+
 });

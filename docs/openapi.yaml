@@ -550,6 +550,13 @@ components:
           type: array
           items: { type: string }
           description: Empty/absent means every grade of a compatible vehicle.
+        geometrySource:
+          type: string
+          enum: [glb, procedural-preview]
+          description: |
+            Where the option's scene geometry comes from. Omit/`glb` = authored asset nodes;
+            `procedural-preview` = runtime ACCESSORY_* stand-in labeled Preview in the UI until
+            authored geometry ships. Persistence is still by option id only.
 
     CameraState:
       type: object

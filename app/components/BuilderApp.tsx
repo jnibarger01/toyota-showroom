@@ -47,6 +47,7 @@ import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
   CATEGORY_APPLY_ORDER,
+  isProceduralPreview,
   type CustomizationCategory,
   type CustomizationOption,
   type SelectionMap,
@@ -804,6 +805,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             return (
             <section className="control-section" key={category}>
               <label>{CATEGORY_LABELS[category]}</label>
+              {visibleOptions.some(isProceduralPreview) ? (
+                <p className="panel-preview-note" data-testid="procedural-preview-note">
+                  Preview geometry — procedural stand-ins until authored catalog meshes ship. Selections still save by option id.
+                </p>
+              ) : null}
               <div className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"} data-testid={category === "paint" ? "oem-paint-swatches" : undefined}>
                 {visibleOptions.map((option) => (
                   <CustomizationButton
