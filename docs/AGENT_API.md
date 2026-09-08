@@ -32,7 +32,9 @@ server built later is a thin transport translating each capability below to a to
 
 Everything below is backed by `VehicleSceneController`, itself backed by `SceneRegistry` and
 `three-mesh-bvh` picking (Priority 1) — no stubs, all covered by `tests/agentSceneApi.test.ts`
-(13 tests, real fixture geometry, real material writes):
+(26 tests total, 15 of them scene/vehicle capabilities and 11 camera capabilities, real fixture
+geometry, real material writes, and — for the camera rows — a real `CameraController` against a
+real `jsdom` DOM element):
 
 | Capability | Kind | Backed by |
 |---|---|---|
@@ -45,36 +47,46 @@ Everything below is backed by `VehicleSceneController`, itself backed by `SceneR
 | `vehicle.setPaint` / `vehicle.setWheels` | mutation | `controller.getOption` + `applyOption`, category-checked |
 | `vehicle.setAccessory` | mutation | `controller.applyOption` / `removeOption`, category-checked |
 | `vehicle.applyConfiguration` | mutation | `controller.applyConfiguration` |
+| `camera.getState` | read | `CameraController.getState()` (Priority 3/4) |
+| `camera.getPresets` | read | `CameraController.getPresets()` |
+| `camera.setPreset` | mutation | `CameraController.transitionToPreset`, by-id lookup, fail-closed on an unknown id |
+| `camera.focusPart` | mutation | composes `read.focusPart` (real bounding sphere) with `CameraController.focusPoint` |
+| `camera.orbit` | mutation | `CameraController.orbitBy`, fail-closed on a non-finite delta |
+| `camera.reset` | mutation | `CameraController.resetToPreset`, to whichever preset is currently active |
+
+The camera row above is exactly the seam this document originally described below as the next
+evolution — `CameraController` (`lib/three/cameraController.ts`, Priority 3) is real now, and
+`VehicleSceneAgentApi`'s constructor takes it as a second, optional argument:
+`new VehicleSceneAgentApi(controller, cameraController)`. Optional because nothing in the live app
+constructs this class with a camera yet (see "The runtime remains usable without MCP" below) — every
+`camera.*` read returns `undefined` and every `camera.*` mutation fails closed with a reason when no
+`CameraController` was passed, the same standard `selectPart`/`hoverPart` already hold for an
+unknown part id. Covered by `tests/agentSceneApi.test.ts`'s "VehicleSceneAgentApi camera
+capabilities (Priority 4)" describe block (both with and without a camera wired).
 
 ## What is deliberately not implemented yet, and why
 
-The mission's example vocabulary also names `camera.setPreset`/`camera.focus`/`camera.orbit`,
-`environment.setPreset`, `lighting.setPreset`, and `showroom.inspect`/`showroom.capture`. These are
-**not** on `VehicleSceneAgentApi` today, because the state they would mutate does not live on
-`VehicleSceneController` — camera preset, terrain, and environment preset are `VehicleCanvas`/
-`BuilderApp` React props and `useState`, driven by GSAP tweens in `VehicleCanvas.tsx`'s effects, not
-controller-owned scene state. Adding `camera.orbit()` here today would mean one of two dishonest
-things: a method that silently does nothing (violates this codebase's own standard — see
-`VehicleSceneController.applyOption`'s doc comment on why a no-op is treated as a bug, not a
-graceful default), or reaching past this module into React component internals it has no business
-touching (the opposite of the boundary Priority 6 asks for — configurator/application state and
-scene/runtime state are supposed to stay separated, not have the "typed API" module quietly bridge
-them by calling into a specific component's props).
-
-`scene.focusPart` (implemented) is the deliberate seam for this: it returns the world-space
-bounding sphere a camera controller needs to frame a part, computed from real geometry, without
-this module owning or moving any camera. A camera-control capability layer — `CameraController`
-alongside `VehicleSceneController`, likely owning the `OrbitControls`/preset-tween logic
-`VehicleCanvas.tsx` currently keeps inline — is the natural next step once it exists to wrap
-(**NEXT EVOLUTION**, not started here): at that point `camera.focus(id)` becomes
-`agentApi.mutate.cameraFocus(id)` calling `cameraController.focus(agentApi.read.focusPart(id))`,
-composing the two rather than either module reaching into the other's internals.
+The mission's example vocabulary also names `environment.setPreset`, `lighting.setPreset`, and
+`showroom.inspect`/`showroom.capture`. These are **not** on `VehicleSceneAgentApi` today, because
+the state they would mutate does not live on `VehicleSceneController` or `CameraController` —
+terrain and environment preset are still `VehicleCanvas`/`BuilderApp` React props and `useState`
+(Priority 5, `EnvironmentController`, has not been extracted yet the way camera was in Priority 3).
+Adding `environment.setPreset()` here today would mean one of two dishonest things: a method that
+silently does nothing (violates this codebase's own standard — see `VehicleSceneController.
+applyOption`'s doc comment on why a no-op is treated as a bug, not a graceful default), or reaching
+past this module into React component internals it has no business touching (the opposite of the
+boundary this module exists to hold — configurator/application state and scene/runtime state are
+supposed to stay separated, not have the "typed API" module quietly bridge them by calling into a
+specific component's props). Once `EnvironmentController` exists, `environment.setPreset` becomes
+the same shape of composition `camera.setPreset` just became: an optional third constructor
+argument, fail-closed reads/mutations when absent.
 
 `showroom.inspect`/`showroom.capture` (a scene screenshot/state dump for an agent to see what it
 just did) are out of scope for the same reason plus one more: they would need a render-loop hook
 (`VehicleCanvas.tsx` owns the `THREE.WebGLRenderer`/`WebGPURenderer`), which this module — kept
 deliberately renderer-agnostic, holding no reference to any renderer or canvas — does not have
-access to.
+access to. `RenderController` (Priority 6) is the prerequisite, the same way `CameraController` was
+the prerequisite for `camera.*`.
 
 ## The runtime remains usable without MCP
 

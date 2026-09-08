@@ -258,6 +258,122 @@ describe("CameraController", () => {
     });
   });
 
+  describe("getState / getPresets", () => {
+    it("reports position, target, active preset id, and tour status as plain data", () => {
+      const controller = makeController();
+      const state = controller.getState();
+      expectVec3CloseTo(state.position, hero.position);
+      expectVec3CloseTo(state.target, hero.target);
+      expect(state.presetId).toBe("hero");
+      expect(state.tourStatus).toBe("idle");
+      controller.dispose();
+    });
+
+    it("tracks the active preset through transitionToPreset and resetToPreset, not through orbit/dolly", () => {
+      const controller = makeController();
+      controller.transitionToPreset(wheels);
+      expect(controller.getState().presetId).toBe("wheels");
+
+      // Orbiting/dollying away from a preset does not change which preset is "active" — matches
+      // the pre-extraction Home-key behavior of resetting to whatever preset was last chosen.
+      controller.orbitBy(0.3, 0);
+      controller.dollyBy(0.5);
+      expect(controller.getState().presetId).toBe("wheels");
+
+      controller.resetToPreset(interior);
+      expect(controller.getState().presetId).toBe("interior");
+      controller.dispose();
+    });
+
+    it("reflects live tour status", () => {
+      const controller = makeController();
+      controller.playTour();
+      expect(controller.getState().tourStatus).toBe("playing");
+      controller.dispose();
+    });
+
+    it("getPresets returns the full catalog list, not the tour's filtered shot order", () => {
+      const side: CameraPresetConfig = { id: "side", label: "Side", position: [10, 2, 0], target: [0, 1, 0] };
+      const controller = new CameraController({
+        domElement: dom,
+        initialPreset: hero,
+        presets: [hero, side], // only one of {hero, wheels, interior} present -> tour falls back to full list anyway, but getPresets must return exactly what was given regardless
+      });
+      expect(controller.getPresets()).toEqual([hero, side]);
+      controller.dispose();
+    });
+
+    it("setPresets updates what getPresets returns", () => {
+      const controller = makeController([hero]);
+      controller.setPresets([hero, wheels, interior]);
+      expect(controller.getPresets()).toEqual([hero, wheels, interior]);
+      controller.dispose();
+    });
+  });
+
+  describe("focusPoint", () => {
+    it("moves the target to the given center and keeps distance within the configured limits", () => {
+      const controller = makeController();
+      controller.focusPoint([1, 0.5, -2], 0.4);
+      gsap.globalTimeline.time(gsap.globalTimeline.duration() + 1);
+      expectVec3CloseTo(controller.controls.target.toArray(), [1, 0.5, -2]);
+      const distance = controller.camera.position.distanceTo(controller.controls.target);
+      expect(distance).toBeGreaterThanOrEqual(DEFAULT_CAMERA_LIMITS.minDistance - 1e-6);
+      expect(distance).toBeLessThanOrEqual(DEFAULT_CAMERA_LIMITS.maxDistance + 1e-6);
+      controller.dispose();
+    });
+
+    it("preserves the current viewing angle rather than reorienting to a fixed shot", () => {
+      const controller = makeController();
+      const offsetBefore = controller.camera.position.clone().sub(controller.controls.target);
+      const sphericalBefore = new THREE.Spherical().setFromVector3(offsetBefore);
+
+      controller.focusPoint([2, 1, 3], 0.2);
+      gsap.globalTimeline.time(gsap.globalTimeline.duration() + 1);
+
+      const offsetAfter = controller.camera.position.clone().sub(controller.controls.target);
+      const sphericalAfter = new THREE.Spherical().setFromVector3(offsetAfter);
+      expect(sphericalAfter.theta).toBeCloseTo(sphericalBefore.theta, 5);
+      expect(sphericalAfter.phi).toBeCloseTo(sphericalBefore.phi, 5);
+      controller.dispose();
+    });
+
+    it("does not divide toward zero for a degenerate (zero-radius) bounding sphere", () => {
+      const controller = makeController();
+      expect(() => controller.focusPoint([0, 0, 0], 0)).not.toThrow();
+      gsap.globalTimeline.time(gsap.globalTimeline.duration() + 1);
+      expect(Number.isFinite(controller.camera.position.x)).toBe(true);
+      const distance = controller.camera.position.distanceTo(controller.controls.target);
+      expect(distance).toBeGreaterThanOrEqual(DEFAULT_CAMERA_LIMITS.minDistance - 1e-6);
+      controller.dispose();
+    });
+
+    it("does not change the active preset id", () => {
+      const controller = makeController();
+      controller.focusPoint([1, 1, 1], 0.3);
+      expect(controller.getState().presetId).toBe("hero");
+      controller.dispose();
+    });
+
+    it("cancels an in-flight tour before focusing", () => {
+      const controller = makeController();
+      controller.playTour();
+      expect(controller.isTourActive).toBe(true);
+      controller.focusPoint([1, 1, 1], 0.3);
+      expect(controller.isTourActive).toBe(false);
+      controller.dispose();
+    });
+
+    it("collapses to an instant set under reduced motion", () => {
+      stubMatchMedia(true);
+      const controller = makeController();
+      controller.focusPoint([3, 0, 0], 0.5);
+      gsap.globalTimeline.time(0.01);
+      expectVec3CloseTo(controller.controls.target.toArray(), [3, 0, 0]);
+      controller.dispose();
+    });
+  });
+
   describe("tour delegation", () => {
     it("plays, pauses, and cancels the underlying tour", () => {
       const controller = makeController();

@@ -20,11 +20,19 @@ export type { TourStatus };
  * takes exactly what it needs, and a single `dispose()` that undoes everything the constructor and
  * its methods did. `VehicleCanvas.tsx` becomes a caller of this class, not camera state's owner.
  *
- * What this class does NOT do, on purpose: no "focus on part" framing (nothing in the app computes
- * that today — extracting a feature that does not exist yet would be inventing one, not extracting
- * it; that is Priority 4's job once there is real behavior to expose through the agent API), no
- * rendering (the renderer/render loop stay in `VehicleCanvas.tsx` until Priority 6), no reading of
- * `Vehicle3DConfig` or any other application type beyond the preset shape itself.
+ * `focusPoint` (Priority 4) is the one method here that is not a pure extraction — nothing in the
+ * pre-Priority-3 `VehicleCanvas.tsx` moved the camera to frame an arbitrary world-space point, only
+ * to fixed catalog presets. It exists specifically so `docs/AGENT_API.md`'s documented "next
+ * evolution" seam — `agentApi.mutate.camera.focusPart(id)` composing `scene.focusPart`'s bounding
+ * data with a real camera move — has real camera-side behavior to call, per the mission's explicit
+ * requirement that `VehicleSceneAgentApi` reuse `scene.focusPart` rather than reimplement bounding
+ * math on the camera side.
+ *
+ * What this class still does NOT do: no rendering (the renderer/render loop stay in
+ * `VehicleCanvas.tsx` until Priority 6), no reading of `Vehicle3DConfig` or any other application
+ * type beyond the preset shape itself, no knowledge of the agent API or React at all — `getState`/
+ * `getPresets` return plain data for *any* caller, not because this module knows about
+ * `VehicleSceneAgentApi` specifically.
  */
 
 export interface CameraControllerLimits {
@@ -61,6 +69,25 @@ export interface CameraControllerOptions {
 
 /** Seconds for a manual preset-button transition (collapsed under reduced motion). */
 const PRESET_TRANSITION_SECONDS = 0.85;
+/** Seconds for a `focusPoint` move — same feel as a preset transition, not a separate constant. */
+const FOCUS_TRANSITION_SECONDS = PRESET_TRANSITION_SECONDS;
+/** Multiplies the bounding-sphere radius when choosing a framing distance in `focusPoint` — enough
+ * headroom that the part doesn't touch the viewport edges, not so much it reads as "zoomed out". */
+const DEFAULT_FOCUS_PADDING = 1.6;
+
+/** Plain, serializable camera state — the read-side shape `VehicleSceneAgentApi.read.getCameraState`
+ * (Priority 4) hands to a caller, never a live `THREE.Camera`/`OrbitControls` reference. */
+export interface CameraControllerState {
+  position: [number, number, number];
+  target: [number, number, number];
+  /** The last preset explicitly transitioned/reset to (`transitionToPreset`/`resetToPreset`) —
+   * unaffected by `orbitBy`/`dollyBy`/`focusPoint`, the same "active preset persists through manual
+   * orbit" semantics the pre-extraction Home-key handler relied on (`cameraPresetRef.current`).
+   * `undefined` only if constructed with a preset that itself has no `id` — never in practice,
+   * since every real catalog preset does. */
+  presetId: string | undefined;
+  tourStatus: TourStatus;
+}
 
 /** Radians per keyboard orbit step — `KEYBOARD_ORBIT_STEP_RADIANS` in the pre-extraction component. */
 export const KEYBOARD_ORBIT_STEP_RADIANS = 0.12;
@@ -73,9 +100,16 @@ export class CameraController {
   private readonly tour: CinematicTour;
   private readonly limits: CameraControllerLimits;
   private disposed = false;
+  /** Full preset list as given, independent of the tour's own `resolveTourPresets`-filtered copy —
+   * `getPresets()` and a by-id lookup (`VehicleSceneAgentApi.mutate.camera.setPreset`, Priority 4)
+   * need the real catalog list, not the hero/wheels/interior shot order the tour walks. */
+  private presets: readonly CameraPresetConfig[];
+  private activePresetId: string | undefined;
 
   constructor(options: CameraControllerOptions) {
     this.limits = { ...DEFAULT_CAMERA_LIMITS, ...options.limits };
+    this.presets = options.presets;
+    this.activePresetId = options.initialPreset.id;
 
     this.camera = new THREE.PerspectiveCamera(options.fov ?? 38, 1, options.near ?? 0.05, options.far ?? 100);
     this.camera.position.set(...options.initialPreset.position);
@@ -132,7 +166,24 @@ export class CameraController {
 
   /** Re-resolves the tour's shot order — call when the vehicle's catalog presets change. */
   setPresets(presets: readonly CameraPresetConfig[]): void {
+    this.presets = presets;
     this.tour.setPresets(presets);
+  }
+
+  /** The full preset list as given to the constructor/`setPresets` — plain data, safe for any
+   * caller (`VehicleSceneAgentApi.read.getCameraPresets`, Priority 4) to hand further outward. */
+  getPresets(): readonly CameraPresetConfig[] {
+    return this.presets;
+  }
+
+  /** Current pose, active preset, and tour status as plain data — no live camera/controls reference. */
+  getState(): CameraControllerState {
+    return {
+      position: this.camera.position.toArray(),
+      target: this.controls.target.toArray(),
+      presetId: this.activePresetId,
+      tourStatus: this.tour.status,
+    };
   }
 
   /** Per-frame tick: advances `OrbitControls` damping. Call once before each render. */
@@ -152,6 +203,7 @@ export class CameraController {
    * zero-duration tween as an immediate set) rather than a separate branch.
    */
   transitionToPreset(preset: CameraPresetConfig): void {
+    this.activePresetId = preset.id;
     const duration = motionDuration(PRESET_TRANSITION_SECONDS);
     gsap.to(this.camera.position, {
       x: preset.position[0],
@@ -177,6 +229,7 @@ export class CameraController {
    */
   resetToPreset(preset: CameraPresetConfig): void {
     if (this.isTourActive) this.tour.cancel();
+    this.activePresetId = preset.id;
     this.camera.position.set(...preset.position);
     this.controls.target.set(...preset.target);
     this.controls.update();
@@ -212,6 +265,43 @@ export class CameraController {
     spherical.radius = Math.min(Math.max(spherical.radius + deltaMeters, this.controls.minDistance), this.controls.maxDistance);
     this.camera.position.copy(offset.setFromSpherical(spherical).add(this.controls.target));
     this.controls.update();
+  }
+
+  /**
+   * Frames a world-space bounding sphere — `center`/`radius` from `VehicleSceneAgentApi.read.
+   * focusPart` (`lib/agent/sceneApi.ts`, backed by `THREE.Box3.setFromObject` on the part's real
+   * geometry). Keeps the camera's current viewing angle (spherical theta/phi about the target) and
+   * only changes distance and target, so this reframes on the part rather than reorienting the
+   * whole shot — a `resetToPreset`-style angle jump would be jarring for "show me this part" versus
+   * "show me this angle".
+   *
+   * Distance is chosen so the sphere fits the vertical FOV with `padding` headroom, clamped to the
+   * same distance limits every other move respects, and moved to via the same GSAP tween
+   * `transitionToPreset` uses (reduced-motion aware). Does not change `activePresetId` — focusing a
+   * part is not "picking a different preset", the same way `orbitBy`/`dollyBy` leave it alone.
+   */
+  focusPoint(center: readonly [number, number, number], radius: number, padding = DEFAULT_FOCUS_PADDING): void {
+    if (this.isTourActive) this.tour.cancel();
+
+    const target = new THREE.Vector3(...center);
+    const verticalFovRadians = THREE.MathUtils.degToRad(this.camera.fov);
+    // A radius of 0 (a part with degenerate/point-like bounds) still needs a real, clamped distance
+    // rather than collapsing onto the target — `Math.max(radius, 0.01)` keeps the framing math
+    // meaningful instead of dividing toward zero.
+    const distance = THREE.MathUtils.clamp(
+      Math.max(radius, 0.01) * padding / Math.sin(verticalFovRadians / 2),
+      this.controls.minDistance,
+      this.controls.maxDistance,
+    );
+
+    const currentOffset = this.camera.position.clone().sub(this.controls.target);
+    const spherical = new THREE.Spherical().setFromVector3(currentOffset);
+    spherical.radius = distance;
+    const newPosition = target.clone().add(new THREE.Vector3().setFromSpherical(spherical));
+
+    const duration = motionDuration(FOCUS_TRANSITION_SECONDS);
+    gsap.to(this.camera.position, { x: newPosition.x, y: newPosition.y, z: newPosition.z, duration, ease: "power3.inOut" });
+    gsap.to(this.controls.target, { x: target.x, y: target.y, z: target.z, duration, ease: "power3.inOut" });
   }
 
   dispose(): void {

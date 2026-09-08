@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+// jsdom (not the default node environment) only because the camera-capability describe block
+// below constructs a real `CameraController`, whose `OrbitControls` needs a DOM element — every
+// other test in this file is plain THREE.js/business logic and runs identically either way.
+import { afterEach, describe, expect, it } from "vitest";
+import gsap from "gsap";
 import * as THREE from "three";
 import { createVehicleFixture, materialAt } from "./fixtures/scene";
 import { VehicleSceneController } from "../lib/three/sceneController";
@@ -6,12 +11,41 @@ import { verifyNodeContract } from "../lib/three/nodes";
 import { fourRunnerOptions } from "../lib/data/options/4runner";
 import { FOUR_RUNNER_SCENE_MAP } from "../lib/data/sceneMap/4runner";
 import { AGENT_CAPABILITIES, VehicleSceneAgentApi } from "../lib/agent/sceneApi";
+import { CameraController } from "../lib/three/cameraController";
+import type { CameraPresetConfig } from "../lib/types/vehicle";
 
 function makeApi() {
   const fixture = createVehicleFixture();
   const { satisfied } = verifyNodeContract(fixture.root, fourRunnerOptions);
   const controller = new VehicleSceneController(fixture.root, satisfied, FOUR_RUNNER_SCENE_MAP);
   return { fixture, controller, api: new VehicleSceneAgentApi(controller) };
+}
+
+const HERO_PRESET: CameraPresetConfig = { id: "hero", label: "Hero", position: [7.5, 4, 8.5], target: [0, 1.1, 0] };
+const SIDE_PRESET: CameraPresetConfig = { id: "side", label: "Side", position: [10, 2, 0], target: [0, 1, 0] };
+
+/**
+ * `OrbitControls.update()` recomputes `camera.position` from a spherical offset each time it
+ * runs (its own constructor calls it once, and so does every `CameraController` method ending in
+ * `controls.update()`), which round-trips through `sin`/`cos` and introduces ~1e-15 float noise —
+ * real, pre-existing OrbitControls behavior, not a defect. See cameraController.test.ts's own
+ * `expectVec3CloseTo` for the same rationale in more detail.
+ */
+function expectVec3CloseTo(actual: readonly number[], expected: readonly number[]): void {
+  expect(actual).toHaveLength(expected.length);
+  actual.forEach((value, index) => expect(value).toBeCloseTo(expected[index]!, 9));
+}
+
+function makeApiWithCamera() {
+  const { fixture, controller } = makeApi();
+  const dom = document.createElement("div");
+  document.body.appendChild(dom);
+  const camera = new CameraController({
+    domElement: dom,
+    initialPreset: HERO_PRESET,
+    presets: [HERO_PRESET, SIDE_PRESET],
+  });
+  return { fixture, controller, camera, api: new VehicleSceneAgentApi(controller, camera) };
 }
 
 describe("VehicleSceneAgentApi capability manifest", () => {
@@ -149,5 +183,125 @@ describe("VehicleSceneAgentApi.mutate", () => {
     expect(applied).toEqual(["paint-3u5-barcelona-red"]);
     expect(failed).toEqual([]);
     expect(materialAt(fixture.root, "BODY", "body.carmain")).toBeDefined();
+  });
+});
+
+describe("VehicleSceneAgentApi camera capabilities (Priority 4)", () => {
+  afterEach(() => {
+    // makeApiWithCamera() builds a fresh CameraController per test without disposing it (dispose()
+    // only tears down the cinematic tour, not an in-flight transitionToPreset/focusPoint tween —
+    // see cameraController.test.ts's own dispose() tests) — clearing the shared GSAP timeline here
+    // is what keeps one test's still-running tween from ticking during a later test's assertions.
+    gsap.globalTimeline.clear();
+  });
+
+  describe("without a CameraController wired", () => {
+    it("read.getCameraState()/getCameraPresets() return undefined rather than throwing", () => {
+      const { api } = makeApi();
+      expect(api.read.getCameraState()).toBeUndefined();
+      expect(api.read.getCameraPresets()).toBeUndefined();
+    });
+
+    it("every camera mutation fails closed with a reason instead of silently no-opping", () => {
+      const { api } = makeApi();
+      expect(api.mutate.setPreset("hero")).toEqual({ ok: false, reason: expect.stringContaining("no camera controller") });
+      expect(api.mutate.focusPart("wheel.front-left")).toEqual({ ok: false, reason: expect.stringContaining("no camera controller") });
+      expect(api.mutate.orbit(0.1, 0)).toEqual({ ok: false, reason: expect.stringContaining("no camera controller") });
+      expect(api.mutate.reset()).toEqual({ ok: false, reason: expect.stringContaining("no camera controller") });
+    });
+  });
+
+  describe("with a CameraController wired", () => {
+    it("read.getCameraState() reports real position/target/preset/tour state", () => {
+      const { api } = makeApiWithCamera();
+      const state = api.read.getCameraState();
+      expectVec3CloseTo(state!.position, HERO_PRESET.position);
+      expectVec3CloseTo(state!.target, HERO_PRESET.target);
+      expect(state?.presetId).toBe("hero");
+      expect(state?.tourStatus).toBe("idle");
+    });
+
+    it("read.getCameraPresets() returns the real catalog preset list", () => {
+      const { api } = makeApiWithCamera();
+      expect(api.read.getCameraPresets()).toEqual([HERO_PRESET, SIDE_PRESET]);
+    });
+
+    it("mutate.setPreset() transitions the real camera and updates getCameraState()", () => {
+      const { api, camera } = makeApiWithCamera();
+      expect(api.mutate.setPreset("side")).toEqual({ ok: true });
+      // Instant under vitest's default (non-jsdom-animated) gsap ticking would require advancing
+      // the global timeline; asserting the *intent* reached the controller is what this test is
+      // for — tests/cameraController.test.ts already covers the tween mechanics themselves.
+      expect(camera.getState().presetId).toBe("side");
+    });
+
+    it("mutate.setPreset() fails closed on an unknown preset id", () => {
+      const { api, camera } = makeApiWithCamera();
+      expect(api.mutate.setPreset("does-not-exist")).toEqual({
+        ok: false,
+        reason: expect.stringContaining("unknown camera preset id"),
+      });
+      // The failed call must not have moved anything.
+      expect(camera.getState().presetId).toBe("hero");
+    });
+
+    it("mutate.focusPart() composes read.focusPart's real bounding data with a real camera move", () => {
+      const { api, camera } = makeApiWithCamera();
+      const target = api.read.focusPart("wheel.front-left");
+      expect(target).toBeDefined();
+
+      expect(api.mutate.focusPart("wheel.front-left")).toEqual({ ok: true });
+      // Flush the GSAP tween focusPoint starts.
+      gsap.globalTimeline.time(gsap.globalTimeline.duration() + 1);
+
+      const state = camera.getState();
+      expect(state.target[0]).toBeCloseTo(target!.center[0], 5);
+      expect(state.target[1]).toBeCloseTo(target!.center[1], 5);
+      expect(state.target[2]).toBeCloseTo(target!.center[2], 5);
+    });
+
+    it("mutate.focusPart() fails closed for an unknown or unfocusable part", () => {
+      const { api } = makeApiWithCamera();
+      expect(api.mutate.focusPart("does-not-exist")).toEqual({
+        ok: false,
+        reason: expect.stringContaining("unknown or has no focusable geometry"),
+      });
+    });
+
+    it("mutate.orbit() moves the real camera and rejects non-finite deltas", () => {
+      const { api, camera } = makeApiWithCamera();
+      const before = camera.camera.position.clone();
+      expect(api.mutate.orbit(0.3, 0)).toEqual({ ok: true });
+      expect(camera.camera.position.equals(before)).toBe(false);
+
+      expect(api.mutate.orbit(Number.NaN, 0)).toEqual({
+        ok: false,
+        reason: expect.stringContaining("finite numbers"),
+      });
+      expect(api.mutate.orbit(0, Number.POSITIVE_INFINITY)).toEqual({
+        ok: false,
+        reason: expect.stringContaining("finite numbers"),
+      });
+    });
+
+    it("mutate.reset() returns the real camera to its currently active preset after an orbit", () => {
+      const { api, camera } = makeApiWithCamera();
+      camera.orbitBy(0.4, 0.1);
+      expect(camera.getState().position).not.toEqual(HERO_PRESET.position);
+
+      expect(api.mutate.reset()).toEqual({ ok: true });
+      expectVec3CloseTo(camera.getState().position, HERO_PRESET.position);
+      expect(camera.getState().presetId).toBe("hero");
+    });
+
+    it("mutate.reset() follows setPreset() — resets to the newly active preset, not the original one", () => {
+      const { api, camera } = makeApiWithCamera();
+      api.mutate.setPreset("side");
+      camera.orbitBy(0.2, 0);
+
+      expect(api.mutate.reset()).toEqual({ ok: true });
+      expect(camera.getState().presetId).toBe("side");
+      expectVec3CloseTo(camera.getState().position, SIDE_PRESET.position);
+    });
   });
 });
