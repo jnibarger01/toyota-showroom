@@ -67,19 +67,23 @@ capabilities (Priority 4)" describe block (both with and without a camera wired)
 ## What is deliberately not implemented yet, and why
 
 The mission's example vocabulary also names `environment.setPreset`, `lighting.setPreset`, and
-`showroom.inspect`/`showroom.capture`. These are **not** on `VehicleSceneAgentApi` today, because
-the state they would mutate does not live on `VehicleSceneController` or `CameraController` —
-terrain and environment preset are still `VehicleCanvas`/`BuilderApp` React props and `useState`
-(Priority 5, `EnvironmentController`, has not been extracted yet the way camera was in Priority 3).
-Adding `environment.setPreset()` here today would mean one of two dishonest things: a method that
+`showroom.inspect`/`showroom.capture`. These are **not** on `VehicleSceneAgentApi` today — not
+because the runtime authority is missing (`EnvironmentController`, `lib/three/
+environmentController.ts`, Priority 5, is real and owns exactly this state now — terrain/preset
+palette, quality-driven shadow/light adjustment, the HDRI lifecycle) but because no mission
+priority has asked for that composition yet, the same way Priority 4 was the explicit trigger for
+`camera.*` only once `CameraController` existed. Wiring it in later is the same shape of change
+`camera.*` just was: an optional third `VehicleSceneAgentApi` constructor argument
+(`EnvironmentController`), fail-closed reads/mutations when absent — not a redesign. Until then,
+adding `environment.setPreset()` here would mean one of two dishonest things: a method that
 silently does nothing (violates this codebase's own standard — see `VehicleSceneController.
 applyOption`'s doc comment on why a no-op is treated as a bug, not a graceful default), or reaching
 past this module into React component internals it has no business touching (the opposite of the
 boundary this module exists to hold — configurator/application state and scene/runtime state are
 supposed to stay separated, not have the "typed API" module quietly bridge them by calling into a
-specific component's props). Once `EnvironmentController` exists, `environment.setPreset` becomes
-the same shape of composition `camera.setPreset` just became: an optional third constructor
-argument, fail-closed reads/mutations when absent.
+specific component's props). Terrain/environment-preset *selection* itself stays a `VehicleCanvas`/
+`BuilderApp` React prop either way — an application preference, not scene state (see
+`EnvironmentController`'s own doc comment on that distinction).
 
 `showroom.inspect`/`showroom.capture` (a scene screenshot/state dump for an agent to see what it
 just did) are out of scope for the same reason plus one more: they would need a render-loop hook
