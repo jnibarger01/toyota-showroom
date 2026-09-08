@@ -60,7 +60,17 @@ describe("checkSceneMapContract", () => {
 
   it("resolves the real 4Runner scene map against a synthetic inspection matching the shipped GLB's known structure", () => {
     const glb = inspection(
-      ["VEHICLE_ROOT", "BODY", "Tun_GRILLE", "PLACED_WEISU_front_left", "PLACED_WEISU_front_right", "PLACED_WEISU_rear_left", "PLACED_WEISU_rear_right", "PLACED_KO3_front_left", "PLACED_KO3_front_right", "PLACED_KO3_rear_left", "PLACED_KO3_rear_right", "ACCESSORY_ROOF_RACK", "ACCESSORY_LIGHT_BAR", "ACCESSORY_ROCK_SLIDERS", "ACCESSORY_UNDERGLOW", "ACCESSORY_FOG_LIGHTS"],
+      [
+        "VEHICLE_ROOT", "BODY", "Tun_GRILLE",
+        "PLACED_WEISU_front_left", "PLACED_WEISU_front_right", "PLACED_WEISU_rear_left", "PLACED_WEISU_rear_right",
+        "PLACED_KO3_front_left", "PLACED_KO3_front_right", "PLACED_KO3_rear_left", "PLACED_KO3_rear_right",
+        "ACCESSORY_ROOF_RACK", "ACCESSORY_LIGHT_BAR", "ACCESSORY_ROCK_SLIDERS", "ACCESSORY_UNDERGLOW", "ACCESSORY_FOG_LIGHTS",
+        // P2 evidence-pass additions — real nodes confirmed via a direct NodeIO dump of the
+        // shipped GLB (lib/data/sceneMap/4runner.ts's own comment on each entry below).
+        "LOGO", "DEFAULT_HEADLIGHTS", "DEFAULT_TAILLIGHTS", "EXHAUST", "Tow Hooks Compatible",
+        "PLACED_AOOA_caliper_front_left", "PLACED_AOOA_caliper_front_right",
+        "PLACED_AOOA_caliper_rear_left", "PLACED_AOOA_caliper_rear_right",
+      ],
       {
         BODY: [
           "body.carmain",
@@ -74,12 +84,37 @@ describe("checkSceneMapContract", () => {
           "emissive.brakelights.001",
           "emissive.turnsignal.002",
         ],
+        LOGO: ["plastik.all.001", "metal.chrome.002"],
+        DEFAULT_HEADLIGHTS: [
+          "glass.light",
+          "plastik.all",
+          "metal.chrome.001",
+          "emissive.sidelights",
+          "emissive.turnsignal",
+          "emissive.headlight",
+        ],
+        DEFAULT_TAILLIGHTS: [
+          "emissive.brakelights",
+          "glass.light.001",
+          "metal.chrome.003",
+          "plastik.all.002",
+          "emissive.turnsignal.001",
+          "emissive.taillight",
+        ],
+        EXHAUST: ["metal.exhaust"],
+        "Tow Hooks Compatible": ["metal.red"],
+        PLACED_AOOA_caliper_front_left: ["paint_brake_caliper", "metal.chrome", "Caliper_cover_logo", "Red_wilwood"],
+        PLACED_AOOA_caliper_front_right: ["paint_brake_caliper", "metal.chrome", "Caliper_cover_logo", "Red_wilwood"],
+        PLACED_AOOA_caliper_rear_left: ["paint_brake_caliper", "metal.chrome", "Caliper_cover_logo", "Red_wilwood"],
+        PLACED_AOOA_caliper_rear_right: ["paint_brake_caliper", "metal.chrome", "Caliper_cover_logo", "Red_wilwood"],
       },
     );
 
     const report = checkSceneMapContract(glb, FOUR_RUNNER_SCENE_MAP);
-    // Every entry except the forward-declared, not-yet-modeled parts should resolve.
-    const stillMissing = ["door.front-left", "door.front-right", "mirror.left", "mirror.right", "badge.front", "interior", "roof"];
+    // Every entry except the forward-declared, confirmed-absent parts should resolve. `badge.front`
+    // is deliberately not in this list any more: it now targets the real `LOGO` node (P2 evidence
+    // pass), so it belongs in `satisfied`, not here.
+    const stillMissing = ["door.front-left", "door.front-right", "mirror.left", "mirror.right", "interior", "roof"];
     expect(report.unsatisfied.map((u) => u.entry.id).sort()).toEqual(stillMissing.sort());
     expect(report.satisfied.length).toBe(FOUR_RUNNER_SCENE_MAP.length - stillMissing.length);
   });

@@ -77,9 +77,12 @@ function collectTargets(): AssetTarget[] {
  * Forward-declared or runtime-only scene-map entries with no matching node in the *source* GLB —
  * expected, documented gaps, not pipeline regressions:
  *
- * - door/mirror/badge/roof/interior: no separate geometry in this exterior-body-shell export at
- *   all (`lib/data/sceneMap/4runner.ts`'s header comment; mirrors `lib/data/vehicles/4runner.ts`
- *   forward-declaring `interior.seat` the same way).
+ * - door/mirror/roof/interior: no separate geometry in this exterior-body-shell export at all
+ *   (`lib/data/sceneMap/4runner.ts`'s header comment; mirrors `lib/data/vehicles/4runner.ts`
+ *   forward-declaring `interior.seat` the same way). The badge is different: real `LOGO` geometry
+ *   exists, and `badge.front` targets it directly (a P2 evidence-pass correction — see
+ *   `lib/data/sceneMap/4runner.ts`'s own comment on that entry), so it is deliberately absent from
+ *   this list — it is expected to be satisfied, not unsatisfied.
  * - vehicle.root: the source GLB's actual root node is unnamed/differently named; `VEHICLE_ROOT`
  *   is assigned at runtime by `prepareVehicleRoot()` (`VehicleCanvas.tsx`), never present in the
  *   file on disk.
@@ -97,7 +100,6 @@ export const EXPECTED_UNSATISFIED: Record<string, string[]> = {
     "door.front-right",
     "mirror.left",
     "mirror.right",
-    "badge.front",
     "interior",
     "roof",
     "vehicle.root",

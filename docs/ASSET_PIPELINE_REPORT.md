@@ -9,7 +9,7 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Meshes: 12   Triangles: 332,698   Materials: 36   Textures: 13
 - Compression: draco
 - Largest textures: T_Brakes_Wilwood-4_D (1024×1024, 87.0 KiB), Caliper_cover_logo_D (600×172, 34.3 KiB), T_glass (512×512, 5.6 KiB)
-- Semantic contract: 18 satisfied, 13 unsatisfied
+- Semantic contract: 38 satisfied, 12 unsatisfied
 - Inspection duration: 166.5 ms
 
 ## 4Runner wheel (authored) (`4runner`)
