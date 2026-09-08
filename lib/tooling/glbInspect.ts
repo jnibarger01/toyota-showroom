@@ -8,6 +8,10 @@ import { readFileSync } from "node:fs";
  * This is deliberately narrower than `GLTFLoader`: it answers exactly the question the customization
  * catalog cares about — "does this node name exist, and which material names does it carry" — which
  * is also what `docs/INTEGRATION_GUIDE.md` §3's development dump utility is built on.
+ *
+ * Every runtime model this app ships is binary `.glb` (`tests/canvasOrdering.test.ts`'s "ships
+ * every runtime model as .glb" enforces it), so this inspector only ever needs to handle that one
+ * container.
  */
 
 const GLB_MAGIC = 0x46546c67; // "glTF"

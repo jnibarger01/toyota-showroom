@@ -36,3 +36,12 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Largest textures: Palette.png (256×256, 4.4 KiB)
 - Semantic contract: 6 satisfied, 0 unsatisfied
 - Inspection duration: 10.8 ms
+
+## RAV4 body (`rav4`)
+
+- Source: `/models/rav4-2024/rav4_2024_limited_decoded.glb` — 492.5 KiB
+- Meshes: 1   Triangles: 182,589   Materials: 10   Textures: 5
+- Compression: draco
+- Largest textures: T_glass.light_B (512×512, 5.7 KiB), T_metal.chrome_B (512×512, 4.9 KiB), T_metal.chrome_M-T_metal.chrome_R (512×512, 4.8 KiB)
+- Semantic contract: 10 satisfied, 17 unsatisfied
+- Inspection duration: 60.3 ms

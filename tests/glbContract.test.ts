@@ -117,6 +117,9 @@ describe("shipped GLB payload budget", () => {
     "/models/modsnation_7416_assets_assembled.glb": 3 * 1024 * 1024,
     // ~0.81 MiB today; a minimal FBX2glTF export with one shared material.
     "/models/toyota-ae86-ivofficial.glb": 2 * 1024 * 1024,
+    // ~0.48 MiB today; scripts/optimize-models.mjs repackaged the vendor's decoded .gltf+.bin pair
+    // (docs/RAV4_PROVENANCE.md §3) into this single binary .glb, same Draco compression.
+    "/models/rav4-2024/rav4_2024_limited_decoded.glb": 1.5 * 1024 * 1024,
   };
 
   for (const vehicle of VEHICLES) {

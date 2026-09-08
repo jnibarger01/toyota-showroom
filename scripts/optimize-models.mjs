@@ -72,6 +72,10 @@ const MODELS = [
   { path: asset("4runner-2024/ModsNation_7416_tire.gltf"), label: "tire" },
   { path: asset("4runner-2024/ModsNation_7416_wheel_a.gltf"), label: "wheel" },
   { path: asset("toyota-ae86-ivofficial.glb"), label: "AE86" },
+  // External-buffer .gltf (docs/RAV4_PROVENANCE.md §3) — writeTargetFor rewrites it to .glb,
+  // repackaging the container only; the primitives are already Draco-compressed on read, and the
+  // draco() transform below re-applies the same codec on write, not a different one.
+  { path: asset("rav4-2024/rav4_2024_limited_decoded.gltf"), label: "RAV4 body" },
 ];
 
 const REPORT_ONLY = process.argv.includes("--report");
@@ -82,16 +86,16 @@ const mib = (bytes) => `${(bytes / MiB).toFixed(2)} MiB`;
 /**
  * Where an optimized asset should be written.
  *
- * A `.gltf` whose buffer is a base64 `data:` URI is paying a ~33% encoding tax for nothing, so it
- * is rewritten as binary `.glb` at the same basename. A `.gltf` with *external* buffer files is
- * left as `.gltf` — rewriting it would orphan its `.bin` siblings, and the encoding tax it is
- * paying is zero.
+ * Every `.gltf` is rewritten to binary `.glb` at the same basename, regardless of buffer style: a
+ * base64 `data:` buffer pays a ~33% encoding tax for nothing, and an external `.bin` sibling costs
+ * a second network round trip before the renderer can start decoding geometry — `tests/
+ * canvasOrdering.test.ts`'s "ships every runtime model as .glb" enforces that neither shape reaches
+ * a `threeDConfig.modelUrl`. The external-buffer sibling of a rewritten asset becomes orphaned by
+ * this rewrite; the caller is responsible for removing it once the new `.glb` is verified.
  */
 function writeTargetFor(filePath) {
   if (!filePath.endsWith(".gltf")) return filePath;
-  const gltf = JSON.parse(readFileSync(filePath, "utf8"));
-  const embedsBase64 = (gltf.buffers ?? []).some((buffer) => buffer.uri?.startsWith("data:"));
-  return embedsBase64 ? filePath.replace(/\.gltf$/, ".glb") : filePath;
+  return filePath.replace(/\.gltf$/, ".glb");
 }
 
 /**

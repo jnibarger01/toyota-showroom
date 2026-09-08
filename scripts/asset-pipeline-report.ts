@@ -107,6 +107,29 @@ export const EXPECTED_UNSATISFIED: Record<string, string[]> = {
     "accessory.underglow",
     "accessory.fog-lights",
   ],
+  // RAV4: a body-shell-only capture with no wheel/tire/door/mirror/badge/grille/interior/roof
+  // geometry at all — see docs/RAV4_PROVENANCE.md §2 for the verified node/material inventory this
+  // list is drawn from, and lib/data/sceneMap/rav4.ts's header for why each is forward-declared
+  // against a node name that deliberately does not exist rather than a real-but-empty mount node.
+  rav4: [
+    "vehicle.root",
+    "wheel.front-left",
+    "wheel.front-right",
+    "wheel.rear-left",
+    "wheel.rear-right",
+    "tire.front-left",
+    "tire.front-right",
+    "tire.rear-left",
+    "tire.rear-right",
+    "door.front-left",
+    "door.front-right",
+    "mirror.left",
+    "mirror.right",
+    "badge.front",
+    "grille",
+    "interior",
+    "roof",
+  ],
 };
 
 interface TextureMetric {
