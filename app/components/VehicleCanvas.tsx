@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import * as THREE from "three";
-import { applyHdriPreset, type HdriEnvironmentHandle } from "../../lib/three/hdriEnvironment";
 import * as THREE_WEBGPU from "three/webgpu";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
@@ -29,7 +28,14 @@ import { QualityGovernor } from "../../lib/three/qualityGovernor";
 import { motionDuration } from "../../lib/three/motionPreference";
 import type { TourStatus } from "../../lib/three/cinematicTour";
 import { CameraController, KEYBOARD_ORBIT_STEP_RADIANS, KEYBOARD_ZOOM_STEP } from "../../lib/three/cameraController";
+import {
+  EnvironmentController,
+  type Terrain,
+  type EnvironmentPreset,
+} from "../../lib/three/environmentController";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
+
+export type { Terrain, EnvironmentPreset };
 
 export type { TourStatus };
 export type TourAction = { seq: number; type: "play" | "pause" | "cancel" };
@@ -40,9 +46,6 @@ export type CameraPreset = {
   position: [number, number, number];
   target: [number, number, number];
 };
-
-export type Terrain = "Studio" | "Trail" | "Night";
-export type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 
 type Props = {
   threeDConfig: Vehicle3DConfig;
@@ -108,9 +111,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
-  const environmentRef = useRef<EnvironmentRefs | null>(null);
+  const environmentControllerRef = useRef<EnvironmentController | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const hdriHandleRef = useRef<HdriEnvironmentHandle | null>(null);
 
   // Latest-value refs: the setup effect must run exactly once (loading a 39 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
@@ -184,72 +186,14 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       cameraControllerRef.current = cameraController;
       const camera = cameraController.camera;
 
-      const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 1.8);
-      scene.add(hemi);
-
-      // `bias`/`normalBias` avoid shadow acne without pulling the shadow away from the geometry
-      // that casts it ("peter-panning") — too small and the floor self-shadows in moire bands, too
-      // large and the vehicle's own contact shadow detaches from its tires, which is exactly the
-      // "floating" artifact this tuning exists to prevent. The explicit frustum is sized to the
-      // largest catalog vehicle (the AE86, ~9m long) rather than three's default ±5 box, which
-      // clipped shadow coverage for anything longer than a compact car.
-      const key = new THREE.DirectionalLight("#ffffff", 4.2);
-      key.position.set(6, 9, 7);
-      key.castShadow = quality.shadowsEnabled;
-      key.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
-      key.shadow.bias = -0.00018;
-      key.shadow.normalBias = 0.025;
-      key.shadow.camera.near = 1;
-      key.shadow.camera.far = 30;
-      key.shadow.camera.left = -11;
-      key.shadow.camera.right = 11;
-      key.shadow.camera.top = 11;
-      key.shadow.camera.bottom = -11;
-      key.shadow.camera.updateProjectionMatrix();
-      scene.add(key);
-
-      // Raised and dimmed relative to the original rig: at the old (-7, 4, -6) grazing angle this
-      // blue rim light hit the glossy floor almost edge-on and blew out into a large unshadowed
-      // specular hotspot that read as a glow the vehicle was floating in, drowning out the contact
-      // shadow underneath it. Steepening the angle and tempering the floor material below (both
-      // parts of the same fix) let the actual shadow read again.
-      const rim = new THREE.DirectionalLight("#4169ff", 1.6 * quality.secondaryLightScale);
-      rim.position.set(-6, 7.5, -6);
-      scene.add(rim);
-
-      // Fills the shaded (camera-facing, key-light-averted) side so the vehicle doesn't render as a
-      // near-silhouette — the previous two-light rig left everything but the lit flank close to
-      // black. No shadow: this is a soft bounce-light stand-in, not a directional key.
-      const fill = new THREE.DirectionalLight("#dce8ff", 1.1 * quality.secondaryLightScale);
-      fill.position.set(-2, 3, 9);
-      scene.add(fill);
-
-      // Lower clearcoat/higher roughness than before: the prior floor was mirror-glossy enough that
-      // the rim light's specular reflection alone could out-shine the actual shadow beneath the
-      // vehicle. A duller showroom floor lets contact shadows read as the primary grounding cue.
-      const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(50, 50),
-        new THREE.MeshPhysicalMaterial({ color: "#0a0c10", roughness: 0.6, metalness: 0.05, clearcoat: 0.12, clearcoatRoughness: 0.4 }),
-      );
-      floor.rotation.x = -Math.PI / 2;
-      floor.receiveShadow = quality.shadowsEnabled;
-      scene.add(floor);
-
-      const grid = new THREE.GridHelper(36, 36, "#26303a", "#151a20");
-      grid.position.y = 0.002;
-      scene.add(grid);
-
-      const stars = createStarfield(quality.starfieldCount);
-      stars.visible = false;
-      scene.add(stars);
-
-      const rocks = createTrailRocks();
-      rocks.visible = false;
-      scene.add(rocks);
-
-      const environment = { scene, floor, grid, hemi, key, rim, fill, stars, rocks };
-      environmentRef.current = environment;
-      applyEnvironment(environment, terrain, environmentPreset);
+      const environmentController = new EnvironmentController({
+        scene,
+        quality,
+        initialTerrain: terrain,
+        initialPreset: environmentPreset,
+        starfieldCount: quality.starfieldCount,
+      });
+      environmentControllerRef.current = environmentController;
 
       const resize = () => {
         const width = Math.max(host.clientWidth, 1);
@@ -552,18 +496,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         quality = next;
         applyRendererQuality(renderer, next);
         renderer.domElement.dataset.quality = next.tier;
-        key.castShadow = next.shadowsEnabled;
-        if (next.shadowsEnabled) {
-          key.shadow.mapSize.set(next.shadowMapSize, next.shadowMapSize);
-          // three caches the shadow render target and will not reallocate it just because mapSize
-          // changed, so without this the new resolution is stored and never takes effect — the
-          // expensive half of a downgrade would silently do nothing.
-          key.shadow.map?.dispose();
-          key.shadow.map = null;
-        }
-        floor.receiveShadow = next.shadowsEnabled;
-        rim.intensity = 1.6 * next.secondaryLightScale;
-        fill.intensity = 1.1 * next.secondaryLightScale;
+        environmentController.applyQuality(next);
         resize();
       };
 
@@ -667,8 +600,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         canvasElement.removeEventListener("pointercancel", handlePointerLeave);
         idleGate.dispose();
         resizeObserver.disconnect();
-        hdriHandleRef.current?.dispose();
-        hdriHandleRef.current = null;
+        environmentControllerRef.current?.dispose();
+        environmentControllerRef.current = null;
         rendererRef.current = null;
         renderer.dispose();
         renderer.domElement.remove();
@@ -684,11 +617,6 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           scene.remove(rootRef.current);
           disposeSubtree(rootRef.current);
         }
-        floor.geometry.dispose();
-        (floor.material as THREE.Material).dispose();
-        grid.dispose();
-        disposeStarfield(stars);
-        disposeTrailRocks(rocks);
         if (contactShadow) disposeContactShadow(contactShadow);
         rootRef.current = null;
       };
@@ -881,35 +809,17 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   }, [threeDConfig.cameraPresets]);
 
   useEffect(() => {
-    if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, environmentPreset);
+    environmentControllerRef.current?.setTerrainAndPreset(terrain, environmentPreset);
   }, [terrain, environmentPreset]);
 
   useEffect(() => {
-    const environment = environmentRef.current;
+    const environmentController = environmentControllerRef.current;
     const renderer = rendererRef.current;
-    if (!environment || !renderer || !hdriPresetId) return;
-    let cancelled = false;
-    void applyHdriPreset(
-      {
-        scene: environment.scene,
-        hemi: environment.hemi,
-        key: environment.key,
-        rim: environment.rim,
-        fill: environment.fill,
-      },
-      renderer,
-      hdriPresetId,
-      hdriHandleRef.current,
-    ).then((handle) => {
-      if (cancelled) {
-        handle?.dispose();
-        return;
-      }
-      hdriHandleRef.current = handle;
-    });
-    return () => {
-      cancelled = true;
-    };
+    if (!environmentController || !renderer || !hdriPresetId) return;
+    // Supersession (a slower, superseded request's late-arriving result being discarded) is
+    // EnvironmentController's own job now — see `applyHdri`'s doc comment — so this effect no
+    // longer needs its own `cancelled` flag/cleanup for that race.
+    void environmentController.applyHdri(renderer, hdriPresetId);
   }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 
   return (
@@ -930,43 +840,6 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       }
     />
   );
-}
-
-type EnvironmentRefs = {
-  scene: THREE.Scene;
-  floor: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
-  grid: THREE.GridHelper;
-  hemi: THREE.HemisphereLight;
-  key: THREE.DirectionalLight;
-  rim: THREE.DirectionalLight;
-  fill: THREE.DirectionalLight;
-  stars: THREE.Points;
-  rocks: THREE.Group;
-};
-
-function applyEnvironment(environment: EnvironmentRefs, terrain: Terrain, preset: EnvironmentPreset): void {
-  const palette = preset === "Night"
-    ? { bg: "#050813", floor: "#0b0d15", sky: "#33436c", ground: "#080a12", keyColor: "#b8c9ff", rimColor: "#4169ff", fillColor: "#26314f", key: 1.0, rim: 1.7, fill: 0.5, hemi: 1.1 }
-    : preset === "Sunset"
-      ? { bg: "#21140f", floor: "#1c130f", sky: "#ffd3a1", ground: "#5e3023", keyColor: "#ffb36b", rimColor: "#ff5a36", fillColor: "#ffdcb0", key: 2.6, rim: 1.4, fill: 0.9, hemi: 1.6 }
-      : { bg: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#191712" : "#0a0c10", sky: "#edf5ff", ground: "#18100b", keyColor: "#ffffff", rimColor: "#4169ff", fillColor: "#dce8ff", key: 4.2, rim: 1.6, fill: 1.1, hemi: 1.8 };
-  environment.scene.background = new THREE.Color(palette.bg);
-  environment.scene.fog = new THREE.Fog(palette.bg, terrain === "Trail" ? 10 : 16, terrain === "Trail" ? 25 : 32);
-  environment.floor.material.color.set(palette.floor);
-  environment.hemi.color.set(palette.sky);
-  environment.hemi.groundColor.set(palette.ground);
-  environment.hemi.intensity = palette.hemi;
-  environment.key.color.set(palette.keyColor);
-  environment.key.intensity = palette.key;
-  environment.rim.color.set(palette.rimColor);
-  environment.rim.intensity = palette.rim;
-  environment.fill.color.set(palette.fillColor);
-  environment.fill.intensity = palette.fill;
-  environment.grid.visible = terrain === "Studio";
-  // Both are static set dressing, not physically part of any vehicle, so they're built once at
-  // scene setup and simply shown or hidden here rather than rebuilt per preset switch.
-  environment.stars.visible = preset === "Night";
-  environment.rocks.visible = terrain === "Trail";
 }
 
 /** A soft radial-gradient disc rather than a real-time shadow: it reads as a grounding cue under
@@ -1015,82 +888,6 @@ function createRadialGradientTexture(): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
-}
-
-/** A fixed field of distant points, shown only for the Night preset — cheap set dressing that
- * sells the "outdoor at night" read the flat dark background alone doesn't. */
-function createStarfield(count = 400): THREE.Points {
-  const positions = new Float32Array(count * 3);
-  for (let i = 0; i < count; i += 1) {
-    const radius = 32 + Math.random() * 14;
-    const theta = Math.random() * Math.PI * 2;
-    // Restricted to the upper hemisphere (elevation 0.1–1) so stars never land below the horizon,
-    // where the floor plane would occlude them anyway.
-    const elevation = 0.1 + Math.random() * 0.9;
-    const y = radius * elevation;
-    const ring = Math.sqrt(Math.max(radius * radius - y * y, 0));
-    positions[i * 3] = Math.cos(theta) * ring;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = Math.sin(theta) * ring;
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const material = new THREE.PointsMaterial({
-    color: "#e7edff",
-    size: 0.12,
-    sizeAttenuation: true,
-    transparent: true,
-    opacity: 0.85,
-    toneMapped: false,
-    depthWrite: false,
-  });
-  const points = new THREE.Points(geometry, material);
-  points.name = "STARFIELD";
-  return points;
-}
-
-function disposeStarfield(points: THREE.Points): void {
-  points.geometry.dispose();
-  (points.material as THREE.Material).dispose();
-}
-
-/** Low-poly rocks scattered around the vehicle, shown only for the Trail terrain preview — the
- * flat studio floor otherwise looks the same regardless of which terrain is "selected". Positions
- * are hand-placed (not randomised) and kept outside the ~2.5m the camera presets orbit within, so
- * they read as surrounding terrain rather than debris crowding the vehicle. */
-function createTrailRocks(): THREE.Group {
-  const group = new THREE.Group();
-  group.name = "TRAIL_ROCKS";
-  const material = new THREE.MeshStandardMaterial({ color: "#3a352e", roughness: 0.95, metalness: 0.02, flatShading: true });
-
-  const placements: [number, number, number, number][] = [
-    [-3.4, 0.22, -2.1, 0.34],
-    [-3.9, 0.16, 0.6, 0.24],
-    [3.6, 0.2, -1.4, 0.3],
-    [4.1, 0.14, 1.6, 0.22],
-    [-2.6, 0.12, 3.3, 0.2],
-    [2.9, 0.15, 3.6, 0.24],
-    [-4.4, 0.18, -3.4, 0.28],
-    [4.6, 0.13, -3.8, 0.2],
-  ];
-  for (const [x, y, z, scale] of placements) {
-    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), material);
-    rock.scale.set(scale, scale * (0.7 + (x % 1 === 0 ? 0 : 0.2)), scale);
-    rock.position.set(x, y, z);
-    rock.rotation.set(x * 0.7, z * 0.5, x * z * 0.1);
-    rock.castShadow = true;
-    rock.receiveShadow = true;
-    group.add(rock);
-  }
-  return group;
-}
-
-function disposeTrailRocks(group: THREE.Group): void {
-  const material = (group.children[0] as THREE.Mesh | undefined)?.material as THREE.Material | undefined;
-  material?.dispose();
-  for (const child of group.children) {
-    if (child instanceof THREE.Mesh) child.geometry.dispose();
-  }
 }
 
 type RendererLike = {
