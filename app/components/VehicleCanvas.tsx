@@ -1,5 +1,39 @@
 "use client";
 
+/**
+ * React orchestration layer for the 3D showroom. What used to be a single ~700-line setup effect
+ * owning a dozen scattered `let`s now constructs and wires four independently-owned authorities —
+ * `RenderController` (Priority 6: renderer/render-loop/quality/context-loss), `CameraController`
+ * (Priority 3: camera/controls/tour), `EnvironmentController` (Priority 5: lighting/terrain/HDRI),
+ * and `VehicleSceneController` (Priority 1: scene graph/picking/selection, constructed once the
+ * GLB resolves) — and translates their events into the React props this component was handed:
+ * `onReady`, `onError`, `onProgress`, `onPartHover`, `onPartSelect`, `onTourStatusChange`,
+ * `onTourStep`. Construction is a short, explicit, linear sequence (`RenderController.create()` →
+ * `CameraController` → `EnvironmentController` → `attachScene`/`resize`/`start`); disposal is the
+ * same sequence in reverse, in one `cleanup` closure.
+ *
+ * ## Why there is no `SceneRuntime` composition root (Priority 7)
+ *
+ * The mission scoped Priority 7 as conditional: a composition root only if one "solves real
+ * coordination problems," never "a dumping ground." It doesn't, here. The three-line construction
+ * order above is not duplicated anywhere, is not error-prone (each controller's constructor takes
+ * exactly what it owns — a canvas, a scene, a quality snapshot — not a live reference to a sibling
+ * controller), and disposal already reads as a flat list. Wrapping those three lines in a class
+ * would not remove coordination logic; it would relocate it and add an indirection every reader has
+ * to look through to find the same three calls.
+ *
+ * What is left in this file after Priorities 3/5/6 — pointer/keyboard DOM event handling, the
+ * progressive-load state machine, part hover/select, the cinematic-tour keyboard shortcuts — is not
+ * spare renderer/camera/environment coordination looking for a home. It is this component's actual
+ * job: translating DOM and scene events into the React callback props above. None of it can move
+ * into a plain, renderer-agnostic class without smuggling application state (React props, callback
+ * closures) into the Three.js module layer, which is exactly the boundary `CameraController`/
+ * `EnvironmentController`/`RenderController` were each built to hold ("no application-state or
+ * agent-layer dependency" — every one of their own doc comments says this). A `SceneRuntime` that
+ * owned pointer handling to justify its own existence would be the dumping ground the mission named
+ * as the failure mode, not a fix for one.
+ */
+
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import * as THREE from "three";
