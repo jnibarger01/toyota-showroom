@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import * as THREE from "three";
-import * as THREE_WEBGPU from "three/webgpu";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
@@ -14,17 +13,9 @@ import { pointerToNdc } from "../../lib/three/picking";
 import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 import {
-  collectBrowserDeviceHints,
-  resolveQuality,
-  type QualitySettings,
-} from "../../lib/three/quality";
-import { createCanvasIdleGate } from "../../lib/three/canvasIdle";
-import { FrameTimeTracker, formatFrameStats } from "../../lib/three/frameStats";
-import {
   initialProgressiveState,
   reduceProgressiveLoad,
 } from "../../lib/three/progressiveLoad";
-import { QualityGovernor } from "../../lib/three/qualityGovernor";
 import { motionDuration } from "../../lib/three/motionPreference";
 import type { TourStatus } from "../../lib/three/cinematicTour";
 import { CameraController, KEYBOARD_ORBIT_STEP_RADIANS, KEYBOARD_ZOOM_STEP } from "../../lib/three/cameraController";
@@ -33,6 +24,7 @@ import {
   type Terrain,
   type EnvironmentPreset,
 } from "../../lib/three/environmentController";
+import { RenderController } from "../../lib/three/renderController";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
 
 export type { Terrain, EnvironmentPreset };
@@ -112,7 +104,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
    */
   const [sceneRevision, setSceneRevision] = useState(0);
   const environmentControllerRef = useRef<EnvironmentController | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const renderControllerRef = useRef<RenderController | null>(null);
 
   // Latest-value refs: the setup effect must run exactly once (loading a 39 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
@@ -154,25 +146,32 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       scene.background = new THREE.Color("#0b0f14");
       scene.fog = new THREE.Fog("#0b0f14", 16, 32);
 
-      let quality = resolveQuality(collectBrowserDeviceHints());
-      const { renderer, mode } = await createRenderer(quality.antialias);
+      const renderController = await RenderController.create({
+        host,
+        // `cameraControllerRef`/`environmentControllerRef`, not the local `cameraController`/
+        // `environmentController` consts, because both callbacks are wired before either
+        // controller exists — `RenderController.create()` runs first, since camera/environment
+        // construction both need the canvas it creates. By the time either callback can actually
+        // fire (a real resize event, a real quality-tier change), both refs are already set.
+        onResize: (width, height) => {
+          cameraControllerRef.current?.setAspect(width, height);
+        },
+        onQualityChange: (next) => {
+          environmentControllerRef.current?.applyQuality(next);
+        },
+        onContextLost: () => {
+          onErrorRef.current("Rendering was interrupted. Attempting to recover the 3D view.");
+        },
+      });
       if (cancelled) {
-        renderer.dispose();
+        renderController.dispose();
         return;
       }
-      // Paint-studio HDRI (PMREM) needs the live renderer; WebGPU skips the HDR file path.
-      rendererRef.current = renderer as unknown as THREE.WebGLRenderer;
-
-      applyRendererQuality(renderer, quality);
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.05;
-      renderer.domElement.dataset.renderer = mode;
-      recordMetric({ name: "renderer_selected", labels: { renderer: mode, tier: quality.tier } });
-      renderer.domElement.dataset.quality = quality.tier;
-      host.appendChild(renderer.domElement);
+      renderControllerRef.current = renderController;
+      const canvasElement = renderController.canvas;
 
       const cameraController = new CameraController({
-        domElement: renderer.domElement,
+        domElement: canvasElement,
         initialPreset: cameraPreset,
         presets: threeDConfig.cameraPresets,
         onTourStatusChange: (status) => {
@@ -188,22 +187,18 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
       const environmentController = new EnvironmentController({
         scene,
-        quality,
+        quality: renderController.currentQuality,
         initialTerrain: terrain,
         initialPreset: environmentPreset,
-        starfieldCount: quality.starfieldCount,
+        starfieldCount: renderController.currentQuality.starfieldCount,
       });
       environmentControllerRef.current = environmentController;
 
-      const resize = () => {
-        const width = Math.max(host.clientWidth, 1);
-        const height = Math.max(host.clientHeight, 1);
-        renderer.setSize(width, height);
-        cameraController.setAspect(width, height);
-      };
-      resize();
-      const resizeObserver = new ResizeObserver(resize);
-      resizeObserver.observe(host);
+      renderController.attachScene(scene, camera);
+      // Only now that camera/environment exist does `onResize` (camera aspect) have something to
+      // call into — matches the pre-Priority-6 ordering, where `resize()` was defined and first
+      // called only after both were constructed.
+      renderController.resize();
 
       /**
        * Keyboard cursor into `controller.findPartsByCapability("selectable")` — the "]"/"["/"Enter"
@@ -310,48 +305,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       };
       host.addEventListener("keydown", handleKeyDown);
 
-      /**
-       * WebGL context loss.
-       *
-       * The GPU process can drop a context at any time — a driver reset, the OS reclaiming VRAM, a
-       * background tab being evicted, too many live contexts. It arrives as an *event*, not an
-       * exception, so neither the try/catch around model loading nor `CanvasErrorBoundary` sees it:
-       * the render loop just keeps calling into a dead context and the viewport freezes on its last
-       * frame with nothing logged anywhere.
-       *
-       * `preventDefault` on `webglcontextlost` is what makes the context eligible for restoration at
-       * all — without it the browser never fires `webglcontextrestored`.
-       */
-      const canvasElement = renderer.domElement;
-      const handleContextLost = (event: Event) => {
-        event.preventDefault();
-        running = false;
-        cancelPendingRaf();
-        console.warn("[canvas] WebGL context lost; pausing render loop until it is restored.");
-        onErrorRef.current("Rendering was interrupted. Attempting to recover the 3D view.");
-      };
-      const handleContextRestored = () => {
-        console.info("[canvas] WebGL context restored; resuming render loop.");
-        // Reallocates the drawing buffer against the restored context; without it the renderer keeps
-        // the dimensions of a buffer that no longer exists.
-        resize();
-        if (running) return;
-        running = true;
-        frameStats.reset();
-        governor.reset();
-        loop?.();
-      };
-      canvasElement.addEventListener("webglcontextlost", handleContextLost);
-      canvasElement.addEventListener("webglcontextrestored", handleContextRestored);
-
       const uninstallMetricsFlush = installMetricsFlush();
 
-      // Start the render loop before the ~28 MiB GLB settles so the placeholder paints immediately.
-      let running = true;
-      let suspended = false;
       let contactShadow: THREE.Mesh | null = null;
       let controller: VehicleSceneController | null = null;
-      const frameStats = new FrameTimeTracker(60);
 
       /**
        * Direct part interaction: pointer hover previews a part, a click/tap selects it (or clears
@@ -479,109 +436,18 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       canvasElement.addEventListener("pointerleave", handlePointerLeave);
       canvasElement.addEventListener("pointercancel", handlePointerLeave);
 
-      /**
-       * Applies a quality tier to the live renderer and scene.
-       *
-       * `resolveQuality` picks a tier once from device hints; this is what makes that choice
-       * revisable mid-session (the adaptive policy `lib/three/quality.ts` defers to issue #33).
-       * Everything a tier controls that can be changed after construction is re-applied here.
-       *
-       * `antialias` and `loadAuthoredRunningGear` deliberately are not: antialias is fixed at
-       * renderer construction and changing it would mean tearing down the WebGL context mid-
-       * session, and the running gear is either already mounted or already skipped. Both settle at
-       * the opening tier, which is the right trade — the expensive, adjustable knobs are pixel
-       * ratio and shadows, and those are the ones that move.
-       */
-      const applyTier = (next: QualitySettings) => {
-        quality = next;
-        applyRendererQuality(renderer, next);
-        renderer.domElement.dataset.quality = next.tier;
-        environmentController.applyQuality(next);
-        resize();
-      };
-
-      const governor = new QualityGovernor({
-        initialTier: quality.tier,
-        onChange: (next, { from, reason }) => {
-          applyTier(next);
-          recordMetric({
-            name: "quality_changed",
-            value: Math.round(governor.averageFrameTimeMs),
-            labels: { from, to: next.tier, reason },
-          });
-          // Left in production rather than dev-gated: when someone reports "the showroom looks
-          // blurry on my phone", this line is the answer, and it fires a handful of times a session.
-          console.info(`[quality] ${reason}: ${from} -> ${next.tier}`);
-        },
-      });
-      let loop: (() => void) | undefined;
-      /** Pending rAF handle — must be cancelled on idle/suspend/cleanup to avoid forked loops. */
-      let rafId = 0;
-      /** Monotonic publish counter; `stats.samples` caps at the ring size so it cannot throttle. */
-      let framePublishCount = 0;
-
-      const cancelPendingRaf = () => {
-        if (rafId !== 0) {
-          cancelAnimationFrame(rafId);
-          rafId = 0;
-        }
-      };
-
-      const queueFrame = () => {
-        if (rafId !== 0) return;
-        rafId = requestAnimationFrame(() => {
-          rafId = 0;
-          loop?.();
-        });
-      };
-
-      const idleGate = createCanvasIdleGate(host, (next) => {
-        suspended = next;
-        renderer.domElement.dataset.idle = next ? "1" : "0";
-        if (next) {
-          cancelPendingRaf();
-          return;
-        }
-        // Leaving idle: drop any stale rAF, reseed frame timing, and kick a single chain.
-        if (running) {
-          cancelPendingRaf();
-          frameStats.reset();
-          // The frames either side of an idle gap describe the pause, not the renderer; feeding
-          // them to the governor would drive a downgrade on resume.
-          governor.reset();
-          loop?.();
-        }
-      });
-      suspended = idleGate.suspended;
-      renderer.domElement.dataset.idle = suspended ? "1" : "0";
-
-      loop = () => {
-        if (!running) return;
-        if (suspended) return;
-        const stats = frameStats.record(performance.now());
-        // Reuses the delta frameStats already computed rather than timing the loop a second time.
-        governor.recordFrame(stats.lastFrameMs);
-        framePublishCount += 1;
-        if (stats.samples > 0 && framePublishCount % 30 === 0) {
-          renderer.domElement.dataset.frameStats = formatFrameStats(stats);
-        }
-        cameraController.update();
-        const paint = renderer.renderAsync
-          ? renderer.renderAsync(scene, camera)
-          : Promise.resolve(renderer.render(scene, camera));
-        void paint.finally(() => {
-          if (running && !suspended) queueFrame();
-        });
-      };
-      loop();
+      // Start the render loop before the ~28 MiB GLB settles so the placeholder paints
+      // immediately. Quality governance, idle suspension, WebGL context loss/restoration, rAF
+      // scheduling, and frame-stat publishing are all `RenderController`'s own job now (Mission
+      // Priority 6) — `tick` is the one per-frame hook it doesn't own: the camera update that has
+      // to happen before each paint.
+      renderController.start(() => cameraController.update());
 
       // Assign cleanup before any await so an unmount mid-load still tears the renderer down.
       cleanup = () => {
-        running = false;
-        cancelPendingRaf();
-        // A pending hover raycast (`scheduleHoverPick`) is scheduled independently of the render
-        // loop's own rAF chain (`cancelPendingRaf` above), so it needs its own cancellation —
-        // otherwise a hover pick queued just before unmount could still fire afterward.
+        // A pending hover raycast (`scheduleHoverPick`) is scheduled independently of
+        // `RenderController`'s own rAF chain, so it needs its own cancellation — otherwise a
+        // hover pick queued just before unmount could still fire afterward.
         if (hoverRafPending) {
           cancelAnimationFrame(hoverRafId);
           hoverRafPending = false;
@@ -591,20 +457,15 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         cameraControllerRef.current = null;
         tourActiveRef.current = false;
         host.removeEventListener("keydown", handleKeyDown);
-        canvasElement.removeEventListener("webglcontextlost", handleContextLost);
-        canvasElement.removeEventListener("webglcontextrestored", handleContextRestored);
         canvasElement.removeEventListener("pointerdown", handlePointerDown);
         canvasElement.removeEventListener("pointermove", handlePointerMove);
         canvasElement.removeEventListener("pointerup", handlePointerUp);
         canvasElement.removeEventListener("pointerleave", handlePointerLeave);
         canvasElement.removeEventListener("pointercancel", handlePointerLeave);
-        idleGate.dispose();
-        resizeObserver.disconnect();
         environmentControllerRef.current?.dispose();
         environmentControllerRef.current = null;
-        rendererRef.current = null;
-        renderer.dispose();
-        renderer.domElement.remove();
+        renderControllerRef.current?.dispose();
+        renderControllerRef.current = null;
         if (controller) {
           controller.dispose();
           // Defense in depth alongside the rAF cancellation above: any other callback still
@@ -622,7 +483,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       };
 
       if (import.meta.env.DEV) {
-        (window as unknown as Record<string, unknown>).__vehicleFrameStats = () => frameStats.snapshot();
+        (window as unknown as Record<string, unknown>).__vehicleFrameStats = () => renderController.getFrameStats();
       }
 
       let progressive = initialProgressiveState();
@@ -695,7 +556,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         setSceneRevision((revision) => revision + 1);
 
         progressive = reduceProgressiveLoad(progressive, { type: "start-loading" });
-        renderer.domElement.dataset.loadPhase = progressive.phase;
+        canvasElement.dataset.loadPhase = progressive.phase;
 
         let detailed: THREE.Object3D | null = null;
         try {
@@ -720,10 +581,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           return;
         }
 
-        renderer.domElement.dataset.loadPhase = progressive.phase;
+        canvasElement.dataset.loadPhase = progressive.phase;
 
         if (detailed && progressive.hasDetailedModel) {
-          if (quality.loadAuthoredRunningGear) {
+          if (renderController.currentQuality.loadAuthoredRunningGear) {
             try {
               await installWheelAndTireAssets(detailed, threeDConfig);
             } catch (error) {
@@ -748,10 +609,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         }
       }
 
-      renderer.domElement.dataset.loadPhase = progressive.phase;
+      canvasElement.dataset.loadPhase = progressive.phase;
       if (import.meta.env.DEV) {
         (window as unknown as Record<string, unknown>).__vehicleProgressiveLoad = progressive;
-        (window as unknown as Record<string, unknown>).__vehicleQuality = quality;
+        (window as unknown as Record<string, unknown>).__vehicleQuality = renderController.currentQuality;
       }
 
       // cleanup already assigned above (before GLB await).
@@ -814,12 +675,12 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
   useEffect(() => {
     const environmentController = environmentControllerRef.current;
-    const renderer = rendererRef.current;
-    if (!environmentController || !renderer || !hdriPresetId) return;
+    const renderController = renderControllerRef.current;
+    if (!environmentController || !renderController || !hdriPresetId) return;
     // Supersession (a slower, superseded request's late-arriving result being discarded) is
     // EnvironmentController's own job now — see `applyHdri`'s doc comment — so this effect no
     // longer needs its own `cancelled` flag/cleanup for that race.
-    void environmentController.applyHdri(renderer, hdriPresetId);
+    void environmentController.applyHdri(renderController.renderer, hdriPresetId);
   }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 
   return (
@@ -888,39 +749,6 @@ function createRadialGradientTexture(): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
-}
-
-type RendererLike = {
-  domElement: HTMLCanvasElement;
-  setPixelRatio(value: number): void;
-  setSize(width: number, height: number): void;
-  render(scene: THREE.Scene, camera: THREE.Camera): void;
-  renderAsync?: (scene: THREE.Scene, camera: THREE.Camera) => Promise<void>;
-  dispose(): void;
-  shadowMap: { enabled: boolean };
-  toneMapping: THREE.ToneMapping;
-  toneMappingExposure: number;
-};
-
-function applyRendererQuality(renderer: RendererLike, quality: QualitySettings): void {
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.maxPixelRatio));
-  renderer.shadowMap.enabled = quality.shadowsEnabled;
-}
-
-async function createRenderer(antialias: boolean): Promise<{ renderer: RendererLike; mode: "webgpu" | "webgl2" }> {
-  if (navigator.gpu) {
-    try {
-      const renderer = new THREE_WEBGPU.WebGPURenderer({ antialias });
-      await renderer.init();
-      return { renderer: renderer as unknown as RendererLike, mode: "webgpu" };
-    } catch (error) {
-      console.warn("WebGPU initialization failed; using WebGL2 fallback.", error);
-    }
-  }
-
-  const renderer = new THREE.WebGLRenderer({ antialias, alpha: false });
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
 }
 
 async function loadVehicleRoot(
