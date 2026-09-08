@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { createVehicleFixture } from "./fixtures/scene";
+import { createVehicleFixture, materialAt } from "./fixtures/scene";
 import { VehicleSceneController } from "../lib/three/sceneController";
 import { verifyNodeContract } from "../lib/three/nodes";
 import { fourRunnerOptions } from "../lib/data/options/4runner";
@@ -110,8 +110,7 @@ describe("VehicleSceneAgentApi.mutate", () => {
     const { api, fixture } = makeApi();
     const result = await api.mutate.setPaint("paint-3u5-barcelona-red");
     expect(result).toEqual({ ok: true });
-    const body = fixture.root.getObjectByName("BODY") as THREE.Mesh;
-    const material = (Array.isArray(body.material) ? body.material : [body.material])[0] as THREE.MeshStandardMaterial;
+    const material = materialAt(fixture.root, "BODY", "body.carmain") as THREE.MeshStandardMaterial;
     expect(material.color.getHexString()).toBe("9d1d20");
 
     const wrongCategory = await api.mutate.setPaint("wheels-weisu-bronze");
@@ -149,6 +148,6 @@ describe("VehicleSceneAgentApi.mutate", () => {
     const { applied, failed } = await api.mutate.applyConfiguration({ paint: ["paint-3u5-barcelona-red"] });
     expect(applied).toEqual(["paint-3u5-barcelona-red"]);
     expect(failed).toEqual([]);
-    expect((fixture.root.getObjectByName("BODY") as THREE.Mesh).material).toBeDefined();
+    expect(materialAt(fixture.root, "BODY", "body.carmain")).toBeDefined();
   });
 });

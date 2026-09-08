@@ -23,19 +23,26 @@ async function waitForSettledCanvas(page: Page) {
   return page.locator("canvas");
 }
 
-test("clicking the vehicle selects a part and shows the selection badge", async ({ page }) => {
+test("clicking the vehicle's paint selects body.exterior specifically and shows the selection badge", async ({ page }) => {
   const canvas = await waitForSettledCanvas(page);
   const box = await canvas.boundingBox();
   if (!box) throw new Error("canvas has no bounding box");
 
-  // Centre of the viewport: the hero camera preset (lib/data/vehicles/4runner.ts) targets the
-  // vehicle body, so the centre pixel is expected to land on it, not the floor/background.
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  // Fraction of the viewport found by probing the real hero camera framing
+  // (lib/data/vehicles/4runner.ts) and confirmed to land on the body's paint region, not a wheel,
+  // window, or background. Asserting the *specific* semantic id here — not just "something got
+  // selected" — is deliberate: an earlier version of this test only checked the attribute was
+  // non-empty, which would have passed even if every material-region part (paint, glass, chrome,
+  // lights) were completely unselectable, exactly the real defect this asset once shipped with
+  // (SceneRegistry registered material regions against a node GLTFLoader never lets picking reach
+  // — see lib/three/sceneRegistry.ts's `findDedicatedMeshForMaterials` doc comment).
+  await page.mouse.click(box.x + box.width * 0.62, box.y + box.height * 0.48);
 
   await expect
     .poll(async () => canvas.getAttribute("data-selected-part"), { timeout: 5_000 })
-    .not.toBe("");
+    .toBe("body.exterior");
   await expect(page.locator(".selected-part-badge")).toBeVisible();
+  await expect(page.locator(".selected-part-badge")).toContainText("Exterior paint");
 });
 
 test("dragging to orbit does not select a part", async ({ page }) => {
@@ -67,7 +74,7 @@ test("clicking empty space clears a previous selection", async ({ page }) => {
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   await expect
     .poll(async () => canvas.getAttribute("data-selected-part"), { timeout: 5_000 })
-    .not.toBe("");
+    .toBe("glass.rear-windshield"); // another material-region part, confirmed by probing this camera framing
 
   // Far corner of the stage: outside the vehicle's footprint at this camera framing (background/
   // grid, nothing registered in the SceneRegistry).

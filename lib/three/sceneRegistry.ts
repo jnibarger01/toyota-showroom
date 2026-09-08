@@ -76,23 +76,31 @@ export class SceneRegistry {
    * Reverse lookup from a raycast hit to its semantic ID — the join point between picking
    * (`lib/three/picking.ts`) and this registry.
    *
-   * `materialName` disambiguates a material-region entry when several share one mesh (the object
-   * itself resolves to a `BODY` mesh; the material index on the intersected face says which
-   * region). Falls back up the ancestor chain so a child mesh of a registered group — an
-   * accessory's individual boxes, none of which are registered themselves — resolves to the
-   * group's own semantic ID.
+   * A material-region entry is registered (`buildSceneRegistry`) against its own dedicated mesh —
+   * the one real, `GLTFLoader`-produced child whose single material carries the named slot — so
+   * the common case is an unambiguous one-entry bucket, returned directly regardless of whether
+   * that entry happens to carry `materialNames` metadata (kept for highlighting, not for
+   * disambiguation here). `materialName` only matters when a bucket genuinely holds more than one
+   * entry for the same object — a hand-built or non-`GLTFLoader` scene where several regions
+   * legitimately share one multi-material mesh; no asset in this repo produces that shape, but the
+   * registry itself does not assume otherwise. Falls back up the ancestor chain so a child mesh of
+   * a registered group — an accessory's individual boxes, none of which are registered themselves
+   * — resolves to the group's own semantic ID.
    */
   resolve(object: THREE.Object3D, materialName?: string): SceneRegistryEntry | undefined {
     let current: THREE.Object3D | null = object;
     while (current) {
       const bucket = this.byObjectUuid.get(current.uuid);
       if (bucket) {
+        if (bucket.length === 1) return bucket[0];
         if (materialName) {
           const region = bucket.find((entry) => entry.materialNames?.includes(materialName));
           if (region) return region;
         }
         const whole = bucket.find((entry) => !entry.materialNames);
         if (whole) return whole;
+        // More than one region entry shares this object and none matches — genuinely ambiguous;
+        // keep walking up rather than guessing.
       }
       current = current.parent;
     }
@@ -142,7 +150,24 @@ export function buildSceneRegistry(
         });
         continue;
       }
-      registry.register(entry.id, object, {
+
+      // Every material name is present *somewhere* under this node, but picking needs the exact
+      // mesh to register — see `findDedicatedMeshForMaterials`'s own comment for why "the mesh
+      // whose material array/single slot carries this name" is not the same object as `object`
+      // itself for a real, GLTFLoader-produced multi-material node.
+      const dedicated = findDedicatedMeshForMaterials(object, entry.match.materialNames);
+      if (dedicated.length !== 1) {
+        report.unsatisfied.push({
+          entry,
+          reason:
+            dedicated.length === 0
+              ? `material(s) ${entry.match.materialNames.join(", ")} reported present under "${entry.match.objectName}" but no single mesh carries them all`
+              : `material(s) ${entry.match.materialNames.join(", ")} appear on ${dedicated.length} separate meshes under "${entry.match.objectName}" — ambiguous, not registered`,
+        });
+        continue;
+      }
+
+      registry.register(entry.id, dedicated[0]!, {
         type: entry.type,
         label: entry.label,
         capabilities: entry.capabilities,
@@ -170,4 +195,38 @@ function materialNamesOn(object: THREE.Object3D): Set<string> {
     }
   });
   return names;
+}
+
+/**
+ * Finds the mesh(es) under `node` whose material — single or array-slot — matches every name in
+ * `materialNames`, for registering a material-region entry against the *exact* object picking
+ * needs to resolve directly, rather than against `node` itself.
+ *
+ * This exists because of a real gap between two things that look similar but are not: a glTF
+ * "mesh" with several primitives (the 4Runner's and RAV4's `BODY`, ten primitives, one glTF
+ * material each) is not loaded by `GLTFLoader` as one `THREE.Mesh` with a ten-slot material array.
+ * `GLTFLoader.loadMesh` (`three/examples/jsm/loaders/GLTFLoader.js`) creates one `THREE.Mesh` per
+ * primitive and, whenever a glTF mesh has more than one, wraps them in a plain `THREE.Group` — so
+ * `root.getObjectByName("BODY")` on the real, running app returns a `Group` of ten single-material
+ * child meshes, never a single multi-material `Mesh`. A material-region entry registered against
+ * that `Group` with a `materialNames` filter (this file's previous behavior) could never be found
+ * by a raycast hit, because the hit object is always one specific child mesh with one plain
+ * `.material`, and nothing pointed a semantic ID at that child directly — every paint/glass/chrome/
+ * light part on both real vehicles was unselectable despite `buildSceneRegistry` reporting them
+ * "satisfied". Finding and registering the dedicated child mesh here is the actual fix; the
+ * multi-material-array case is kept as a fallback below only because a hand-built fixture or a
+ * different loader could still produce one, not because real assets in this repo ever do.
+ */
+function findDedicatedMeshForMaterials(node: THREE.Object3D, materialNames: readonly string[]): THREE.Mesh[] {
+  const wanted = new Set(materialNames);
+  const matches: THREE.Mesh[] = [];
+  node.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    const names = new Set(materials.map((m) => m?.name).filter((name): name is string => Boolean(name)));
+    if (materialNames.length > 0 && materialNames.every((name) => names.has(name)) && names.size >= wanted.size) {
+      matches.push(child);
+    }
+  });
+  return matches;
 }

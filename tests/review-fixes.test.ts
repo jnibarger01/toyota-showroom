@@ -159,8 +159,7 @@ describe("material disposal", () => {
 
     // The mesh points back at the GLB-supplied instance, which a subsequent disposeSubtree can
     // therefore reach. Previously it was stranded inside the writer and leaked.
-    const body = fixture.root.getObjectByName("BODY") as THREE.Mesh;
-    expect((body.material as THREE.Material[])[0]).toBe(fixture.materials.bodyPaint);
+    expect(materialAt(fixture.root, "BODY", "body.carmain")).toBe(fixture.materials.bodyPaint);
     expect(controller.clonedMaterialCount).toBe(0);
   });
 });
