@@ -5,7 +5,6 @@ import gsap from "gsap";
 import * as THREE from "three";
 import { applyHdriPreset, type HdriEnvironmentHandle } from "../../lib/three/hdriEnvironment";
 import * as THREE_WEBGPU from "three/webgpu";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
@@ -27,12 +26,9 @@ import {
   reduceProgressiveLoad,
 } from "../../lib/three/progressiveLoad";
 import { QualityGovernor } from "../../lib/three/qualityGovernor";
-import { motionDuration, prefersReducedMotion } from "../../lib/three/motionPreference";
-import {
-  createCinematicTour,
-  type CinematicTour,
-  type TourStatus,
-} from "../../lib/three/cinematicTour";
+import { motionDuration } from "../../lib/three/motionPreference";
+import type { TourStatus } from "../../lib/three/cinematicTour";
+import { CameraController, KEYBOARD_ORBIT_STEP_RADIANS, KEYBOARD_ZOOM_STEP } from "../../lib/three/cameraController";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
 
 export type { TourStatus };
@@ -44,18 +40,6 @@ export type CameraPreset = {
   position: [number, number, number];
   target: [number, number, number];
 };
-
-/**
- * Radians per arrow-key press.
- *
- * ~7 degrees: coarse enough that circling the vehicle takes a reasonable number of presses (about
- * 52 for a full revolution, or a second of held key repeat), fine enough to line up on a detail
- * like a wheel or a badge.
- */
-const KEYBOARD_ORBIT_STEP_RADIANS = 0.12;
-
-/** Metres of dolly per +/- press, against the 4-15 m distance range OrbitControls is clamped to. */
-const KEYBOARD_ZOOM_STEP = 0.6;
 
 export type Terrain = "Studio" | "Trail" | "Night";
 export type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
@@ -112,9 +96,7 @@ type Props = {
 
 export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const tourRef = useRef<CinematicTour | null>(null);
+  const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
   const tourActiveRef = useRef(false);
   const rootRef = useRef<THREE.Object3D | null>(null);
@@ -170,10 +152,6 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       scene.background = new THREE.Color("#0b0f14");
       scene.fog = new THREE.Fog("#0b0f14", 16, 32);
 
-      const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 100);
-      camera.position.set(...cameraPreset.position);
-      cameraRef.current = camera;
-
       let quality = resolveQuality(collectBrowserDeviceHints());
       const { renderer, mode } = await createRenderer(quality.antialias);
       if (cancelled) {
@@ -191,38 +169,20 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       renderer.domElement.dataset.quality = quality.tier;
       host.appendChild(renderer.domElement);
 
-      const controls = new OrbitControls(camera, renderer.domElement);
-      // Damping is inertia: the scene keeps moving after the user stops dragging. That is exactly
-      // the "motion I did not ask for and cannot stop" the reduced-motion preference covers, so it
-      // is a preference check rather than a constant.
-      controls.enableDamping = !prefersReducedMotion();
-      controls.minDistance = 4;
-      controls.maxDistance = 15;
-      controls.maxPolarAngle = Math.PI * 0.49;
-      controls.target.set(...cameraPreset.target);
-      controlsRef.current = controls;
-
-      // Cinematic tour seizes these controls while playing; pointer/wheel on the canvas cancels.
-      tourRef.current = createCinematicTour(
-        {
-          cameraPosition: camera.position,
-          cameraTarget: controls.target,
-          setControlsEnabled: (enabled) => {
-            controls.enabled = enabled;
-          },
-          domElement: renderer.domElement,
+      const cameraController = new CameraController({
+        domElement: renderer.domElement,
+        initialPreset: cameraPreset,
+        presets: threeDConfig.cameraPresets,
+        onTourStatusChange: (status) => {
+          tourActiveRef.current = status !== "idle";
+          onTourStatusChangeRef.current?.(status);
         },
-        threeDConfig.cameraPresets,
-        {
-          onStatusChange: (status) => {
-            tourActiveRef.current = status !== "idle";
-            onTourStatusChangeRef.current?.(status);
-          },
-          onStep: (preset) => {
-            onTourStepRef.current?.(preset);
-          },
+        onTourStep: (preset) => {
+          onTourStepRef.current?.(preset);
         },
-      );
+      });
+      cameraControllerRef.current = cameraController;
+      const camera = cameraController.camera;
 
       const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 1.8);
       scene.add(hemi);
@@ -295,8 +255,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         const width = Math.max(host.clientWidth, 1);
         const height = Math.max(host.clientHeight, 1);
         renderer.setSize(width, height);
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
+        cameraController.setAspect(width, height);
       };
       resize();
       const resizeObserver = new ResizeObserver(resize);
@@ -325,41 +284,35 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         if (event.altKey || event.ctrlKey || event.metaKey) return;
 
         // Keyboard orbit is the same hand-off as pointer: cancel the tour first so GSAP and the
-        // spherical write never fight over camera.position for a frame.
-        if (tourRef.current && tourRef.current.status !== "idle") {
-          tourRef.current.cancel();
-        }
-
-        const offset = camera.position.clone().sub(controls.target);
-        const spherical = new THREE.Spherical().setFromVector3(offset);
+        // camera write never fight for a frame. Unconditional (a no-op when already idle) so this
+        // matches every keydown reaching this point, not only the camera-moving ones below.
+        cameraController.cancelTour();
 
         switch (event.key) {
           case "ArrowLeft":
-            spherical.theta -= KEYBOARD_ORBIT_STEP_RADIANS;
+            cameraController.orbitBy(-KEYBOARD_ORBIT_STEP_RADIANS, 0);
             break;
           case "ArrowRight":
-            spherical.theta += KEYBOARD_ORBIT_STEP_RADIANS;
+            cameraController.orbitBy(KEYBOARD_ORBIT_STEP_RADIANS, 0);
             break;
           case "ArrowUp":
-            spherical.phi -= KEYBOARD_ORBIT_STEP_RADIANS;
+            cameraController.orbitBy(0, -KEYBOARD_ORBIT_STEP_RADIANS);
             break;
           case "ArrowDown":
-            spherical.phi += KEYBOARD_ORBIT_STEP_RADIANS;
+            cameraController.orbitBy(0, KEYBOARD_ORBIT_STEP_RADIANS);
             break;
           case "+":
           case "=":
-            spherical.radius -= KEYBOARD_ZOOM_STEP;
+            cameraController.dollyBy(-KEYBOARD_ZOOM_STEP);
             break;
           case "-":
           case "_":
-            spherical.radius += KEYBOARD_ZOOM_STEP;
+            cameraController.dollyBy(KEYBOARD_ZOOM_STEP);
             break;
           case "Home":
             // Back to the active preset — a predictable escape hatch from an orbit the user has
             // lost their bearings in.
-            camera.position.set(...cameraPresetRef.current.position);
-            controls.target.set(...cameraPresetRef.current.target);
-            controls.update();
+            cameraController.resetToPreset(cameraPresetRef.current);
             event.preventDefault();
             return;
           case "]":
@@ -406,18 +359,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
             return;
         }
 
-        // The same clamps OrbitControls applies to pointer input. `phi` additionally avoids exactly
-        // 0, where the camera's up-vector becomes degenerate and the view flips.
-        spherical.phi = Math.min(Math.max(spherical.phi, 0.05), controls.maxPolarAngle);
-        spherical.radius = Math.min(
-          Math.max(spherical.radius, controls.minDistance),
-          controls.maxDistance,
-        );
-
-        camera.position.copy(offset.setFromSpherical(spherical).add(controls.target));
-        controls.update();
         // Only after a key was actually handled — an unrecognised key already returned above, so
-        // page scrolling and browser shortcuts are left alone.
+        // page scrolling and browser shortcuts are left alone. Clamping and the `controls.update()`
+        // write happen inside `orbitBy`/`dollyBy` themselves now.
         event.preventDefault();
       };
       host.addEventListener("keydown", handleKeyDown);
@@ -688,7 +632,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         if (stats.samples > 0 && framePublishCount % 30 === 0) {
           renderer.domElement.dataset.frameStats = formatFrameStats(stats);
         }
-        controls.update();
+        cameraController.update();
         const paint = renderer.renderAsync
           ? renderer.renderAsync(scene, camera)
           : Promise.resolve(renderer.render(scene, camera));
@@ -710,8 +654,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           hoverRafPending = false;
         }
         uninstallMetricsFlush();
-        tourRef.current?.dispose();
-        tourRef.current = null;
+        cameraControllerRef.current?.dispose();
+        cameraControllerRef.current = null;
         tourActiveRef.current = false;
         host.removeEventListener("keydown", handleKeyDown);
         canvasElement.removeEventListener("webglcontextlost", handleContextLost);
@@ -726,7 +670,6 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         hdriHandleRef.current?.dispose();
         hdriHandleRef.current = null;
         rendererRef.current = null;
-        controls.dispose();
         renderer.dispose();
         renderer.domElement.remove();
         if (controller) {
@@ -910,47 +853,31 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   }, [lift, sceneRevision]);
 
   useEffect(() => {
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    if (!camera || !controls) return;
+    const cameraController = cameraControllerRef.current;
+    if (!cameraController) return;
     // Tour owns the same vectors via its timeline; a toolbar highlight update from onTourStep must
-    // not start a parallel tween that fights it.
-    if (tourActiveRef.current) return;
-
-    // The longest movement on the stage, and the one most likely to provoke motion sickness: the
-    // camera swings bodily across the scene. Under reduced motion it cuts, preserving the
+    // not start a parallel tween that fights it. The longest movement on the stage, and the one
+    // most likely to provoke motion sickness (the camera swings bodily across the scene), is
+    // handled inside `transitionToPreset` itself — reduced motion cuts it, preserving the
     // destination without the journey.
-    const duration = motionDuration(0.85);
-    gsap.to(camera.position, {
-      x: cameraPreset.position[0],
-      y: cameraPreset.position[1],
-      z: cameraPreset.position[2],
-      duration,
-      ease: "power3.inOut",
-    });
-    gsap.to(controls.target, {
-      x: cameraPreset.target[0],
-      y: cameraPreset.target[1],
-      z: cameraPreset.target[2],
-      duration,
-      ease: "power3.inOut",
-    });
+    if (tourActiveRef.current) return;
+    cameraController.transitionToPreset(cameraPreset);
   }, [cameraPreset]);
 
   // Builder chrome play/pause/cancel — seq bumps so repeated identical actions still fire.
   useEffect(() => {
     if (!tourAction) return;
-    const tour = tourRef.current;
-    if (!tour) return;
-    if (tourAction.type === "play") tour.play();
-    else if (tourAction.type === "pause") tour.pause();
-    else tour.cancel();
+    const cameraController = cameraControllerRef.current;
+    if (!cameraController) return;
+    if (tourAction.type === "play") cameraController.playTour();
+    else if (tourAction.type === "pause") cameraController.pauseTour();
+    else cameraController.cancelTour();
   }, [tourAction]);
 
   useEffect(() => {
     // Keep the tour path in sync if the vehicle's catalog presets change (vehicle switch remounts
     // the canvas via threeDConfig, but setPresets is cheap insurance for hot catalog edits).
-    tourRef.current?.setPresets(threeDConfig.cameraPresets);
+    cameraControllerRef.current?.setPresets(threeDConfig.cameraPresets);
   }, [threeDConfig.cameraPresets]);
 
   useEffect(() => {
