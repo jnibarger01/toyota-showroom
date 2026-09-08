@@ -123,14 +123,20 @@ describe("buildSceneRegistry", () => {
     expect(report.unsatisfied).toHaveLength(0);
   });
 
-  it("resolving a hit on BODY's paint slot returns the body.exterior semantic id", () => {
+  it("resolving a hit on the dedicated mesh for each BODY material region returns its semantic id", () => {
+    // BODY is a Group of ten single-material meshes in reality (see fixtures/scene.ts's header
+    // comment and lib/three/sceneRegistry.ts's `findDedicatedMeshForMaterials`), so
+    // buildSceneRegistry registers each material-region entry against its own dedicated child mesh
+    // directly — a raycast hit on that mesh resolves without needing a materialName at all.
     const fixture = createVehicleFixture();
     const { registry } = buildSceneRegistry(fixture.root, FOUR_RUNNER_SCENE_MAP);
-    const body = fixture.root.getObjectByName("BODY")!;
 
-    expect(registry.resolve(body, "body.carmain")?.id).toBe("body.exterior");
-    expect(registry.resolve(body, "glass.windows")?.id).toBe("glass.windows");
-    expect(registry.resolve(body, "emissive.foglight")?.id).toBe("light.foglight");
+    const bodyExterior = registry.get("body.exterior")!;
+    expect(bodyExterior.object).not.toBe(fixture.root.getObjectByName("BODY"));
+    expect(registry.resolve(bodyExterior.object)?.id).toBe("body.exterior");
+
+    expect(registry.resolve(registry.get("glass.windows")!.object)?.id).toBe("glass.windows");
+    expect(registry.resolve(registry.get("light.foglight")!.object)?.id).toBe("light.foglight");
   });
 
   it("marks an entry unsatisfied when only some of a region's material names are present", () => {

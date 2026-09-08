@@ -96,10 +96,32 @@ describe("VehicleCanvas animation call sites", () => {
     expect(tourSource).toContain("motionDuration(");
   });
 
+  it("routes CameraController gsap durations through motionDuration", () => {
+    // Camera preset transitions (`transitionToPreset`) moved out of VehicleCanvas.tsx and into
+    // lib/three/cameraController.ts (Mission Priority 3) — the same guard the tour and the raw
+    // VehicleCanvas source above already get, applied to their new home.
+    const cameraControllerSource = readFileSync(
+      path.join(process.cwd(), "lib/three/cameraController.ts"),
+      "utf8",
+    );
+    const rawDurations = cameraControllerSource.match(/duration:\s*[\d.]+/g) ?? [];
+    expect(
+      rawDurations,
+      "cameraController: a gsap duration is hard-coded instead of passing through motionDuration().",
+    ).toEqual([]);
+    expect(cameraControllerSource).toContain("motionDuration(");
+  });
+
   it("makes damping conditional on the preference", () => {
     // Damping is inertia — the scene keeps moving after the user stops dragging — which is exactly
     // the motion the preference covers, and it is not a gsap tween so the check above misses it.
-    expect(source).toContain("controls.enableDamping = !prefersReducedMotion()");
+    // Moved into CameraController's constructor alongside the rest of OrbitControls setup (Mission
+    // Priority 3) — VehicleCanvas.tsx no longer constructs OrbitControls itself.
+    const cameraControllerSource = readFileSync(
+      path.join(process.cwd(), "lib/three/cameraController.ts"),
+      "utf8",
+    );
+    expect(cameraControllerSource).toContain("enableDamping = !prefersReducedMotion()");
   });
 });
 

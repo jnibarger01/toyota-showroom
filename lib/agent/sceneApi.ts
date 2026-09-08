@@ -4,6 +4,8 @@ import type { SceneRegistryEntry } from "../three/sceneRegistry";
 import type { SemanticCapability } from "../types/sceneMap";
 import type { CustomizationCategory, SelectionMap } from "../types/customization";
 import type { PaintStudioState } from "../types/paintStudio";
+import type { CameraController, CameraControllerState } from "../three/cameraController";
+import type { CameraPresetConfig } from "../types/vehicle";
 
 /**
  * The typed local API a future governed MCP adapter would expose to Hermes/Codex-style agents —
@@ -31,6 +33,18 @@ import type { PaintStudioState } from "../types/paintStudio";
  * specifically so a caller — today's application code, tomorrow's ACS-wrapped MCP tool dispatch —
  * can apply a blanket policy ("reads are always allowed; mutations need authorization") without
  * inspecting each capability individually.
+ *
+ * ## Camera capabilities (Priority 4)
+ *
+ * `camera` is a second, optional constructor argument — a `CameraController` (`lib/three/
+ * cameraController.ts`, Priority 3). Composed alongside `VehicleSceneController`, not reached into:
+ * `mutate.focusPart` calls `read.focusPart` for the bounding sphere and hands it straight to
+ * `camera.focusPoint`, the exact seam `docs/AGENT_API.md`'s "next evolution" section described
+ * before either half existed. `camera` is optional because nothing in the live app constructs this
+ * class with one yet (`VehicleSceneAgentApi` itself is not wired into `VehicleCanvas.tsx` — see that
+ * doc's "runtime remains usable without MCP" section); every camera-side read returns `undefined`
+ * and every camera-side mutation fails closed with a reason when it is absent, rather than silently
+ * doing nothing or throwing.
  */
 
 // --- Read-side vocabulary: what leaves this module -------------------------------------------
@@ -56,12 +70,21 @@ export interface SceneInspection {
 
 export interface FocusTarget {
   id: string;
-  /** World-space bounding-sphere centre of the part's geometry, for a camera controller (owned
-   * outside this module today — see "What is not wired yet" below) to frame. */
+  /** World-space bounding-sphere centre of the part's geometry — `mutate.focusPart` hands this
+   * straight to `CameraController.focusPoint` (Priority 4); a caller with its own camera can use it
+   * the same way without going through `mutate` at all. */
   center: [number, number, number];
   /** World-space bounding-sphere radius, for choosing a framing distance. */
   radius: number;
 }
+
+/**
+ * Camera pose/state, and one catalog preset — both already plain data on `CameraController`
+ * (`lib/three/cameraController.ts`), reused directly rather than redeclared: neither type holds a
+ * live camera/controls reference, so both already satisfy rule 1 (module header) as-is.
+ */
+export type CameraStateSummary = CameraControllerState;
+export type CameraPresetSummary = CameraPresetConfig;
 
 export interface PickInput {
   /** Normalized device coordinates, each axis in [-1, 1] — see `pointerToNdc` in `lib/three/picking.ts`. */
@@ -115,15 +138,25 @@ export const AGENT_CAPABILITIES: readonly AgentCapabilityDescriptor[] = [
   { name: "vehicle.setWheels", kind: "mutation", description: "Applies a catalog wheel option by id." },
   { name: "vehicle.setAccessory", kind: "mutation", description: "Shows or hides a catalog accessory option by id." },
   { name: "vehicle.applyConfiguration", kind: "mutation", description: "Applies a full selection map (and optional paint-studio state) in one call." },
+  { name: "camera.getState", kind: "read", description: "Current camera position, orbit target, active preset id, and cinematic-tour status." },
+  { name: "camera.getPresets", kind: "read", description: "Every catalog camera preset for this vehicle." },
+  { name: "camera.setPreset", kind: "mutation", description: "Transitions the camera to a catalog preset by id." },
+  { name: "camera.focusPart", kind: "mutation", description: "Frames a part's real bounding sphere, keeping the current viewing angle." },
+  { name: "camera.orbit", kind: "mutation", description: "Orbits the camera by a spherical delta (radians), clamped to the configured limits." },
+  { name: "camera.reset", kind: "mutation", description: "Returns the camera to its currently active preset." },
 ];
 
 /**
- * Wraps one loaded `VehicleSceneController`. One instance per loaded scene, same lifetime as the
- * controller it wraps — this holds no state of its own beyond that reference, so there is nothing
- * to dispose separately from `controller.dispose()`.
+ * Wraps one loaded `VehicleSceneController` and, optionally, its `CameraController` — one instance
+ * per loaded scene, same lifetime as the controller(s) it wraps. Holds no state of its own beyond
+ * those references, so there is nothing to dispose separately from `controller.dispose()`/
+ * `camera.dispose()`, both of which stay this module's callers' responsibility, not this module's.
  */
 export class VehicleSceneAgentApi {
-  constructor(private readonly controller: VehicleSceneController) {}
+  constructor(
+    private readonly controller: VehicleSceneController,
+    private readonly camera?: CameraController,
+  ) {}
 
   listCapabilities(): readonly AgentCapabilityDescriptor[] {
     return AGENT_CAPABILITIES;
@@ -175,6 +208,16 @@ export class VehicleSceneAgentApi {
       const result = this.controller.pickAt(new THREE.Vector2(input.ndcX, input.ndcY), camera);
       return result ? toSummary(result.entry) : undefined;
     },
+
+    // `undefined` here means "no camera controller wired to this agent API instance" — a real,
+    // typed distinction from "a camera exists but has no active preset", which `getCameraState`'s
+    // own `presetId: undefined` already covers on `CameraControllerState` (see its doc comment).
+    getCameraState: (): CameraStateSummary | undefined => this.camera?.getState(),
+
+    // Same `undefined`-means-"no camera wired" distinction as `getCameraState`, kept apart from a
+    // wired camera that genuinely has zero presets (an empty array — a real, if unusual, catalog
+    // state, not "unavailable").
+    getCameraPresets: (): CameraPresetSummary[] | undefined => this.camera?.getPresets().slice(),
   };
 
   // --- mutate ----------------------------------------------------------------------------------
@@ -212,6 +255,51 @@ export class VehicleSceneAgentApi {
       selections: SelectionMap,
       paintStudio?: PaintStudioState,
     ): Promise<{ applied: string[]; failed: string[] }> => this.controller.applyConfiguration(selections, paintStudio),
+
+    // --- camera (Priority 4) ---------------------------------------------------------------------
+    // Every method below fails closed with `{ ok: false }` when no `CameraController` was passed to
+    // the constructor — never a silent no-op, matching the same standard `selectPart`/`hoverPart`
+    // apply to an unknown part id above.
+
+    setPreset: (presetId: string): MutationResult => {
+      if (!this.camera) return { ok: false, reason: "no camera controller wired to this agent API instance" };
+      const preset = this.camera.getPresets().find((candidate) => candidate.id === presetId);
+      if (!preset) return { ok: false, reason: `unknown camera preset id "${presetId}"` };
+      this.camera.transitionToPreset(preset);
+      return { ok: true };
+    },
+
+    // Composes `read.focusPart` (bounding sphere, real geometry) with `CameraController.focusPoint`
+    // (camera move) — the exact seam docs/AGENT_API.md's "next evolution" section described, rather
+    // than this module reimplementing bounding-box math or the camera owning scene-registry lookups.
+    focusPart: (id: string): MutationResult => {
+      if (!this.camera) return { ok: false, reason: "no camera controller wired to this agent API instance" };
+      const target = this.read.focusPart(id);
+      if (!target) return { ok: false, reason: `"${id}" is unknown or has no focusable geometry on this vehicle` };
+      this.camera.focusPoint(target.center, target.radius);
+      return { ok: true };
+    },
+
+    orbit: (deltaTheta: number, deltaPhi: number): MutationResult => {
+      if (!this.camera) return { ok: false, reason: "no camera controller wired to this agent API instance" };
+      if (!Number.isFinite(deltaTheta) || !Number.isFinite(deltaPhi)) {
+        return { ok: false, reason: "deltaTheta/deltaPhi must be finite numbers" };
+      }
+      this.camera.orbitBy(deltaTheta, deltaPhi);
+      return { ok: true };
+    },
+
+    // Returns to whichever preset is currently active (`CameraController.getState().presetId`) —
+    // the same "back to the active preset" semantics the pre-Priority-3 Home-key handler had, not a
+    // fixed "first preset" default.
+    reset: (): MutationResult => {
+      if (!this.camera) return { ok: false, reason: "no camera controller wired to this agent API instance" };
+      const { presetId } = this.camera.getState();
+      const preset = this.camera.getPresets().find((candidate) => candidate.id === presetId);
+      if (!preset) return { ok: false, reason: `active preset id "${presetId}" is not in the current preset list` };
+      this.camera.resetToPreset(preset);
+      return { ok: true };
+    },
   };
 
   private async applyByCategory(optionId: string, category: CustomizationCategory): Promise<MutationResult> {

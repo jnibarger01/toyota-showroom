@@ -9,7 +9,7 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Meshes: 12   Triangles: 332,698   Materials: 36   Textures: 13
 - Compression: draco
 - Largest textures: T_Brakes_Wilwood-4_D (1024×1024, 87.0 KiB), Caliper_cover_logo_D (600×172, 34.3 KiB), T_glass (512×512, 5.6 KiB)
-- Semantic contract: 18 satisfied, 13 unsatisfied
+- Semantic contract: 38 satisfied, 12 unsatisfied
 - Inspection duration: 166.5 ms
 
 ## 4Runner wheel (authored) (`4runner`)
@@ -36,3 +36,12 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Largest textures: Palette.png (256×256, 4.4 KiB)
 - Semantic contract: 6 satisfied, 0 unsatisfied
 - Inspection duration: 10.8 ms
+
+## RAV4 body (`rav4`)
+
+- Source: `/models/rav4-2024/rav4_2024_limited_decoded.glb` — 492.5 KiB
+- Meshes: 1   Triangles: 182,589   Materials: 10   Textures: 5
+- Compression: draco
+- Largest textures: T_glass.light_B (512×512, 5.7 KiB), T_metal.chrome_B (512×512, 4.9 KiB), T_metal.chrome_M-T_metal.chrome_R (512×512, 4.8 KiB)
+- Semantic contract: 10 satisfied, 17 unsatisfied
+- Inspection duration: 60.3 ms

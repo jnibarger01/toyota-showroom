@@ -196,8 +196,187 @@ export const FOUR_RUNNER_SCENE_MAP: SceneMapEntry[] = [
     match: { kind: "object", objectName: "ACCESSORY_FOG_LIGHTS" },
   },
 
-  // Forward-declared — no separate geometry for these exists in the shipped GLB yet (it is an
-  // exterior body-shell export). See file header.
+  // --- Real, previously-unmapped geometry (P2 evidence pass) -----------------------------------
+  // The five families below are nodes `npx tsx` dumped directly out of
+  // `modsnation_7416_assets_assembled.glb` via `@gltf-transform/core`'s `NodeIO` — confirmed
+  // present with real triangles and material names, not assumed from naming convention. All five
+  // were previously absent from this map entirely: classification is REAL GEOMETRY EXISTS BUT MAP
+  // IS INCOMPLETE for every entry below, the P2 case distinct from the door/mirror/interior/roof
+  // block further down (ASSET DOES NOT CONTAIN SEPARATE GEOMETRY — confirmed absent from the same
+  // node dump).
+
+  // `LOGO` (2 materials: `plastik.all.001` backing, `metal.chrome.002` emblem) is the real front
+  // badge — this replaces the previous `badge.front` entry, which forward-declared against
+  // `BADGE_FRONT`, a name that does not exist anywhere in the asset and could never resolve. That
+  // was a genuine defect (an incomplete map, not a missing asset), corrected here rather than left
+  // forward-declared next to the parts that really are absent.
+  {
+    id: "badge.front",
+    type: "badge",
+    label: "Front badge",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "LOGO", materialNames: ["metal.chrome.002"] },
+  },
+  {
+    id: "badge.backing",
+    type: "badge",
+    label: "Badge backing plate",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "LOGO", materialNames: ["plastik.all.001"] },
+  },
+
+  // `DEFAULT_HEADLIGHTS` is a real, separately-modeled headlight assembly (six materials, one per
+  // primitive — the same one-primitive-one-material shape `findDedicatedMeshForMaterials`
+  // documents for `BODY`), distinct from `headlight.assembly` above, which addresses a glass-lens
+  // patch baked directly into the `BODY` shell mesh itself. Both are real; they are not the same
+  // geometry, so they keep separate IDs rather than one entry silently picking one over the other.
+  {
+    id: "headlight.lens",
+    type: "light",
+    label: "Headlight lens",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "DEFAULT_HEADLIGHTS", materialNames: ["glass.light"] },
+  },
+  {
+    id: "headlight.bezel",
+    type: "trim",
+    label: "Headlight bezel",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "DEFAULT_HEADLIGHTS", materialNames: ["metal.chrome.001"] },
+  },
+  {
+    id: "headlight.housing",
+    type: "trim",
+    label: "Headlight housing",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "DEFAULT_HEADLIGHTS", materialNames: ["plastik.all"] },
+  },
+  {
+    id: "headlight.sidelight",
+    type: "light",
+    label: "Headlight sidelight",
+    capabilities: ["selectable", "light"],
+    match: { kind: "material-region", objectName: "DEFAULT_HEADLIGHTS", materialNames: ["emissive.sidelights"] },
+  },
+  {
+    id: "headlight.turnsignal",
+    type: "light",
+    label: "Front turn signal",
+    capabilities: ["selectable", "light"],
+    match: { kind: "material-region", objectName: "DEFAULT_HEADLIGHTS", materialNames: ["emissive.turnsignal"] },
+  },
+  {
+    id: "headlight.beam",
+    type: "light",
+    label: "Headlight beam",
+    capabilities: ["selectable", "light"],
+    match: { kind: "material-region", objectName: "DEFAULT_HEADLIGHTS", materialNames: ["emissive.headlight"] },
+  },
+
+  // `DEFAULT_TAILLIGHTS` mirrors `DEFAULT_HEADLIGHTS`'s shape at the rear (six materials, six
+  // primitives), distinct from `light.brakelight`/`light.turnsignal` above, which address the
+  // `BODY` shell's own emissive regions.
+  {
+    id: "taillight.lens",
+    type: "light",
+    label: "Taillight lens",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "DEFAULT_TAILLIGHTS", materialNames: ["glass.light.001"] },
+  },
+  {
+    id: "taillight.bezel",
+    type: "trim",
+    label: "Taillight bezel",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "DEFAULT_TAILLIGHTS", materialNames: ["metal.chrome.003"] },
+  },
+  {
+    id: "taillight.housing",
+    type: "trim",
+    label: "Taillight housing",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "DEFAULT_TAILLIGHTS", materialNames: ["plastik.all.002"] },
+  },
+  {
+    id: "taillight.brakelight",
+    type: "light",
+    label: "Rear brake light",
+    capabilities: ["selectable", "light"],
+    match: { kind: "material-region", objectName: "DEFAULT_TAILLIGHTS", materialNames: ["emissive.brakelights"] },
+  },
+  {
+    id: "taillight.turnsignal",
+    type: "light",
+    label: "Rear turn signal",
+    capabilities: ["selectable", "light"],
+    match: { kind: "material-region", objectName: "DEFAULT_TAILLIGHTS", materialNames: ["emissive.turnsignal.001"] },
+  },
+  {
+    id: "taillight.beam",
+    type: "light",
+    label: "Taillight beam",
+    capabilities: ["selectable", "light"],
+    match: { kind: "material-region", objectName: "DEFAULT_TAILLIGHTS", materialNames: ["emissive.taillight"] },
+  },
+
+  // `EXHAUST` and `Tow Hooks Compatible` are each a single primitive with one material — a plain
+  // `THREE.Mesh`, not a `Group` (GLTFLoader only wraps multi-primitive meshes — see
+  // `findDedicatedMeshForMaterials`'s doc comment), so an `object` match resolves them directly
+  // with no material-region indirection needed.
+  {
+    id: "trim.exhaust-tip",
+    type: "trim",
+    label: "Exhaust tip",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "object", objectName: "EXHAUST" },
+  },
+  {
+    id: "trim.tow-hook",
+    type: "trim",
+    label: "Tow hook",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "object", objectName: "Tow Hooks Compatible" },
+  },
+
+  // `PLACED_AOOA_caliper_*` — real brake calipers at all four corners, each with four materials
+  // (`paint_brake_caliper`, `metal.chrome`, `Caliper_cover_logo`, `Red_wilwood`). Only the
+  // paintable body of the caliper gets a semantic entry here — the Wilwood-branded cover and
+  // chrome piston details are real but decorative, and P2 is scene identity coverage, not a new
+  // customization option; a future caliper-color option could target `paint_brake_caliper`
+  // directly through these same four ids with no scene-map change.
+  {
+    id: "caliper.front-left",
+    type: "trim",
+    label: "Front-left brake caliper",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "PLACED_AOOA_caliper_front_left", materialNames: ["paint_brake_caliper"] },
+  },
+  {
+    id: "caliper.front-right",
+    type: "trim",
+    label: "Front-right brake caliper",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "PLACED_AOOA_caliper_front_right", materialNames: ["paint_brake_caliper"] },
+  },
+  {
+    id: "caliper.rear-left",
+    type: "trim",
+    label: "Rear-left brake caliper",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "PLACED_AOOA_caliper_rear_left", materialNames: ["paint_brake_caliper"] },
+  },
+  {
+    id: "caliper.rear-right",
+    type: "trim",
+    label: "Rear-right brake caliper",
+    capabilities: ["selectable", "highlightable"],
+    match: { kind: "material-region", objectName: "PLACED_AOOA_caliper_rear_right", materialNames: ["paint_brake_caliper"] },
+  },
+
+  // --- Forward-declared: confirmed absent from the asset (ASSET DOES NOT CONTAIN SEPARATE
+  // GEOMETRY) --------------------------------------------------------------------------------
+  // No separate geometry for these exists in the shipped GLB (it is an exterior body-shell
+  // export). See file header.
   {
     id: "door.front-left",
     type: "door",
@@ -225,13 +404,6 @@ export const FOUR_RUNNER_SCENE_MAP: SceneMapEntry[] = [
     label: "Right mirror",
     capabilities: ["selectable"],
     match: { kind: "object", objectName: "MIRROR_RIGHT" },
-  },
-  {
-    id: "badge.front",
-    type: "badge",
-    label: "Front badge",
-    capabilities: ["selectable"],
-    match: { kind: "object", objectName: "BADGE_FRONT" },
   },
   {
     id: "interior",

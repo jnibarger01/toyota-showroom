@@ -1,11 +1,42 @@
 "use client";
 
+/**
+ * React orchestration layer for the 3D showroom. What used to be a single ~700-line setup effect
+ * owning a dozen scattered `let`s now constructs and wires four independently-owned authorities —
+ * `RenderController` (Priority 6: renderer/render-loop/quality/context-loss), `CameraController`
+ * (Priority 3: camera/controls/tour), `EnvironmentController` (Priority 5: lighting/terrain/HDRI),
+ * and `VehicleSceneController` (Priority 1: scene graph/picking/selection, constructed once the
+ * GLB resolves) — and translates their events into the React props this component was handed:
+ * `onReady`, `onError`, `onProgress`, `onPartHover`, `onPartSelect`, `onTourStatusChange`,
+ * `onTourStep`. Construction is a short, explicit, linear sequence (`RenderController.create()` →
+ * `CameraController` → `EnvironmentController` → `attachScene`/`resize`/`start`); disposal is the
+ * same sequence in reverse, in one `cleanup` closure.
+ *
+ * ## Why there is no `SceneRuntime` composition root (Priority 7)
+ *
+ * The mission scoped Priority 7 as conditional: a composition root only if one "solves real
+ * coordination problems," never "a dumping ground." It doesn't, here. The three-line construction
+ * order above is not duplicated anywhere, is not error-prone (each controller's constructor takes
+ * exactly what it owns — a canvas, a scene, a quality snapshot — not a live reference to a sibling
+ * controller), and disposal already reads as a flat list. Wrapping those three lines in a class
+ * would not remove coordination logic; it would relocate it and add an indirection every reader has
+ * to look through to find the same three calls.
+ *
+ * What is left in this file after Priorities 3/5/6 — pointer/keyboard DOM event handling, the
+ * progressive-load state machine, part hover/select, the cinematic-tour keyboard shortcuts — is not
+ * spare renderer/camera/environment coordination looking for a home. It is this component's actual
+ * job: translating DOM and scene events into the React callback props above. None of it can move
+ * into a plain, renderer-agnostic class without smuggling application state (React props, callback
+ * closures) into the Three.js module layer, which is exactly the boundary `CameraController`/
+ * `EnvironmentController`/`RenderController` were each built to hold ("no application-state or
+ * agent-layer dependency" — every one of their own doc comments says this). A `SceneRuntime` that
+ * owned pointer handling to justify its own existence would be the dumping ground the mission named
+ * as the failure mode, not a fix for one.
+ */
+
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import * as THREE from "three";
-import { applyHdriPreset, type HdriEnvironmentHandle } from "../../lib/three/hdriEnvironment";
-import * as THREE_WEBGPU from "three/webgpu";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
@@ -16,24 +47,21 @@ import { pointerToNdc } from "../../lib/three/picking";
 import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 import {
-  collectBrowserDeviceHints,
-  resolveQuality,
-  type QualitySettings,
-} from "../../lib/three/quality";
-import { createCanvasIdleGate } from "../../lib/three/canvasIdle";
-import { FrameTimeTracker, formatFrameStats } from "../../lib/three/frameStats";
-import {
   initialProgressiveState,
   reduceProgressiveLoad,
 } from "../../lib/three/progressiveLoad";
-import { QualityGovernor } from "../../lib/three/qualityGovernor";
-import { motionDuration, prefersReducedMotion } from "../../lib/three/motionPreference";
+import { motionDuration } from "../../lib/three/motionPreference";
+import type { TourStatus } from "../../lib/three/cinematicTour";
+import { CameraController, KEYBOARD_ORBIT_STEP_RADIANS, KEYBOARD_ZOOM_STEP } from "../../lib/three/cameraController";
 import {
-  createCinematicTour,
-  type CinematicTour,
-  type TourStatus,
-} from "../../lib/three/cinematicTour";
+  EnvironmentController,
+  type Terrain,
+  type EnvironmentPreset,
+} from "../../lib/three/environmentController";
+import { RenderController } from "../../lib/three/renderController";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
+
+export type { Terrain, EnvironmentPreset };
 
 export type { TourStatus };
 export type TourAction = { seq: number; type: "play" | "pause" | "cancel" };
@@ -44,21 +72,6 @@ export type CameraPreset = {
   position: [number, number, number];
   target: [number, number, number];
 };
-
-/**
- * Radians per arrow-key press.
- *
- * ~7 degrees: coarse enough that circling the vehicle takes a reasonable number of presses (about
- * 52 for a full revolution, or a second of held key repeat), fine enough to line up on a detail
- * like a wheel or a badge.
- */
-const KEYBOARD_ORBIT_STEP_RADIANS = 0.12;
-
-/** Metres of dolly per +/- press, against the 4-15 m distance range OrbitControls is clamped to. */
-const KEYBOARD_ZOOM_STEP = 0.6;
-
-export type Terrain = "Studio" | "Trail" | "Night";
-export type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 
 type Props = {
   threeDConfig: Vehicle3DConfig;
@@ -112,9 +125,7 @@ type Props = {
 
 export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const tourRef = useRef<CinematicTour | null>(null);
+  const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
   const tourActiveRef = useRef(false);
   const rootRef = useRef<THREE.Object3D | null>(null);
@@ -126,9 +137,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
-  const environmentRef = useRef<EnvironmentRefs | null>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const hdriHandleRef = useRef<HdriEnvironmentHandle | null>(null);
+  const environmentControllerRef = useRef<EnvironmentController | null>(null);
+  const renderControllerRef = useRef<RenderController | null>(null);
 
   // Latest-value refs: the setup effect must run exactly once (loading a 39 MB GLB again on every
   // prop change is the thing this integration exists to avoid), so it reads callbacks through refs
@@ -170,137 +180,59 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       scene.background = new THREE.Color("#0b0f14");
       scene.fog = new THREE.Fog("#0b0f14", 16, 32);
 
-      const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 100);
-      camera.position.set(...cameraPreset.position);
-      cameraRef.current = camera;
-
-      let quality = resolveQuality(collectBrowserDeviceHints());
-      const { renderer, mode } = await createRenderer(quality.antialias);
+      const renderController = await RenderController.create({
+        host,
+        // `cameraControllerRef`/`environmentControllerRef`, not the local `cameraController`/
+        // `environmentController` consts, because both callbacks are wired before either
+        // controller exists — `RenderController.create()` runs first, since camera/environment
+        // construction both need the canvas it creates. By the time either callback can actually
+        // fire (a real resize event, a real quality-tier change), both refs are already set.
+        onResize: (width, height) => {
+          cameraControllerRef.current?.setAspect(width, height);
+        },
+        onQualityChange: (next) => {
+          environmentControllerRef.current?.applyQuality(next);
+        },
+        onContextLost: () => {
+          onErrorRef.current("Rendering was interrupted. Attempting to recover the 3D view.");
+        },
+      });
       if (cancelled) {
-        renderer.dispose();
+        renderController.dispose();
         return;
       }
-      // Paint-studio HDRI (PMREM) needs the live renderer; WebGPU skips the HDR file path.
-      rendererRef.current = renderer as unknown as THREE.WebGLRenderer;
+      renderControllerRef.current = renderController;
+      const canvasElement = renderController.canvas;
 
-      applyRendererQuality(renderer, quality);
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.05;
-      renderer.domElement.dataset.renderer = mode;
-      recordMetric({ name: "renderer_selected", labels: { renderer: mode, tier: quality.tier } });
-      renderer.domElement.dataset.quality = quality.tier;
-      host.appendChild(renderer.domElement);
-
-      const controls = new OrbitControls(camera, renderer.domElement);
-      // Damping is inertia: the scene keeps moving after the user stops dragging. That is exactly
-      // the "motion I did not ask for and cannot stop" the reduced-motion preference covers, so it
-      // is a preference check rather than a constant.
-      controls.enableDamping = !prefersReducedMotion();
-      controls.minDistance = 4;
-      controls.maxDistance = 15;
-      controls.maxPolarAngle = Math.PI * 0.49;
-      controls.target.set(...cameraPreset.target);
-      controlsRef.current = controls;
-
-      // Cinematic tour seizes these controls while playing; pointer/wheel on the canvas cancels.
-      tourRef.current = createCinematicTour(
-        {
-          cameraPosition: camera.position,
-          cameraTarget: controls.target,
-          setControlsEnabled: (enabled) => {
-            controls.enabled = enabled;
-          },
-          domElement: renderer.domElement,
+      const cameraController = new CameraController({
+        domElement: canvasElement,
+        initialPreset: cameraPreset,
+        presets: threeDConfig.cameraPresets,
+        onTourStatusChange: (status) => {
+          tourActiveRef.current = status !== "idle";
+          onTourStatusChangeRef.current?.(status);
         },
-        threeDConfig.cameraPresets,
-        {
-          onStatusChange: (status) => {
-            tourActiveRef.current = status !== "idle";
-            onTourStatusChangeRef.current?.(status);
-          },
-          onStep: (preset) => {
-            onTourStepRef.current?.(preset);
-          },
+        onTourStep: (preset) => {
+          onTourStepRef.current?.(preset);
         },
-      );
+      });
+      cameraControllerRef.current = cameraController;
+      const camera = cameraController.camera;
 
-      const hemi = new THREE.HemisphereLight("#edf5ff", "#18100b", 1.8);
-      scene.add(hemi);
+      const environmentController = new EnvironmentController({
+        scene,
+        quality: renderController.currentQuality,
+        initialTerrain: terrain,
+        initialPreset: environmentPreset,
+        starfieldCount: renderController.currentQuality.starfieldCount,
+      });
+      environmentControllerRef.current = environmentController;
 
-      // `bias`/`normalBias` avoid shadow acne without pulling the shadow away from the geometry
-      // that casts it ("peter-panning") — too small and the floor self-shadows in moire bands, too
-      // large and the vehicle's own contact shadow detaches from its tires, which is exactly the
-      // "floating" artifact this tuning exists to prevent. The explicit frustum is sized to the
-      // largest catalog vehicle (the AE86, ~9m long) rather than three's default ±5 box, which
-      // clipped shadow coverage for anything longer than a compact car.
-      const key = new THREE.DirectionalLight("#ffffff", 4.2);
-      key.position.set(6, 9, 7);
-      key.castShadow = quality.shadowsEnabled;
-      key.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
-      key.shadow.bias = -0.00018;
-      key.shadow.normalBias = 0.025;
-      key.shadow.camera.near = 1;
-      key.shadow.camera.far = 30;
-      key.shadow.camera.left = -11;
-      key.shadow.camera.right = 11;
-      key.shadow.camera.top = 11;
-      key.shadow.camera.bottom = -11;
-      key.shadow.camera.updateProjectionMatrix();
-      scene.add(key);
-
-      // Raised and dimmed relative to the original rig: at the old (-7, 4, -6) grazing angle this
-      // blue rim light hit the glossy floor almost edge-on and blew out into a large unshadowed
-      // specular hotspot that read as a glow the vehicle was floating in, drowning out the contact
-      // shadow underneath it. Steepening the angle and tempering the floor material below (both
-      // parts of the same fix) let the actual shadow read again.
-      const rim = new THREE.DirectionalLight("#4169ff", 1.6 * quality.secondaryLightScale);
-      rim.position.set(-6, 7.5, -6);
-      scene.add(rim);
-
-      // Fills the shaded (camera-facing, key-light-averted) side so the vehicle doesn't render as a
-      // near-silhouette — the previous two-light rig left everything but the lit flank close to
-      // black. No shadow: this is a soft bounce-light stand-in, not a directional key.
-      const fill = new THREE.DirectionalLight("#dce8ff", 1.1 * quality.secondaryLightScale);
-      fill.position.set(-2, 3, 9);
-      scene.add(fill);
-
-      // Lower clearcoat/higher roughness than before: the prior floor was mirror-glossy enough that
-      // the rim light's specular reflection alone could out-shine the actual shadow beneath the
-      // vehicle. A duller showroom floor lets contact shadows read as the primary grounding cue.
-      const floor = new THREE.Mesh(
-        new THREE.PlaneGeometry(50, 50),
-        new THREE.MeshPhysicalMaterial({ color: "#0a0c10", roughness: 0.6, metalness: 0.05, clearcoat: 0.12, clearcoatRoughness: 0.4 }),
-      );
-      floor.rotation.x = -Math.PI / 2;
-      floor.receiveShadow = quality.shadowsEnabled;
-      scene.add(floor);
-
-      const grid = new THREE.GridHelper(36, 36, "#26303a", "#151a20");
-      grid.position.y = 0.002;
-      scene.add(grid);
-
-      const stars = createStarfield(quality.starfieldCount);
-      stars.visible = false;
-      scene.add(stars);
-
-      const rocks = createTrailRocks();
-      rocks.visible = false;
-      scene.add(rocks);
-
-      const environment = { scene, floor, grid, hemi, key, rim, fill, stars, rocks };
-      environmentRef.current = environment;
-      applyEnvironment(environment, terrain, environmentPreset);
-
-      const resize = () => {
-        const width = Math.max(host.clientWidth, 1);
-        const height = Math.max(host.clientHeight, 1);
-        renderer.setSize(width, height);
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-      };
-      resize();
-      const resizeObserver = new ResizeObserver(resize);
-      resizeObserver.observe(host);
+      renderController.attachScene(scene, camera);
+      // Only now that camera/environment exist does `onResize` (camera aspect) have something to
+      // call into — matches the pre-Priority-6 ordering, where `resize()` was defined and first
+      // called only after both were constructed.
+      renderController.resize();
 
       /**
        * Keyboard cursor into `controller.findPartsByCapability("selectable")` — the "]"/"["/"Enter"
@@ -325,41 +257,35 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         if (event.altKey || event.ctrlKey || event.metaKey) return;
 
         // Keyboard orbit is the same hand-off as pointer: cancel the tour first so GSAP and the
-        // spherical write never fight over camera.position for a frame.
-        if (tourRef.current && tourRef.current.status !== "idle") {
-          tourRef.current.cancel();
-        }
-
-        const offset = camera.position.clone().sub(controls.target);
-        const spherical = new THREE.Spherical().setFromVector3(offset);
+        // camera write never fight for a frame. Unconditional (a no-op when already idle) so this
+        // matches every keydown reaching this point, not only the camera-moving ones below.
+        cameraController.cancelTour();
 
         switch (event.key) {
           case "ArrowLeft":
-            spherical.theta -= KEYBOARD_ORBIT_STEP_RADIANS;
+            cameraController.orbitBy(-KEYBOARD_ORBIT_STEP_RADIANS, 0);
             break;
           case "ArrowRight":
-            spherical.theta += KEYBOARD_ORBIT_STEP_RADIANS;
+            cameraController.orbitBy(KEYBOARD_ORBIT_STEP_RADIANS, 0);
             break;
           case "ArrowUp":
-            spherical.phi -= KEYBOARD_ORBIT_STEP_RADIANS;
+            cameraController.orbitBy(0, -KEYBOARD_ORBIT_STEP_RADIANS);
             break;
           case "ArrowDown":
-            spherical.phi += KEYBOARD_ORBIT_STEP_RADIANS;
+            cameraController.orbitBy(0, KEYBOARD_ORBIT_STEP_RADIANS);
             break;
           case "+":
           case "=":
-            spherical.radius -= KEYBOARD_ZOOM_STEP;
+            cameraController.dollyBy(-KEYBOARD_ZOOM_STEP);
             break;
           case "-":
           case "_":
-            spherical.radius += KEYBOARD_ZOOM_STEP;
+            cameraController.dollyBy(KEYBOARD_ZOOM_STEP);
             break;
           case "Home":
             // Back to the active preset — a predictable escape hatch from an orbit the user has
             // lost their bearings in.
-            camera.position.set(...cameraPresetRef.current.position);
-            controls.target.set(...cameraPresetRef.current.target);
-            controls.update();
+            cameraController.resetToPreset(cameraPresetRef.current);
             event.preventDefault();
             return;
           case "]":
@@ -406,64 +332,17 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
             return;
         }
 
-        // The same clamps OrbitControls applies to pointer input. `phi` additionally avoids exactly
-        // 0, where the camera's up-vector becomes degenerate and the view flips.
-        spherical.phi = Math.min(Math.max(spherical.phi, 0.05), controls.maxPolarAngle);
-        spherical.radius = Math.min(
-          Math.max(spherical.radius, controls.minDistance),
-          controls.maxDistance,
-        );
-
-        camera.position.copy(offset.setFromSpherical(spherical).add(controls.target));
-        controls.update();
         // Only after a key was actually handled — an unrecognised key already returned above, so
-        // page scrolling and browser shortcuts are left alone.
+        // page scrolling and browser shortcuts are left alone. Clamping and the `controls.update()`
+        // write happen inside `orbitBy`/`dollyBy` themselves now.
         event.preventDefault();
       };
       host.addEventListener("keydown", handleKeyDown);
 
-      /**
-       * WebGL context loss.
-       *
-       * The GPU process can drop a context at any time — a driver reset, the OS reclaiming VRAM, a
-       * background tab being evicted, too many live contexts. It arrives as an *event*, not an
-       * exception, so neither the try/catch around model loading nor `CanvasErrorBoundary` sees it:
-       * the render loop just keeps calling into a dead context and the viewport freezes on its last
-       * frame with nothing logged anywhere.
-       *
-       * `preventDefault` on `webglcontextlost` is what makes the context eligible for restoration at
-       * all — without it the browser never fires `webglcontextrestored`.
-       */
-      const canvasElement = renderer.domElement;
-      const handleContextLost = (event: Event) => {
-        event.preventDefault();
-        running = false;
-        cancelPendingRaf();
-        console.warn("[canvas] WebGL context lost; pausing render loop until it is restored.");
-        onErrorRef.current("Rendering was interrupted. Attempting to recover the 3D view.");
-      };
-      const handleContextRestored = () => {
-        console.info("[canvas] WebGL context restored; resuming render loop.");
-        // Reallocates the drawing buffer against the restored context; without it the renderer keeps
-        // the dimensions of a buffer that no longer exists.
-        resize();
-        if (running) return;
-        running = true;
-        frameStats.reset();
-        governor.reset();
-        loop?.();
-      };
-      canvasElement.addEventListener("webglcontextlost", handleContextLost);
-      canvasElement.addEventListener("webglcontextrestored", handleContextRestored);
-
       const uninstallMetricsFlush = installMetricsFlush();
 
-      // Start the render loop before the ~28 MiB GLB settles so the placeholder paints immediately.
-      let running = true;
-      let suspended = false;
       let contactShadow: THREE.Mesh | null = null;
       let controller: VehicleSceneController | null = null;
-      const frameStats = new FrameTimeTracker(60);
 
       /**
        * Direct part interaction: pointer hover previews a part, a click/tap selects it (or clears
@@ -591,144 +470,36 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       canvasElement.addEventListener("pointerleave", handlePointerLeave);
       canvasElement.addEventListener("pointercancel", handlePointerLeave);
 
-      /**
-       * Applies a quality tier to the live renderer and scene.
-       *
-       * `resolveQuality` picks a tier once from device hints; this is what makes that choice
-       * revisable mid-session (the adaptive policy `lib/three/quality.ts` defers to issue #33).
-       * Everything a tier controls that can be changed after construction is re-applied here.
-       *
-       * `antialias` and `loadAuthoredRunningGear` deliberately are not: antialias is fixed at
-       * renderer construction and changing it would mean tearing down the WebGL context mid-
-       * session, and the running gear is either already mounted or already skipped. Both settle at
-       * the opening tier, which is the right trade — the expensive, adjustable knobs are pixel
-       * ratio and shadows, and those are the ones that move.
-       */
-      const applyTier = (next: QualitySettings) => {
-        quality = next;
-        applyRendererQuality(renderer, next);
-        renderer.domElement.dataset.quality = next.tier;
-        key.castShadow = next.shadowsEnabled;
-        if (next.shadowsEnabled) {
-          key.shadow.mapSize.set(next.shadowMapSize, next.shadowMapSize);
-          // three caches the shadow render target and will not reallocate it just because mapSize
-          // changed, so without this the new resolution is stored and never takes effect — the
-          // expensive half of a downgrade would silently do nothing.
-          key.shadow.map?.dispose();
-          key.shadow.map = null;
-        }
-        floor.receiveShadow = next.shadowsEnabled;
-        rim.intensity = 1.6 * next.secondaryLightScale;
-        fill.intensity = 1.1 * next.secondaryLightScale;
-        resize();
-      };
-
-      const governor = new QualityGovernor({
-        initialTier: quality.tier,
-        onChange: (next, { from, reason }) => {
-          applyTier(next);
-          recordMetric({
-            name: "quality_changed",
-            value: Math.round(governor.averageFrameTimeMs),
-            labels: { from, to: next.tier, reason },
-          });
-          // Left in production rather than dev-gated: when someone reports "the showroom looks
-          // blurry on my phone", this line is the answer, and it fires a handful of times a session.
-          console.info(`[quality] ${reason}: ${from} -> ${next.tier}`);
-        },
-      });
-      let loop: (() => void) | undefined;
-      /** Pending rAF handle — must be cancelled on idle/suspend/cleanup to avoid forked loops. */
-      let rafId = 0;
-      /** Monotonic publish counter; `stats.samples` caps at the ring size so it cannot throttle. */
-      let framePublishCount = 0;
-
-      const cancelPendingRaf = () => {
-        if (rafId !== 0) {
-          cancelAnimationFrame(rafId);
-          rafId = 0;
-        }
-      };
-
-      const queueFrame = () => {
-        if (rafId !== 0) return;
-        rafId = requestAnimationFrame(() => {
-          rafId = 0;
-          loop?.();
-        });
-      };
-
-      const idleGate = createCanvasIdleGate(host, (next) => {
-        suspended = next;
-        renderer.domElement.dataset.idle = next ? "1" : "0";
-        if (next) {
-          cancelPendingRaf();
-          return;
-        }
-        // Leaving idle: drop any stale rAF, reseed frame timing, and kick a single chain.
-        if (running) {
-          cancelPendingRaf();
-          frameStats.reset();
-          // The frames either side of an idle gap describe the pause, not the renderer; feeding
-          // them to the governor would drive a downgrade on resume.
-          governor.reset();
-          loop?.();
-        }
-      });
-      suspended = idleGate.suspended;
-      renderer.domElement.dataset.idle = suspended ? "1" : "0";
-
-      loop = () => {
-        if (!running) return;
-        if (suspended) return;
-        const stats = frameStats.record(performance.now());
-        // Reuses the delta frameStats already computed rather than timing the loop a second time.
-        governor.recordFrame(stats.lastFrameMs);
-        framePublishCount += 1;
-        if (stats.samples > 0 && framePublishCount % 30 === 0) {
-          renderer.domElement.dataset.frameStats = formatFrameStats(stats);
-        }
-        controls.update();
-        const paint = renderer.renderAsync
-          ? renderer.renderAsync(scene, camera)
-          : Promise.resolve(renderer.render(scene, camera));
-        void paint.finally(() => {
-          if (running && !suspended) queueFrame();
-        });
-      };
-      loop();
+      // Start the render loop before the ~28 MiB GLB settles so the placeholder paints
+      // immediately. Quality governance, idle suspension, WebGL context loss/restoration, rAF
+      // scheduling, and frame-stat publishing are all `RenderController`'s own job now (Mission
+      // Priority 6) — `tick` is the one per-frame hook it doesn't own: the camera update that has
+      // to happen before each paint.
+      renderController.start(() => cameraController.update());
 
       // Assign cleanup before any await so an unmount mid-load still tears the renderer down.
       cleanup = () => {
-        running = false;
-        cancelPendingRaf();
-        // A pending hover raycast (`scheduleHoverPick`) is scheduled independently of the render
-        // loop's own rAF chain (`cancelPendingRaf` above), so it needs its own cancellation —
-        // otherwise a hover pick queued just before unmount could still fire afterward.
+        // A pending hover raycast (`scheduleHoverPick`) is scheduled independently of
+        // `RenderController`'s own rAF chain, so it needs its own cancellation — otherwise a
+        // hover pick queued just before unmount could still fire afterward.
         if (hoverRafPending) {
           cancelAnimationFrame(hoverRafId);
           hoverRafPending = false;
         }
         uninstallMetricsFlush();
-        tourRef.current?.dispose();
-        tourRef.current = null;
+        cameraControllerRef.current?.dispose();
+        cameraControllerRef.current = null;
         tourActiveRef.current = false;
         host.removeEventListener("keydown", handleKeyDown);
-        canvasElement.removeEventListener("webglcontextlost", handleContextLost);
-        canvasElement.removeEventListener("webglcontextrestored", handleContextRestored);
         canvasElement.removeEventListener("pointerdown", handlePointerDown);
         canvasElement.removeEventListener("pointermove", handlePointerMove);
         canvasElement.removeEventListener("pointerup", handlePointerUp);
         canvasElement.removeEventListener("pointerleave", handlePointerLeave);
         canvasElement.removeEventListener("pointercancel", handlePointerLeave);
-        idleGate.dispose();
-        resizeObserver.disconnect();
-        hdriHandleRef.current?.dispose();
-        hdriHandleRef.current = null;
-        rendererRef.current = null;
-        controls.dispose();
-        renderer.dispose();
-        renderer.domElement.remove();
+        environmentControllerRef.current?.dispose();
+        environmentControllerRef.current = null;
+        renderControllerRef.current?.dispose();
+        renderControllerRef.current = null;
         if (controller) {
           controller.dispose();
           // Defense in depth alongside the rAF cancellation above: any other callback still
@@ -741,17 +512,12 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           scene.remove(rootRef.current);
           disposeSubtree(rootRef.current);
         }
-        floor.geometry.dispose();
-        (floor.material as THREE.Material).dispose();
-        grid.dispose();
-        disposeStarfield(stars);
-        disposeTrailRocks(rocks);
         if (contactShadow) disposeContactShadow(contactShadow);
         rootRef.current = null;
       };
 
       if (import.meta.env.DEV) {
-        (window as unknown as Record<string, unknown>).__vehicleFrameStats = () => frameStats.snapshot();
+        (window as unknown as Record<string, unknown>).__vehicleFrameStats = () => renderController.getFrameStats();
       }
 
       let progressive = initialProgressiveState();
@@ -824,7 +590,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         setSceneRevision((revision) => revision + 1);
 
         progressive = reduceProgressiveLoad(progressive, { type: "start-loading" });
-        renderer.domElement.dataset.loadPhase = progressive.phase;
+        canvasElement.dataset.loadPhase = progressive.phase;
 
         let detailed: THREE.Object3D | null = null;
         try {
@@ -849,10 +615,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           return;
         }
 
-        renderer.domElement.dataset.loadPhase = progressive.phase;
+        canvasElement.dataset.loadPhase = progressive.phase;
 
         if (detailed && progressive.hasDetailedModel) {
-          if (quality.loadAuthoredRunningGear) {
+          if (renderController.currentQuality.loadAuthoredRunningGear) {
             try {
               await installWheelAndTireAssets(detailed, threeDConfig);
             } catch (error) {
@@ -877,10 +643,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         }
       }
 
-      renderer.domElement.dataset.loadPhase = progressive.phase;
+      canvasElement.dataset.loadPhase = progressive.phase;
       if (import.meta.env.DEV) {
         (window as unknown as Record<string, unknown>).__vehicleProgressiveLoad = progressive;
-        (window as unknown as Record<string, unknown>).__vehicleQuality = quality;
+        (window as unknown as Record<string, unknown>).__vehicleQuality = renderController.currentQuality;
       }
 
       // cleanup already assigned above (before GLB await).
@@ -910,79 +676,45 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   }, [lift, sceneRevision]);
 
   useEffect(() => {
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    if (!camera || !controls) return;
+    const cameraController = cameraControllerRef.current;
+    if (!cameraController) return;
     // Tour owns the same vectors via its timeline; a toolbar highlight update from onTourStep must
-    // not start a parallel tween that fights it.
-    if (tourActiveRef.current) return;
-
-    // The longest movement on the stage, and the one most likely to provoke motion sickness: the
-    // camera swings bodily across the scene. Under reduced motion it cuts, preserving the
+    // not start a parallel tween that fights it. The longest movement on the stage, and the one
+    // most likely to provoke motion sickness (the camera swings bodily across the scene), is
+    // handled inside `transitionToPreset` itself — reduced motion cuts it, preserving the
     // destination without the journey.
-    const duration = motionDuration(0.85);
-    gsap.to(camera.position, {
-      x: cameraPreset.position[0],
-      y: cameraPreset.position[1],
-      z: cameraPreset.position[2],
-      duration,
-      ease: "power3.inOut",
-    });
-    gsap.to(controls.target, {
-      x: cameraPreset.target[0],
-      y: cameraPreset.target[1],
-      z: cameraPreset.target[2],
-      duration,
-      ease: "power3.inOut",
-    });
+    if (tourActiveRef.current) return;
+    cameraController.transitionToPreset(cameraPreset);
   }, [cameraPreset]);
 
   // Builder chrome play/pause/cancel — seq bumps so repeated identical actions still fire.
   useEffect(() => {
     if (!tourAction) return;
-    const tour = tourRef.current;
-    if (!tour) return;
-    if (tourAction.type === "play") tour.play();
-    else if (tourAction.type === "pause") tour.pause();
-    else tour.cancel();
+    const cameraController = cameraControllerRef.current;
+    if (!cameraController) return;
+    if (tourAction.type === "play") cameraController.playTour();
+    else if (tourAction.type === "pause") cameraController.pauseTour();
+    else cameraController.cancelTour();
   }, [tourAction]);
 
   useEffect(() => {
     // Keep the tour path in sync if the vehicle's catalog presets change (vehicle switch remounts
     // the canvas via threeDConfig, but setPresets is cheap insurance for hot catalog edits).
-    tourRef.current?.setPresets(threeDConfig.cameraPresets);
+    cameraControllerRef.current?.setPresets(threeDConfig.cameraPresets);
   }, [threeDConfig.cameraPresets]);
 
   useEffect(() => {
-    if (environmentRef.current) applyEnvironment(environmentRef.current, terrain, environmentPreset);
+    environmentControllerRef.current?.setTerrainAndPreset(terrain, environmentPreset);
   }, [terrain, environmentPreset]);
 
   useEffect(() => {
-    const environment = environmentRef.current;
-    const renderer = rendererRef.current;
-    if (!environment || !renderer || !hdriPresetId) return;
-    let cancelled = false;
-    void applyHdriPreset(
-      {
-        scene: environment.scene,
-        hemi: environment.hemi,
-        key: environment.key,
-        rim: environment.rim,
-        fill: environment.fill,
-      },
-      renderer,
-      hdriPresetId,
-      hdriHandleRef.current,
-    ).then((handle) => {
-      if (cancelled) {
-        handle?.dispose();
-        return;
-      }
-      hdriHandleRef.current = handle;
-    });
-    return () => {
-      cancelled = true;
-    };
+    const environmentController = environmentControllerRef.current;
+    const renderController = renderControllerRef.current;
+    if (!environmentController || !renderController || !hdriPresetId) return;
+    // Supersession (a slower, superseded request's late-arriving result being discarded) is
+    // EnvironmentController's own job now — see `applyHdri`'s doc comment — so this effect no
+    // longer needs its own `cancelled` flag/cleanup for that race.
+    void environmentController.applyHdri(renderController.renderer, hdriPresetId);
   }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 
   return (
@@ -1003,43 +735,6 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       }
     />
   );
-}
-
-type EnvironmentRefs = {
-  scene: THREE.Scene;
-  floor: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshPhysicalMaterial>;
-  grid: THREE.GridHelper;
-  hemi: THREE.HemisphereLight;
-  key: THREE.DirectionalLight;
-  rim: THREE.DirectionalLight;
-  fill: THREE.DirectionalLight;
-  stars: THREE.Points;
-  rocks: THREE.Group;
-};
-
-function applyEnvironment(environment: EnvironmentRefs, terrain: Terrain, preset: EnvironmentPreset): void {
-  const palette = preset === "Night"
-    ? { bg: "#050813", floor: "#0b0d15", sky: "#33436c", ground: "#080a12", keyColor: "#b8c9ff", rimColor: "#4169ff", fillColor: "#26314f", key: 1.0, rim: 1.7, fill: 0.5, hemi: 1.1 }
-    : preset === "Sunset"
-      ? { bg: "#21140f", floor: "#1c130f", sky: "#ffd3a1", ground: "#5e3023", keyColor: "#ffb36b", rimColor: "#ff5a36", fillColor: "#ffdcb0", key: 2.6, rim: 1.4, fill: 0.9, hemi: 1.6 }
-      : { bg: terrain === "Trail" ? "#152017" : "#0b0f14", floor: terrain === "Trail" ? "#191712" : "#0a0c10", sky: "#edf5ff", ground: "#18100b", keyColor: "#ffffff", rimColor: "#4169ff", fillColor: "#dce8ff", key: 4.2, rim: 1.6, fill: 1.1, hemi: 1.8 };
-  environment.scene.background = new THREE.Color(palette.bg);
-  environment.scene.fog = new THREE.Fog(palette.bg, terrain === "Trail" ? 10 : 16, terrain === "Trail" ? 25 : 32);
-  environment.floor.material.color.set(palette.floor);
-  environment.hemi.color.set(palette.sky);
-  environment.hemi.groundColor.set(palette.ground);
-  environment.hemi.intensity = palette.hemi;
-  environment.key.color.set(palette.keyColor);
-  environment.key.intensity = palette.key;
-  environment.rim.color.set(palette.rimColor);
-  environment.rim.intensity = palette.rim;
-  environment.fill.color.set(palette.fillColor);
-  environment.fill.intensity = palette.fill;
-  environment.grid.visible = terrain === "Studio";
-  // Both are static set dressing, not physically part of any vehicle, so they're built once at
-  // scene setup and simply shown or hidden here rather than rebuilt per preset switch.
-  environment.stars.visible = preset === "Night";
-  environment.rocks.visible = terrain === "Trail";
 }
 
 /** A soft radial-gradient disc rather than a real-time shadow: it reads as a grounding cue under
@@ -1088,115 +783,6 @@ function createRadialGradientTexture(): THREE.CanvasTexture {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
-}
-
-/** A fixed field of distant points, shown only for the Night preset — cheap set dressing that
- * sells the "outdoor at night" read the flat dark background alone doesn't. */
-function createStarfield(count = 400): THREE.Points {
-  const positions = new Float32Array(count * 3);
-  for (let i = 0; i < count; i += 1) {
-    const radius = 32 + Math.random() * 14;
-    const theta = Math.random() * Math.PI * 2;
-    // Restricted to the upper hemisphere (elevation 0.1–1) so stars never land below the horizon,
-    // where the floor plane would occlude them anyway.
-    const elevation = 0.1 + Math.random() * 0.9;
-    const y = radius * elevation;
-    const ring = Math.sqrt(Math.max(radius * radius - y * y, 0));
-    positions[i * 3] = Math.cos(theta) * ring;
-    positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = Math.sin(theta) * ring;
-  }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const material = new THREE.PointsMaterial({
-    color: "#e7edff",
-    size: 0.12,
-    sizeAttenuation: true,
-    transparent: true,
-    opacity: 0.85,
-    toneMapped: false,
-    depthWrite: false,
-  });
-  const points = new THREE.Points(geometry, material);
-  points.name = "STARFIELD";
-  return points;
-}
-
-function disposeStarfield(points: THREE.Points): void {
-  points.geometry.dispose();
-  (points.material as THREE.Material).dispose();
-}
-
-/** Low-poly rocks scattered around the vehicle, shown only for the Trail terrain preview — the
- * flat studio floor otherwise looks the same regardless of which terrain is "selected". Positions
- * are hand-placed (not randomised) and kept outside the ~2.5m the camera presets orbit within, so
- * they read as surrounding terrain rather than debris crowding the vehicle. */
-function createTrailRocks(): THREE.Group {
-  const group = new THREE.Group();
-  group.name = "TRAIL_ROCKS";
-  const material = new THREE.MeshStandardMaterial({ color: "#3a352e", roughness: 0.95, metalness: 0.02, flatShading: true });
-
-  const placements: [number, number, number, number][] = [
-    [-3.4, 0.22, -2.1, 0.34],
-    [-3.9, 0.16, 0.6, 0.24],
-    [3.6, 0.2, -1.4, 0.3],
-    [4.1, 0.14, 1.6, 0.22],
-    [-2.6, 0.12, 3.3, 0.2],
-    [2.9, 0.15, 3.6, 0.24],
-    [-4.4, 0.18, -3.4, 0.28],
-    [4.6, 0.13, -3.8, 0.2],
-  ];
-  for (const [x, y, z, scale] of placements) {
-    const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 0), material);
-    rock.scale.set(scale, scale * (0.7 + (x % 1 === 0 ? 0 : 0.2)), scale);
-    rock.position.set(x, y, z);
-    rock.rotation.set(x * 0.7, z * 0.5, x * z * 0.1);
-    rock.castShadow = true;
-    rock.receiveShadow = true;
-    group.add(rock);
-  }
-  return group;
-}
-
-function disposeTrailRocks(group: THREE.Group): void {
-  const material = (group.children[0] as THREE.Mesh | undefined)?.material as THREE.Material | undefined;
-  material?.dispose();
-  for (const child of group.children) {
-    if (child instanceof THREE.Mesh) child.geometry.dispose();
-  }
-}
-
-type RendererLike = {
-  domElement: HTMLCanvasElement;
-  setPixelRatio(value: number): void;
-  setSize(width: number, height: number): void;
-  render(scene: THREE.Scene, camera: THREE.Camera): void;
-  renderAsync?: (scene: THREE.Scene, camera: THREE.Camera) => Promise<void>;
-  dispose(): void;
-  shadowMap: { enabled: boolean };
-  toneMapping: THREE.ToneMapping;
-  toneMappingExposure: number;
-};
-
-function applyRendererQuality(renderer: RendererLike, quality: QualitySettings): void {
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, quality.maxPixelRatio));
-  renderer.shadowMap.enabled = quality.shadowsEnabled;
-}
-
-async function createRenderer(antialias: boolean): Promise<{ renderer: RendererLike; mode: "webgpu" | "webgl2" }> {
-  if (navigator.gpu) {
-    try {
-      const renderer = new THREE_WEBGPU.WebGPURenderer({ antialias });
-      await renderer.init();
-      return { renderer: renderer as unknown as RendererLike, mode: "webgpu" };
-    } catch (error) {
-      console.warn("WebGPU initialization failed; using WebGL2 fallback.", error);
-    }
-  }
-
-  const renderer = new THREE.WebGLRenderer({ antialias, alpha: false });
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-  return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
 }
 
 async function loadVehicleRoot(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { createVehicleFixture } from "./fixtures/scene";
+import { BODY_MATERIAL_NAMES, createVehicleFixture } from "./fixtures/scene";
 import { requiredNodeNames, resolveMeshes, resolveNodes, verifyNodeContract } from "../lib/three/nodes";
 import { fourRunnerOptions, plannedFourRunnerOptions } from "../lib/data/options/4runner";
 import { getOptionById, getOptionsForVehicle } from "../lib/data/options";
@@ -145,11 +145,29 @@ describe("catalog integrity", () => {
 });
 
 describe("fixture faithfulness", () => {
-  it("models BODY as a multi-material mesh", () => {
+  it("models BODY as a Group of ten single-material meshes, matching real GLTFLoader output", () => {
+    // Not a single Mesh with a ten-slot material array: GLTFLoader.loadMesh
+    // (three/examples/jsm/loaders/GLTFLoader.js) creates one Mesh per glTF primitive and wraps
+    // them in a Group whenever a glTF mesh has more than one — which the real BODY mesh does (ten
+    // primitives, verified against modsnation_7416_assets_assembled.glb). An earlier version of
+    // this fixture modeled BODY as a single multi-material Mesh instead, which let a real picking
+    // defect ship undetected — see lib/three/sceneRegistry.ts's `findDedicatedMeshForMaterials`.
     const { root } = createVehicleFixture();
-    const body = root.getObjectByName("BODY") as THREE.Mesh;
-    expect(Array.isArray(body.material)).toBe(true);
-    expect((body.material as THREE.Material[]).length).toBe(10);
+    const body = root.getObjectByName("BODY")!;
+    expect(body).toBeInstanceOf(THREE.Group);
+    expect(body).not.toBeInstanceOf(THREE.Mesh);
+
+    // Only the ten primitive meshes multiPrimitiveGroup created, identified by name: BODY is also
+    // the parent of wheels/tyres/mounts/grille in this fixture (matching the real asset's
+    // hierarchy — every node in modsnation_7416_assets_assembled.glb is a child of BODY), so
+    // filtering by instanceof alone would also collect their materials.
+    const childMaterialNames = body.children
+      .filter((child): child is THREE.Mesh => child instanceof THREE.Mesh && child.name.startsWith("BODY_primitive_"))
+      .map((child) => {
+        expect(Array.isArray(child.material)).toBe(false);
+        return (child.material as THREE.Material).name;
+      });
+    expect(childMaterialNames).toEqual(BODY_MATERIAL_NAMES);
   });
 
   it("shares one material instance between the front wheels and the donor node", () => {

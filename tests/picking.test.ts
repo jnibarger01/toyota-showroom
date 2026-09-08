@@ -94,15 +94,17 @@ describe("VehiclePicker", () => {
     const fixture = createVehicleFixture();
     const { registry } = buildSceneRegistry(fixture.root, FOUR_RUNNER_SCENE_MAP);
     const picker = new VehiclePicker(registry);
-    const body = fixture.root.getObjectByName("BODY") as THREE.Mesh;
+    // BODY is a Group in reality (see fixtures/scene.ts), so the bounds tree lives on one of its
+    // dedicated child meshes — the one registered for "body.exterior" specifically.
+    const bodyExterior = registry.get("body.exterior")!.object as THREE.Mesh;
 
     picker.prepare(fixture.root);
-    const tree = body.geometry.boundsTree;
+    const tree = bodyExterior.geometry.boundsTree;
     picker.prepare(fixture.root);
 
-    expect(body.geometry.boundsTree).toBe(tree);
+    expect(bodyExterior.geometry.boundsTree).toBe(tree);
     picker.dispose();
-    expect(body.geometry.boundsTree).toBeFalsy();
+    expect(bodyExterior.geometry.boundsTree).toBeFalsy();
   });
 
   it("dispose() only ever touches meshes still reachable from root, never a mesh detached earlier", () => {

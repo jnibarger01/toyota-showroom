@@ -3,11 +3,21 @@ import * as THREE from "three";
 /**
  * A synthetic stand-in for `modsnation_7416_assets_assembled.glb`.
  *
- * It reproduces the three structural properties that actually break naive integrations, all of
- * which were read out of the real asset:
+ * It reproduces the structural properties that actually break naive integrations, all of which
+ * were read out of the real asset (and, for the first one below, out of `GLTFLoader`'s own source
+ * — not assumed):
  *
- *  - `BODY` is one mesh carrying ten materials, with `body.carmain` at slot 0 and glass, chrome,
- *    and emissive lamp materials in the other slots.
+ *  - `BODY` is a `THREE.Group` of ten single-material meshes, one per glTF primitive — *not* one
+ *    `THREE.Mesh` with a ten-slot material array. This is what `GLTFLoader.loadMesh` actually
+ *    produces for any glTF "mesh" with more than one primitive (`three/examples/jsm/loaders/
+ *    GLTFLoader.js`: each primitive becomes its own `Mesh`, wrapped in a `Group` when there is more
+ *    than one) — an earlier version of this fixture built `BODY` as a single multi-material `Mesh`,
+ *    which let a real picking defect (`lib/three/sceneRegistry.ts`'s `findDedicatedMeshForMaterials`
+ *    doc comment has the full story) ship undetected because every test here was asserting against
+ *    a shape the real app never produces. Child mesh names are deliberately arbitrary — real
+ *    `GLTFLoader` output names them from a shared, non-descriptive mesh-level identifier plus a
+ *    dedup suffix, never the material name — which is why every lookup here goes through
+ *    `materialAt`/`colorHexAt` (node name + material name), never a child mesh's own name.
  *  - Materials are shared across nodes: `wheel.metal` is on the front wheels *and* on the hidden
  *    donor `322-1790(MD010)`; `tire.sidewall` is on all four tyres and on the donor tyre.
  *  - Wheel positions come from siblings of the `MOUNT_WHEEL_*` nodes, not from their children.
@@ -40,6 +50,32 @@ function mesh(name: string, material: THREE.Material | THREE.Material[]): THREE.
   return object;
 }
 
+/**
+ * Builds the `Group`-of-single-material-meshes shape `GLTFLoader` actually produces for a
+ * multi-primitive glTF mesh — see this file's header comment.
+ *
+ * The first material's mesh (by convention, `body.carmain` — the exterior paint) is built larger
+ * than the rest (1.4 vs 1.0 unit box, same centre) rather than exactly coincident with them. Real
+ * body panels occupy distinct, non-overlapping surface regions, so a raycast test never actually
+ * needs to disambiguate a tie; ten identical, exactly-overlapping unit cubes would need to, and
+ * which one wins is unspecified (three.js sorts hits by distance, and BVH-accelerated raycasting
+ * is not guaranteed to break an exact tie the same way an unaccelerated raycast does). Making the
+ * paint shell strictly the closest hit along every axis-aligned approach removes the tie instead
+ * of relying on incidental sort stability, while every other material stays reachable via a direct
+ * `SceneRegistry.resolve()` call (`tests/sceneRegistry.test.ts`), which needs no camera at all.
+ */
+function multiPrimitiveGroup(groupName: string, materials: readonly THREE.Material[]): THREE.Group {
+  const group = new THREE.Group();
+  group.name = groupName;
+  materials.forEach((material, index) => {
+    const size = index === 0 ? 1.4 : 1;
+    const box = mesh(`${groupName}_primitive_${index}`, material);
+    box.geometry = new THREE.BoxGeometry(size, size, size);
+    group.add(box);
+  });
+  return group;
+}
+
 export interface SceneFixture {
   root: THREE.Group;
   /** The exact instances the fixture created, so tests can assert on identity and sharing. */
@@ -58,7 +94,7 @@ export function createVehicleFixture(): SceneFixture {
   root.name = "VEHICLE_ROOT";
 
   const bodyMaterials = BODY_MATERIAL_NAMES.map((name) => physical(name, "#1558d6"));
-  const body = mesh("BODY", bodyMaterials);
+  const body = multiPrimitiveGroup("BODY", bodyMaterials);
   root.add(body);
 
   // Shared across the front pair and the donor node — the case that makes clone-on-write necessary.
@@ -129,12 +165,21 @@ export function createVehicleFixture(): SceneFixture {
   };
 }
 
-/** Resolves the live material occupying a named slot of a named mesh. */
+/**
+ * Resolves the live material occupying a named slot under a named node — a single mesh (array or
+ * plain material) or, matching real `GLTFLoader` output for a multi-primitive glTF mesh, a `Group`
+ * of single-material children (searched by descent, order-independent).
+ */
 export function materialAt(root: THREE.Object3D, nodeName: string, materialName: string): THREE.Material | undefined {
   const node = root.getObjectByName(nodeName);
-  if (!(node instanceof THREE.Mesh)) return undefined;
-  const materials = Array.isArray(node.material) ? node.material : [node.material];
-  return materials.find((material) => material?.name === materialName);
+  if (!node) return undefined;
+  let found: THREE.Material | undefined;
+  node.traverse((child) => {
+    if (found || !(child instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    found = materials.find((material) => material?.name === materialName);
+  });
+  return found;
 }
 
 export function colorHexAt(root: THREE.Object3D, nodeName: string, materialName: string): string | undefined {

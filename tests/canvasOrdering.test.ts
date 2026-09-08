@@ -27,10 +27,10 @@ const CANVAS_SOURCE = readFileSync(
 
 describe("VehicleCanvas lifecycle ordering", () => {
   it("starts the render loop before awaiting the vehicle model", () => {
-    const loopStart = CANVAS_SOURCE.indexOf("\n      loop();");
+    const loopStart = CANVAS_SOURCE.indexOf("renderController.start(");
     const modelAwait = CANVAS_SOURCE.indexOf("await loadVehicleRoot(");
 
-    expect(loopStart, "expected a `loop();` call in VehicleCanvas").toBeGreaterThan(-1);
+    expect(loopStart, "expected a `renderController.start(` call in VehicleCanvas").toBeGreaterThan(-1);
     expect(modelAwait, "expected an `await loadVehicleRoot(` call in VehicleCanvas").toBeGreaterThan(-1);
     expect(
       loopStart,
