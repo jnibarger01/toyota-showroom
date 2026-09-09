@@ -33,3 +33,6 @@ jobs:
       - run: npm run assets:report
       - run: npm test -- --run
       - run: npm run build
+      # Must follow the build: it measures `dist/client/assets`. A chunk over budget, or a new chunk
+      # with no budget at all, fails here rather than being absorbed silently (#43).
+      - run: npm run bundle:budget

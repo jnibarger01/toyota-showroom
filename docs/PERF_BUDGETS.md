@@ -52,8 +52,51 @@ rAF loop stops; leaving idle restarts it. Canvas `data-idle="1"` reflects the ga
 
 `lib/three/frameStats.ts` records a rolling window of frame deltas on the WebGPU/WebGL path used by
 `VehicleCanvas`. Latest summary is written to `canvas.dataset.frameStats`; in DEV,
-`window.__vehicleFrameStats()` returns the snapshot. No GPU timer queries (not portable across
-WebGPU + WebGL2).
+`window.__vehicleFrameStats()` returns the snapshot. `snapshot()` keeps a running sum rather than
+re-adding the ring buffer, because the render loop calls it every frame while publishing only every
+30th.
+
+### GPU timing
+
+`lib/three/gpuTimer.ts` adds the GPU-side counterpart, behind capability detection: three's
+`trackTimestamp`/`resolveTimestampsAsync` on WebGPU, `EXT_disjoint_timer_query_webgl2` on the
+classic WebGL2 renderer, and `null` where neither exists — both are optional features and neither is
+universal. Published as `canvas.dataset.gpuFrameMs`, read via `RenderController.getGpuFrameMs()`.
+
+Read it **against** `avgFrameMs`, not instead of it. `avgFrameMs` is the wall-clock gap between rAF
+callbacks, so it cannot distinguish a CPU-bound frame from a GPU-bound one — and every knob the
+quality ladder controls is GPU cost. A large CPU/GPU gap means stepping the tier down will degrade
+the image without recovering frame time.
+
+It is deliberately **not** wired into `QualityGovernor`'s stepping decision. That policy was tuned
+against the CPU signal, and this repo has no GPU available to measure against (the same constraint
+`docs/POSTPROCESSING_EVALUATION.md` documents). Changing the policy needs real-device data first.
+
+## Client bundle budgets
+
+`scripts/bundle-budget.mjs` gates gzipped chunk sizes in `dist/client/assets` against
+`scripts/bundle-budgets.json`, run in CI after `npm run build`.
+
+```bash
+npm run bundle:budget          # check
+npm run bundle:budget:update   # re-baseline with 15% headroom, then commit the diff
+```
+
+Budgets are keyed on the de-hashed chunk stem. A chunk with **no** budget entry fails just as a
+chunk over budget does — an unbudgeted chunk is how a budget file stops covering the thing it was
+written for.
+
+Measured in gzip because that is what the connection pays for; raw byte counts move for reasons
+that do not change download time. #43 asked for per-route budgets — the build emits one `page`
+chunk per route with no manifest mapping them back, and the expensive code (Three.js, the Draco
+decoder) is lazily loaded and shared, so attributing it per route would either double-count it or
+hide it. Chunk budgets state the same constraint without the arithmetic being a lie, and the
+realistic regression — something pulling Three.js into the shared framework chunk — trips them
+immediately.
+
+Current headline chunks (gzipped): `VehicleCanvas` ~233 KiB (Three.js), `buildTools` ~166 KiB,
+`draco_decoder` ~145 KiB, `framework` ~58 KiB. All three large ones are lazily loaded, so the
+landing route does not pay for them.
 
 ## Tests
 

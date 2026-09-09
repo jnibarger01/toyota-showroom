@@ -21,6 +21,8 @@
     "assets:optimize": "node scripts/optimize-models.mjs",
     "assets:report": "tsx scripts/asset-pipeline-report.ts --fail-on-contract-violation",
     "assets:benchmark-compression": "node scripts/benchmark-compression.mjs",
+    "bundle:budget": "node scripts/bundle-budget.mjs",
+    "bundle:budget:update": "node scripts/bundle-budget.mjs --update",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply toyota-showroom --local",
     "db:migrate:remote": "wrangler d1 migrations apply toyota-showroom --remote",
