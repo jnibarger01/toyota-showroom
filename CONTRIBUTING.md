@@ -97,6 +97,57 @@ at runtime by `lib/three/proceduralParts.ts` and are absent from the binary on p
 users either; `verifyNodeContract` would silently drop it from the UI at runtime, which is the
 outcome these tests exist to surface at commit time instead.
 
+## Browser gate: visual snapshots and flakes
+
+`tests/e2e/` runs under Playwright against the real static export (`npm run build` first). It is a
+separate workflow from `ci.yml` so a pixel diff never blocks the fast lint/typecheck/unit gate.
+
+### Refreshing visual snapshots
+
+Snapshots live in `tests/e2e/visual.spec.ts-snapshots/` and are Linux/Chromium specific.
+
+```bash
+npm run build
+npm run test:e2e:update    # rewrites snapshots from the current build
+git diff --stat tests/e2e/visual.spec.ts-snapshots/
+```
+
+**Always review the image diff before committing it.** A snapshot update is an assertion that the
+new rendering is correct; committing it unread converts the whole suite into a rubber stamp. If a
+change was not meant to alter appearance and a snapshot moved anyway, that is the bug — not the
+snapshot.
+
+Snapshots are generated on Linux. Updating them on macOS or Windows produces diffs from font
+hinting alone, so refresh them in an environment matching CI (a container, or a CI run) rather than
+committing local-platform renders.
+
+`maxDiffPixelRatio` is deliberately non-zero — see `visual.spec.ts`'s header for why zero tolerance
+would make the suite flaky for reasons unrelated to any regression.
+
+### Flakes
+
+**A failing test is not a flake until you have shown it is one.** The default assumption is that it
+found something. Before reaching for this section, run the spec in isolation and read the actual
+error — a truncated failure is easy to misread as an assertion failure when it is really a timeout,
+which points somewhere completely different.
+
+A finding is environmental only when it reproduces on an unmodified tree. Check out `main`, run the
+same command, and see. If it fails there too, it is not yours; if it does not, it is.
+
+Two established cases, both harness-level and both already handled rather than tolerated:
+
+- **Software-rendered scene contention.** Several specs render a real Three.js scene through a
+  software rasteriser. Two at once starve the browser's input pipeline, and `mouse.move` can time
+  out after 60s while nothing is wrong with the app. Fixed by running the suite serially
+  (`workers: 1` in `playwright.config.ts`) in CI *and* locally.
+- **Large asset loads.** `build-and-restore.spec.ts` loads a real ~57 MiB GLB per test and is
+  serialised within its own file, with a raised assertion timeout.
+
+**Never skip, `test.fixme`, or delete a test to get green.** If a test is genuinely unreliable,
+either make it robust — wait on the condition that actually matters rather than a sleep — or open an
+issue and link it from a comment beside the test, so the gap is tracked rather than forgotten. A
+silently skipped test reads as coverage that does not exist, which is worse than a red build.
+
 ## Documentation
 
 - `docs/INTEGRATION_GUIDE.md` is the primary technical reference — architecture, the customization
