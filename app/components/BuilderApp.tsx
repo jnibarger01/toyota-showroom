@@ -18,6 +18,7 @@ import {
   Lightbulb,
   Loader2,
   Mountain,
+  Move3d,
   Map,
   PaintBucket,
   Pause,
@@ -150,6 +151,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [cinematicTourAction, setCinematicTourAction] = useState<TourAction | null>(null);
   /** Bumped to ask the canvas to re-frame the active preset. See `VehicleCanvas.resetViewSignal`. */
   const [resetViewSignal, setResetViewSignal] = useState(0);
+  /** Bumped to request an immersive-AR session. See `VehicleCanvas.enterXrSignal`. */
+  const [enterXrSignal, setEnterXrSignal] = useState(0);
+  /** Stays false on every device without AR, so the control is absent rather than present-and-broken. */
+  const [xrSupported, setXrSupported] = useState(false);
+  const [xrPresenting, setXrPresenting] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const controllerRef = useRef<VehicleSceneController | null>(null);
   const stageRef = useRef<HTMLElement>(null);
@@ -739,6 +745,18 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               >
                 <RotateCcw size={17} />
               </button>
+              {xrSupported ? (
+                <button
+                  type="button"
+                  data-testid="enter-xr"
+                  title="View in AR"
+                  aria-label="View in AR"
+                  disabled={xrPresenting}
+                  onClick={() => setEnterXrSignal((value) => value + 1)}
+                >
+                  <Move3d size={17} />
+                </button>
+              ) : null}
               <button title="Zoom"><ZoomIn size={17} /></button>
               <button title="Settings"><Settings2 size={17} /></button>
               <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
@@ -774,6 +792,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               environmentPreset={environmentPreset}
               hdriPresetId={configuration?.paintStudio?.hdriPresetId}
               resetViewSignal={resetViewSignal}
+              enterXrSignal={enterXrSignal}
+              onXrSupported={setXrSupported}
+              onXrPresentingChange={setXrPresenting}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}

@@ -96,6 +96,31 @@ Budget, enforced by construction rather than by a number:
 
 `window.__vehiclePrefetch()` lists warmed ids in DEV.
 
+## XR (immersive AR)
+
+`lib/three/xrSession.ts` owns `immersive-ar` session lifecycle only. The control appears in the
+builder chrome solely where `navigator.xr.isSessionSupported("immersive-ar")` resolves true, so on
+every desktop browser and on iOS today it is absent rather than present-and-failing.
+
+The load-bearing detail is frame pacing. `RenderController` normally drives its own
+`requestAnimationFrame` chain, which **cannot** pace an XR device: those frames come from the
+headset or phone compositor via `renderer.setAnimationLoop`, which also supplies the `XRFrame` and
+the correct per-eye projection. `setXrPresenting` cancels the rAF chain on entry and restores it on
+exit; running both would render every frame twice.
+
+`OrbitControls` is disabled for the duration — the device owns the pose, and orbit input writing to
+the same camera fights head tracking, which reads as motion sickness rather than as a camera bug.
+The cinematic tour already takes the controls the same way.
+
+Idle suspension does not apply while presenting: an `IntersectionObserver` on the page canvas says
+nothing about what the headset is showing.
+
+**Not verified on hardware.** The session lifecycle is unit-tested against a stubbed `navigator.xr`
+(ordering of the renderer handover, declined permission, device-initiated exit, unmount during the
+permission prompt). Whether AR *looks* correct on a phone is not something any test here can claim.
+No hit-testing or placement UI: `local-floor` puts the vehicle on the viewer's real floor, which is
+enough to walk around it.
+
 ## Client bundle budgets
 
 `scripts/bundle-budget.mjs` gates gzipped chunk sizes in `dist/client/assets` against

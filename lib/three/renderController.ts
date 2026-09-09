@@ -61,6 +61,10 @@ export type RendererLike = {
   renderAsync?: (scene: THREE.Scene, camera: THREE.Camera) => Promise<void>;
   dispose(): void;
   shadowMap: { enabled: boolean };
+  /** Present on both real renderers. Used only when handing the loop to an XR device — rAF cannot
+   * pace frames for a headset or phone compositor. Optional so test doubles need not provide it. */
+  setAnimationLoop?: (callback: ((time: number, frame?: unknown) => void) | null) => void | Promise<void>;
+  xr?: { enabled: boolean; setSession(session: unknown): Promise<void> | void };
   toneMapping: THREE.ToneMapping;
   toneMappingExposure: number;
   /** Real on `THREE.WebGLRenderer` (constructor sets it `true`), absent on `WebGPURenderer` —
@@ -113,6 +117,8 @@ export class RenderController {
   private rafId = 0;
   private framePublishCount = 0;
   private disposed = false;
+  /** True while an XR device is pacing frames instead of `requestAnimationFrame`. */
+  private xrPresenting = false;
 
   /**
    * `rendererFactory` defaults to the real WebGPU/WebGL2 construction (`createRenderer` below) —
@@ -334,9 +340,12 @@ export class RenderController {
     });
   }
 
+  /** One frame. Called from the rAF chain normally, and from `setAnimationLoop` while in XR. */
   private loop(): void {
     if (!this.running || this.disposed) return;
-    if (this.suspended) return;
+    // Idle suspension is a page-visibility concept and does not apply in XR: the canvas is not what
+    // the viewer is looking at, and an IntersectionObserver on it says nothing about the headset.
+    if (this.suspended && !this.xrPresenting) return;
     const stats = this.frameStats.record(performance.now());
     // Reuses the delta frameStats already computed rather than timing the loop a second time.
     this.governor.recordFrame(stats.lastFrameMs);
@@ -364,8 +373,41 @@ export class RenderController {
     // measure — not around its completion, which is what the promise below settles on.
     this.gpuTimer?.endFrame();
     void paint.finally(() => {
-      if (this.running && !this.suspended) this.queueFrame();
+      // In XR the device asks for the next frame itself; self-queueing would run two loops.
+      if (this.running && !this.suspended && !this.xrPresenting) this.queueFrame();
     });
+  }
+
+  /**
+   * Hands frame pacing to an XR device, or takes it back.
+   *
+   * `requestAnimationFrame` cannot drive a headset or phone compositor: those frames are paced by
+   * the device and delivered through `renderer.setAnimationLoop`, which is also what supplies the
+   * per-frame `XRFrame` and the correct per-eye projection. Running the rAF chain as well would
+   * render every frame twice, so entering cancels it and exiting restarts it.
+   *
+   * Called by `XrSessionController.onPresentingChange` rather than reached for directly, so the
+   * handover always follows the session's real state instead of an optimistic guess about it.
+   */
+  setXrPresenting(presenting: boolean): void {
+    if (this.disposed || this.xrPresenting === presenting) return;
+    this.xrPresenting = presenting;
+
+    if (presenting) {
+      this.cancelPendingRaf();
+      void this.renderer.setAnimationLoop?.(() => this.loop());
+      return;
+    }
+
+    void this.renderer.setAnimationLoop?.(null);
+    // Resume the page-driven chain only if this controller is still meant to be rendering — an XR
+    // session can outlive a tab switch, so `suspended` may legitimately be true on the way out.
+    if (this.running && !this.suspended) this.queueFrame();
+  }
+
+  /** Whether an XR device currently paces frames. */
+  get isXrPresenting(): boolean {
+    return this.xrPresenting;
   }
 
   /** Latest ring-buffer frame-timing snapshot — the `__vehicleFrameStats` dev hook's data source. */
@@ -406,6 +448,8 @@ export class RenderController {
     this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.idleGate.dispose();
+    // Detach the XR loop before disposing the renderer, or it keeps invoking a torn-down scene.
+    if (this.xrPresenting) void this.renderer.setAnimationLoop?.(null);
     this.gpuTimer?.dispose();
     this.resizeObserver.disconnect();
     this.renderer.dispose();

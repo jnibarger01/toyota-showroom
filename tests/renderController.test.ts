@@ -373,3 +373,69 @@ describe("RenderController", () => {
     });
   });
 });
+
+describe("XR loop handover", () => {
+  /**
+   * `requestAnimationFrame` cannot pace an XR device, so entering must move frame production to
+   * `setAnimationLoop` and leave the rAF chain shut down — running both would render every frame
+   * twice. These assert that handover rather than any XR rendering, which needs a real device.
+   */
+  function makeXrRenderer() {
+    const calls: Array<((time: number) => void) | null> = [];
+    return {
+      calls,
+      overrides: {
+        setAnimationLoop(callback: ((time: number) => void) | null) {
+          calls.push(callback);
+        },
+        xr: { enabled: false, setSession: async () => {} },
+      } as Partial<RendererLike>,
+    };
+  }
+
+  it("installs an animation loop on enter and clears it on exit", async () => {
+    const xr = makeXrRenderer();
+    const { controller } = await makeController({}, xr.overrides);
+
+    controller.setXrPresenting(true);
+    expect(controller.isXrPresenting).toBe(true);
+    expect(typeof xr.calls.at(-1)).toBe("function");
+
+    controller.setXrPresenting(false);
+    expect(controller.isXrPresenting).toBe(false);
+    expect(xr.calls.at(-1)).toBeNull();
+  });
+
+  it("ignores a redundant transition rather than reinstalling the loop", async () => {
+    const xr = makeXrRenderer();
+    const { controller } = await makeController({}, xr.overrides);
+
+    controller.setXrPresenting(true);
+    const afterFirst = xr.calls.length;
+    controller.setXrPresenting(true);
+
+    expect(xr.calls.length).toBe(afterFirst);
+  });
+
+  it("renders when the XR device calls the installed loop", async () => {
+    const xr = makeXrRenderer();
+    const { controller, fakeRenderer } = await makeController({}, xr.overrides);
+    controller.attachScene(new THREE.Scene(), new THREE.PerspectiveCamera());
+
+    controller.setXrPresenting(true);
+    const before = fakeRenderer.renderCalls;
+    (xr.calls.at(-1) as (time: number) => void)(0);
+
+    expect(fakeRenderer.renderCalls).toBeGreaterThan(before);
+  });
+
+  it("detaches the XR loop on dispose so it cannot drive a torn-down scene", async () => {
+    const xr = makeXrRenderer();
+    const { controller } = await makeController({}, xr.overrides);
+    controller.setXrPresenting(true);
+
+    controller.dispose();
+
+    expect(xr.calls.at(-1)).toBeNull();
+  });
+});

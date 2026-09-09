@@ -199,6 +199,19 @@ export class CameraController {
     };
   }
 
+  /**
+   * Enables or disables `OrbitControls`.
+   *
+   * Exists for XR (#16): while an immersive session is presenting, the device owns the camera pose
+   * completely, and orbit input writing to the same camera fights head tracking — which reads as
+   * motion sickness, not as a camera bug. The cinematic tour already takes the controls this way
+   * for the same reason (via its own `setControlsEnabled` seam); this exposes it to a second caller
+   * rather than giving XR a private path to the same field.
+   */
+  setControlsEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
+  }
+
   /** Per-frame tick: advances `OrbitControls` damping. Call once before each render. */
   update(): void {
     this.controls.update();

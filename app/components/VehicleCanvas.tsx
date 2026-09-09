@@ -60,6 +60,7 @@ import {
 } from "../../lib/three/environmentController";
 import { RenderController } from "../../lib/three/renderController";
 import { createPrefetchScheduler, type PrefetchScheduler } from "../../lib/three/prefetch";
+import { XrSessionController } from "../../lib/three/xrSession";
 import { prefetchHdriPreset } from "../../lib/three/hdriEnvironment";
 import { HDRI_PRESETS } from "../../lib/data/paintStudio";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
@@ -125,6 +126,16 @@ type Props = {
    * key, which reaches the same `resetToPreset` directly.
    */
   resetViewSignal?: number;
+  /**
+   * Bumped by the chrome's "View in AR" control to enter an immersive-AR session. Counter for the
+   * same reason as `resetViewSignal`: re-entering after exiting is a legitimate repeat request.
+   */
+  enterXrSignal?: number;
+  /** Reports whether this device can offer AR at all, so the chrome can omit the control entirely
+   * rather than show one that fails on tap. */
+  onXrSupported?: (supported: boolean) => void;
+  /** Reports session start/end so the chrome can swap the control and hide overlapping UI. */
+  onXrPresentingChange?: (presenting: boolean) => void;
   onTourStatusChange?: (status: TourStatus) => void;
   /** Fired as each catalog preset becomes the tour's current shot (toolbar highlight + cameraState). */
   onTourStep?: (preset: CameraPreset) => void;
@@ -139,7 +150,7 @@ type Props = {
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, onXrSupported, onXrPresentingChange, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -172,6 +183,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   // Read by the Home-key handler, which lives in the run-once setup effect and so cannot close over
   // the prop directly — it would reset to whichever preset was active at mount.
   const cameraPresetRef = useRef(cameraPreset);
+  const onXrSupportedRef = useRef(onXrSupported);
+  const onXrPresentingChangeRef = useRef(onXrPresentingChange);
+  const xrControllerRef = useRef<XrSessionController | null>(null);
   useEffect(() => {
     onReadyRef.current = onReady;
     onErrorRef.current = onError;
@@ -182,7 +196,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onTourStepRef.current = onTourStep;
     onPartHoverRef.current = onPartHover;
     onPartSelectRef.current = onPartSelect;
-  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect]);
+    onXrSupportedRef.current = onXrSupported;
+    onXrPresentingChangeRef.current = onXrPresentingChange;
+  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -676,6 +692,25 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       });
       prefetcher.start();
 
+      // XR last: it needs the renderer, and there is nothing worth showing in AR until the vehicle
+      // has actually settled into the scene.
+      const xrController = new XrSessionController({
+        renderer: renderController.renderer as unknown as ConstructorParameters<typeof XrSessionController>[0]["renderer"],
+        onPresentingChange: (presenting) => {
+          // The renderer's frame source has to change hands; `CameraController` must also stop
+          // writing the camera, because in XR the device owns the pose entirely and an orbit tween
+          // fighting head tracking is motion sickness, not a camera bug.
+          renderController.setXrPresenting(presenting);
+          cameraController.setControlsEnabled(!presenting);
+          onXrPresentingChangeRef.current?.(presenting);
+        },
+        onError: (message) => onErrorRef.current(message),
+      });
+      xrControllerRef.current = xrController;
+      void xrController.isSupported().then((supported) => {
+        if (!cancelled) onXrSupportedRef.current?.(supported);
+      });
+
       if (import.meta.env.DEV) {
         (window as unknown as Record<string, unknown>).__vehicleProgressiveLoad = progressive;
         (window as unknown as Record<string, unknown>).__vehicleQuality = renderController.currentQuality;
@@ -694,6 +729,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       // let speculative fetches outlive the canvas that wanted them.
       prefetcher?.dispose();
       prefetcher = null;
+      // Before the renderer goes: ending the session releases the device camera, and a session
+      // outliving its canvas leaves that running behind a page the viewer has left.
+      xrControllerRef.current?.dispose();
+      xrControllerRef.current = null;
       cleanup?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time setup; see latest-value refs above.
@@ -734,6 +773,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     // who has lost the vehicle off-frame wants it back now, not in 0.85s.
     cameraController.resetToPreset(cameraPresetRef.current);
   }, [resetViewSignal]);
+
+  useEffect(() => {
+    if (enterXrSignal === undefined) return;
+    void xrControllerRef.current?.enter();
+  }, [enterXrSignal]);
 
   // Builder chrome play/pause/cancel — seq bumps so repeated identical actions still fire.
   useEffect(() => {
