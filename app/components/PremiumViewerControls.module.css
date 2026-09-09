@@ -1,0 +1,99 @@
+.dock {
+  position: fixed;
+  left: 50%;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(12, 15, 19, 0.76);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  transform: translateX(-50%);
+}
+
+.control,
+.iconControl {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.iconControl {
+  display: grid;
+  place-items: center;
+}
+
+.control:hover,
+.iconControl:hover,
+.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.control:active,
+.iconControl:active {
+  transform: scale(0.96);
+}
+
+.control:focus-visible,
+.iconControl:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.active {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.divider {
+  width: 1px;
+  height: 24px;
+  margin: 0 3px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+@media (max-width: 720px) {
+  .dock {
+    bottom: max(14px, env(safe-area-inset-bottom));
+    padding: 6px;
+    max-width: calc(100vw - 24px);
+  }
+
+  .control span {
+    display: none;
+  }
+
+  .control {
+    padding: 0;
+    justify-content: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control,
+  .iconControl {
+    transition: none;
+  }
+}
