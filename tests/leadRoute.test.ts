@@ -18,6 +18,14 @@ const validLead = {
   idempotencyKey: "route-test-key",
 };
 
+type LeadResponseBody = {
+  data: { id: string; email: string; createdAt: string };
+};
+
+type ErrorResponseBody = {
+  error: { code: string; status: number; message: string };
+};
+
 function post(body: string, headers: Record<string, string> = {}): Promise<Response> {
   return POST(
     new NextRequest("https://example.test/api/v1/leads", {
@@ -39,7 +47,7 @@ describe("POST /api/v1/leads", () => {
     expect(response.status).toBe(201);
     expect(response.headers.get("cache-control")).toBe("no-store");
 
-    const body = (await response.json()) as { data: { id: string; email: string; createdAt: string } };
+    const body = (await response.json()) as LeadResponseBody;
     expect(body.data.id).toMatch(/^lead_/);
     expect(body.data.email).toBe("jamie@example.com");
     expect(Number.isNaN(Date.parse(body.data.createdAt))).toBe(false);
@@ -51,7 +59,9 @@ describe("POST /api/v1/leads", () => {
 
     expect(first.status).toBe(201);
     expect(replay.status).toBe(200);
-    expect((await replay.json()).data).toEqual((await first.json()).data);
+    const firstBody = (await first.json()) as LeadResponseBody;
+    const replayBody = (await replay.json()) as LeadResponseBody;
+    expect(replayBody.data).toEqual(firstBody.data);
   });
 
   it("rejects malformed JSON and semantically invalid bodies", async () => {
@@ -60,12 +70,15 @@ describe("POST /api/v1/leads", () => {
 
     const invalid = await post(JSON.stringify({ ...validLead, email: "bad-email" }));
     expect(invalid.status).toBe(422);
-    expect((await invalid.json()).error.code).toBe("invalid_body");
+    const invalidBody = (await invalid.json()) as ErrorResponseBody;
+    expect(invalidBody.error.code).toBe("invalid_body");
   });
 
   it("rejects request bodies larger than the public lead limit before persistence", async () => {
     const oversized = await post(JSON.stringify({ ...validLead, message: "x".repeat(20_000) }));
     expect(oversized.status).toBe(413);
+    const body = (await oversized.json()) as ErrorResponseBody;
+    expect(body.error.code).toBe("payload_too_large");
   });
 
   it("never converts a persistence failure into a successful response", async () => {
