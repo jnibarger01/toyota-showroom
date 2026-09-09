@@ -68,6 +68,24 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, "tier">> = {
   },
 };
 
+/**
+ * Tier knobs that only take effect at construction or asset-load time, and are therefore ignored by
+ * a mid-session tier change.
+ *
+ * `antialias` is a `WebGLRenderer`/`WebGPURenderer` constructor argument — three cannot toggle MSAA
+ * on a live renderer, and recreating the renderer to change it would drop the GL context, the
+ * loaded scene, and the camera pose mid-orbit, which costs far more than the MSAA it saves.
+ *
+ * `loadAuthoredRunningGear` gates a download decision made once, before the wheel and tyre assets
+ * are fetched; the governor cannot un-download them later.
+ *
+ * Named here rather than left as folklore because the gap is not obvious from the tier table: both
+ * fields look like live knobs beside `maxPixelRatio` and `shadowsEnabled`, and treating them that
+ * way is how a downgrade ends up believing it shed cost it is still paying. `RenderController`
+ * asserts against this list rather than silently ignoring the fields.
+ */
+export const CONSTRUCTION_TIME_QUALITY_KEYS = ["antialias", "loadAuthoredRunningGear"] as const;
+
 export function qualitySettingsFor(tier: QualityTier): QualitySettings {
   return { tier, ...TIER_SETTINGS[tier] };
 }

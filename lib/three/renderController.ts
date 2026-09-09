@@ -2,6 +2,7 @@ import * as THREE from "three";
 import * as THREE_WEBGPU from "three/webgpu";
 import {
   collectBrowserDeviceHints,
+  CONSTRUCTION_TIME_QUALITY_KEYS,
   resolveQuality,
   type QualitySettings,
 } from "./quality";
@@ -241,10 +242,24 @@ export class RenderController {
    * Re-applies a quality tier to the live renderer: pixel ratio, shadow map enablement, dataset,
    * and a resize (matching the pre-extraction `applyTier`'s own unconditional resize — a safety
    * re-sync, not something this changes behavior on). Does NOT re-apply quality-dependent state
-   * other controllers own (e.g. `EnvironmentController`'s shadow-casting lights) — that is what
-   * `onQualityChange` is for.
+   * other controllers own (e.g. `EnvironmentController`'s shadow-casting lights, its starfield
+   * density) — that is what `onQualityChange` is for.
+   *
+   * `CONSTRUCTION_TIME_QUALITY_KEYS` (antialias, authored running gear) cannot follow a live tier
+   * change; see that constant for why. Dev builds warn when a change would have needed them, so the
+   * limitation shows up while tuning the tier table rather than as an unexplained shortfall between
+   * the cost a downgrade claims to shed and the cost it actually sheds.
    */
   applyQuality(next: QualitySettings): void {
+    if (process.env.NODE_ENV !== "production") {
+      const ignored = CONSTRUCTION_TIME_QUALITY_KEYS.filter((key) => this.quality[key] !== next[key]);
+      if (ignored.length > 0) {
+        console.warn(
+          `[quality] ${this.quality.tier} → ${next.tier} also changes ${ignored.join(", ")}, ` +
+            "which only apply at construction/load time and will keep their original values.",
+        );
+      }
+    }
     this.quality = next;
     applyRendererQuality(this.renderer, next);
     this.canvas.dataset.quality = next.tier;

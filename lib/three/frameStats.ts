@@ -32,6 +32,21 @@ export class FrameTimeTracker {
   private readonly buffer: Float64Array;
   private index = 0;
   private filled = 0;
+  /**
+   * Running total of the live entries in `buffer`.
+   *
+   * `snapshot()` is called on every single frame (`RenderController.loop`), but the stats it
+   * produces are published to the canvas dataset only every 30th frame. Re-summing up to 60
+   * entries per frame to throw away 29 of every 30 results is work the render loop does not need
+   * to do. Maintaining the sum incrementally makes `snapshot()` O(1).
+   *
+   * Float error: entries are added and subtracted in a different order than a fresh summation
+   * would use, so this can drift from a recomputed sum in the last bits. For frame times in the
+   * 8–33ms range over a 60-entry window that is far below the precision anything here reports
+   * (`formatFrameStats` rounds), and it is bounded rather than accumulating, because every value
+   * added is subtracted again exactly once when it leaves the window.
+   */
+  private sum = 0;
   private lastNow = 0;
   private started = false;
   private lastFrameMs = 0;
@@ -54,6 +69,10 @@ export class FrameTimeTracker {
     const delta = Math.max(nowMs - this.lastNow, 0);
     this.lastNow = nowMs;
     this.lastFrameMs = delta;
+    // Subtract the value being evicted before overwriting it. Reads 0 for a slot never written,
+    // which is correct: those slots are outside `filled` and contribute nothing.
+    this.sum -= this.buffer[this.index]!;
+    this.sum += delta;
     this.buffer[this.index] = delta;
     this.index = (this.index + 1) % this.buffer.length;
     if (this.filled < this.buffer.length) this.filled += 1;
@@ -63,9 +82,7 @@ export class FrameTimeTracker {
   snapshot(): FrameStatsSnapshot {
     if (this.filled === 0) return { ...EMPTY };
 
-    let sum = 0;
-    for (let i = 0; i < this.filled; i += 1) sum += this.buffer[i]!;
-    const avgFrameMs = sum / this.filled;
+    const avgFrameMs = this.sum / this.filled;
     const lastFrameMs = this.lastFrameMs;
     return {
       lastFrameMs,
@@ -82,6 +99,7 @@ export class FrameTimeTracker {
     this.lastNow = 0;
     this.started = false;
     this.lastFrameMs = 0;
+    this.sum = 0;
     this.buffer.fill(0);
   }
 }

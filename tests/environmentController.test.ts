@@ -150,6 +150,47 @@ describe("EnvironmentController", () => {
     });
   });
 
+  describe("starfield density follows the quality tier", () => {
+    /**
+     * `starfieldCount` sat in the tier table beside `maxPixelRatio` and `shadowsEnabled` but was
+     * read once at construction, so a governor downgrade to `low` still drew all 400 points. These
+     * pin it as a live knob.
+     */
+    it("draws only the constructed count, not the whole allocated buffer", () => {
+      const { controller } = makeController({ starfieldCount: 40 });
+      expect(controller.stars.geometry.drawRange.count).toBe(40);
+    });
+
+    it("narrows the draw range when the tier steps down", () => {
+      const { controller } = makeController({ starfieldCount: 400 });
+
+      controller.applyQuality({ ...HIGH_QUALITY, starfieldCount: 80 });
+
+      expect(controller.stars.geometry.drawRange.count).toBe(80);
+    });
+
+    it("leaves the count alone when a caller supplies no starfieldCount", () => {
+      const { controller } = makeController({ starfieldCount: 120 });
+
+      // `EnvironmentQualityInputs.starfieldCount` is optional; a caller that only cares about
+      // shadows must not silently blank the sky.
+      controller.applyQuality(HIGH_QUALITY);
+
+      expect(controller.stars.geometry.drawRange.count).toBe(120);
+    });
+
+    it("clamps a count above the allocated ceiling instead of rendering nothing", () => {
+      const { controller } = makeController({ starfieldCount: 400 });
+
+      controller.applyQuality({ ...HIGH_QUALITY, starfieldCount: 10_000 });
+
+      // Past the end of the buffer three draws nothing, which would read as broken stars rather
+      // than a misconfigured tier table.
+      expect(controller.stars.geometry.drawRange.count).toBe(400);
+      expect(controller.stars.geometry.getAttribute("position").count).toBeGreaterThanOrEqual(400);
+    });
+  });
+
   describe("applyHdri", () => {
     // `hdri-studio`/`hdri-showroom`/`hdri-overcast` (lib/data/paintStudio.ts) are real catalog
     // presets with no `hdrUrl` — procedural-lighting-only, so `applyHdriPreset` never reaches its
