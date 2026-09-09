@@ -12,6 +12,8 @@
 
   /* Toyota red accent */
   --accent: #eb0a1e;
+  /* Foreground for text sitting on `--accent`. See the `.primary` rule for the contrast maths. */
+  --text-on-accent: #ffffff;
   --accent-2: #ff3b4a;
 
   /* Typography scale */
@@ -86,7 +88,19 @@ button { font: inherit; color: inherit; }
 .top-actions { display: flex; gap: 10px; }
 .top-actions button { border-radius: 9px; height: 38px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); }
 .ghost { background: #151a21; }
-.primary { background: var(--accent); border-color: var(--accent) !important; }
+/*
+ * Foreground is set explicitly rather than inherited.
+ *
+ * `.primary` fills with Toyota red (`--accent`, #eb0a1e) but inherited `--text` (#f4f7fa), giving
+ * 4.25:1 — under the 4.5:1 WCAG AA threshold for 16px normal text, and a real axe `color-contrast`
+ * failure. Pure white on the same red is 4.57:1 and passes. `.compare-bar .primary` had already
+ * been patched to white one-off; this makes it the rule instead of a local workaround.
+ *
+ * The brand red is deliberately not altered to buy more headroom — that is a brand decision, not an
+ * implementation one. The margin over threshold is real but thin, so a future change to `--accent`
+ * needs to re-check this pairing rather than assume it still passes.
+ */
+.primary { background: var(--accent); border-color: var(--accent) !important; color: var(--text-on-accent); }
 .top-actions .icon-action { width: 38px; padding: 0; justify-content: center; }
 .top-actions button:disabled { opacity: .45; }
 .tour-card { position: fixed; z-index: 30; top: 82px; right: 18px; width: 310px; padding: 16px 38px 16px 16px; border: 1px solid #7a2f34; border-radius: 12px; background: #1d1519; box-shadow: var(--shadow-elevated); }
@@ -527,7 +541,10 @@ button { font: inherit; color: inherit; }
 .garage-build-actions .danger { color: #ffb4b8; border-color: #743036; }
 .garage-compare-bar { position: sticky; bottom: 16px; z-index: 5; }
 .garage-card .garage-open { margin-top: 6px; }
-.compare-mode-tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
+/* Wrapper introduced so the garage link can sit outside `role="tablist"` (which may only contain
+ * tabs) while the row still reads as one horizontal group. */
+.compare-mode-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
+.compare-mode-tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .compare-mode-tabs button {
   height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2c343e;
   background: #151a21; color: #929ca9; font-size: 12px;
