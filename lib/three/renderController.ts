@@ -3,12 +3,15 @@ import * as THREE_WEBGPU from "three/webgpu";
 import {
   collectBrowserDeviceHints,
   CONSTRUCTION_TIME_QUALITY_KEYS,
+  qualitySettingsFor,
   resolveQuality,
   type QualitySettings,
 } from "./quality";
 import { QualityGovernor } from "./qualityGovernor";
+import { preferredTierHint, readQualityPreference, writeQualityPreference, type QualityPreference } from "./qualityPreference";
 import { createCanvasIdleGate, type CanvasIdleGate } from "./canvasIdle";
 import { FrameTimeTracker, formatFrameStats, type FrameStatsSnapshot } from "./frameStats";
+import { createGpuTimer, type GpuTimer } from "./gpuTimer";
 import { recordMetric } from "../observability/clientMetrics";
 
 /**
@@ -94,10 +97,12 @@ export class RenderController {
   private readonly resizeObserver: ResizeObserver;
   private readonly idleGate: CanvasIdleGate;
   private readonly frameStats = new FrameTimeTracker(60);
-  private readonly governor: QualityGovernor;
+  readonly governor: QualityGovernor;
   private readonly options: RenderControllerOptions;
   private readonly handleContextLost: (event: Event) => void;
   private readonly handleContextRestored: () => void;
+  /** GPU-side frame timing where the platform offers it; `null` otherwise. See `gpuTimer.ts`. */
+  private readonly gpuTimer: GpuTimer | null;
 
   private quality: QualitySettings;
   private scene: THREE.Scene | null = null;
@@ -122,9 +127,15 @@ export class RenderController {
     options: RenderControllerOptions,
     rendererFactory: (antialias: boolean) => Promise<{ renderer: RendererLike; mode: RendererMode }> = createRenderer,
   ): Promise<RenderController> {
-    const quality = resolveQuality(collectBrowserDeviceHints());
+    // A stored viewer preference outranks device inference — that is the whole point of it. It is
+    // read here rather than applied after construction so `antialias`, which cannot change on a
+    // live renderer, is right the first time.
+    const preference = readQualityPreference();
+    const quality = resolveQuality(collectBrowserDeviceHints(preferredTierHint(preference)));
     const { renderer, mode } = await rendererFactory(quality.antialias);
-    return new RenderController(renderer, mode, quality, options);
+    const controller = new RenderController(renderer, mode, quality, options);
+    if (preference !== "auto") controller.governor.setPinnedTier(preference);
+    return controller;
   }
 
   private constructor(renderer: RendererLike, mode: RendererMode, quality: QualitySettings, options: RenderControllerOptions) {
@@ -134,6 +145,9 @@ export class RenderController {
     this.quality = quality;
     this.host = options.host;
     this.options = options;
+
+    this.gpuTimer = createGpuTimer(renderer);
+    if (this.gpuTimer) this.canvas.dataset.gpuTimer = this.gpuTimer.source;
 
     applyRendererQuality(renderer, quality);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -266,6 +280,39 @@ export class RenderController {
     this.resize();
   }
 
+  /**
+   * Applies and persists a viewer's quality preference, taking effect immediately.
+   *
+   * `"auto"` releases the pin and hands the tier back to `QualityGovernor`, leaving the current
+   * tier in place until measured frame time moves it — releasing the pin is not itself a reason to
+   * jump somewhere, and the governor resumes from live data.
+   *
+   * A pinned tier still cannot change `CONSTRUCTION_TIME_QUALITY_KEYS`. Choosing `high` on a
+   * renderer built without MSAA gets everything except antialiasing, which needs a reload; the
+   * alternative — recreating the renderer under the viewer — would drop the scene and camera pose
+   * to change one sample count. `qualityPreferenceNeedsReload` lets the UI say so plainly.
+   */
+  setQualityPreference(preference: QualityPreference): void {
+    writeQualityPreference(preference);
+    const pinned = this.governor.setPinnedTier(preference === "auto" ? null : preference);
+    if (pinned) {
+      this.applyQuality(pinned);
+      this.options.onQualityChange?.(pinned);
+    }
+  }
+
+  /**
+   * Whether the live renderer can honour `preference` in full, or needs a reload to do so.
+   *
+   * Only the construction-time keys can be out of reach; everything else `applyQuality` handles.
+   */
+  qualityPreferenceNeedsReload(preference: QualityPreference): boolean {
+    const target = preferredTierHint(preference);
+    if (!target) return false;
+    const wanted = qualitySettingsFor(target);
+    return CONSTRUCTION_TIME_QUALITY_KEYS.some((key) => this.quality[key] !== wanted[key]);
+  }
+
   /** Starts the render loop, calling `tick()` once before every frame's paint. */
   start(tick: () => void): void {
     this.tick = tick;
@@ -296,6 +343,11 @@ export class RenderController {
     this.framePublishCount += 1;
     if (stats.samples > 0 && this.framePublishCount % 30 === 0) {
       this.canvas.dataset.frameStats = formatFrameStats(stats);
+      const gpuMs = this.gpuTimer?.lastGpuMs();
+      // Published beside the CPU stats rather than folded into them: the whole value of this number
+      // is the *gap* between it and `avgFrameMs`, which is what says whether the scene is GPU-bound
+      // and therefore whether the tier ladder can help at all.
+      if (typeof gpuMs === "number") this.canvas.dataset.gpuFrameMs = gpuMs.toFixed(2);
     }
     this.tick?.();
     if (!this.scene || !this.camera) {
@@ -304,9 +356,13 @@ export class RenderController {
     }
     const scene = this.scene;
     const camera = this.camera;
+    this.gpuTimer?.beginFrame();
     const paint = this.renderer.renderAsync
       ? this.renderer.renderAsync(scene, camera)
       : Promise.resolve(this.renderer.render(scene, camera));
+    // Ends the query around the *issuing* of the frame's work, which is what both timer APIs
+    // measure — not around its completion, which is what the promise below settles on.
+    this.gpuTimer?.endFrame();
     void paint.finally(() => {
       if (this.running && !this.suspended) this.queueFrame();
     });
@@ -315,6 +371,15 @@ export class RenderController {
   /** Latest ring-buffer frame-timing snapshot — the `__vehicleFrameStats` dev hook's data source. */
   getFrameStats(): FrameStatsSnapshot {
     return this.frameStats.snapshot();
+  }
+
+  /**
+   * Most recent GPU-side frame duration in ms, or `null` when this platform offers no timer or none
+   * has resolved yet. Compare against `getFrameStats().avgFrameMs`: a large gap means CPU-bound, and
+   * the quality ladder — which only controls GPU cost — cannot recover that frame time.
+   */
+  getGpuFrameMs(): number | null {
+    return this.gpuTimer?.lastGpuMs() ?? null;
   }
 
   /**
@@ -341,6 +406,7 @@ export class RenderController {
     this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.idleGate.dispose();
+    this.gpuTimer?.dispose();
     this.resizeObserver.disconnect();
     this.renderer.dispose();
     this.canvas.remove();

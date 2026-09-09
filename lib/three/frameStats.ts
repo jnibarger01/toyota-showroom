@@ -1,10 +1,14 @@
 /**
  * Lightweight frame-time instrumentation for the WebGPU/WebGL render path.
  *
- * Always-on and allocation-light: a fixed ring buffer of recent frame deltas, no GPU timers
- * (those need EXT_disjoint_timer_query / timestamp queries and are not portable across WebGPU +
- * WebGL2). Sufficient for #27's acceptance and as the signal source #33 can later use for
- * adaptive quality.
+ * Always-on and allocation-light: a fixed ring buffer of recent frame deltas. This is the CPU-side
+ * signal — the wall-clock gap between rAF callbacks — and it is what `QualityGovernor` steers on.
+ *
+ * GPU-side timing lives in `lib/three/gpuTimer.ts` rather than here, because it is conditional in a
+ * way this is not: `EXT_disjoint_timer_query_webgl2` and WebGPU's `timestamp-query` are optional on
+ * both backends and frequently unavailable, so it returns `null` where this always produces a
+ * number. Keeping the always-available signal free of that conditionality is why they are separate
+ * modules; `RenderController` publishes both and lets the gap between them be read.
  */
 
 export type FrameStatsSnapshot = {
