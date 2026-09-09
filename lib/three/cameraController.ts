@@ -29,7 +29,6 @@ export interface CameraControllerOptions {
   far?: number;
   onTourStatusChange?: (status: TourStatus) => void;
   onTourStep?: (preset: CameraPresetConfig, index: number) => void;
-  /** Mirrors typed auto-rotate state to surrounding viewer chrome. */
   onAutoRotateChange?: (enabled: boolean) => void;
 }
 
@@ -59,8 +58,6 @@ export class CameraController {
   private activePresetId: string | undefined;
 
   private readonly handleControlsStart = (): void => {
-    // A drag, wheel gesture, or touch gesture means the user is taking ownership of the camera.
-    // Never let auto-rotation continue fighting that direct manipulation.
     if (this.controls.autoRotate) this.setAutoRotate(false);
   };
 
@@ -140,7 +137,6 @@ export class CameraController {
     };
   }
 
-  /** Enables/disables the premium viewer turntable without exposing OrbitControls as application state. */
   setAutoRotate(enabled: boolean): void {
     if (this.controls.autoRotate === enabled) return;
     if (enabled && this.isTourActive) this.tour.cancel();
