@@ -63,6 +63,40 @@ full E2E run to take about a minute even locally.
   passed locally while failing in real CI. If a component test interacts with something that
   depends on more than one async source resolving, wait for the last one, not the first.
 
+## Authoring a customization option
+
+Options are contract-first: an option is only allowed into the served catalog once the geometry it
+targets provably exists in the shipped GLB. Two gates enforce that in CI, and both run before the
+full suite so an authoring mistake reports as itself rather than as noise in a 600-test run.
+
+1. **Read the real asset first, never the exporter's UI.** `lib/tooling/glbInspect.ts` parses the
+   checked-in binary's JSON chunk with no Three.js and no DOM. Node and material names come from
+   there; a name typed from memory is the single most common way this breaks.
+2. **Add the option** to `lib/data/options/<slug>.ts` with `targetNodes` and, where it recolours
+   rather than toggles, `targetMaterials`.
+3. **Run the gates.**
+
+   ```bash
+   npx vitest run tests/glbContract.test.ts   # every served option resolves against the real GLB
+   npm run assets:report                      # re-derives the same contract from the binaries
+   ```
+
+   `glbContract` fails on a node or material name absent from the asset. `assets:report` runs with
+   `--fail-on-contract-violation` and regenerates `docs/ASSET_PIPELINE_REPORT.md`; commit the
+   regenerated report alongside the asset change. It is deterministic, so a diff means something
+   actually changed.
+
+**Geometry that has not landed yet** goes in the vehicle's `planned*Options` array instead, never
+the served catalog. `lib/data/options/plannedGate.ts` promotes a planned option automatically once
+every node it requires appears in the GLB, so the forward declaration costs nothing and cannot ship
+a dead button in the meantime. Procedural stand-ins
+(`geometrySource: "procedural-preview"`) are exempt from the GLB check by design — they are built
+at runtime by `lib/three/proceduralParts.ts` and are absent from the binary on purpose.
+
+**Do not** relax a gate to land an option. A failure here means the option does not resolve for real
+users either; `verifyNodeContract` would silently drop it from the UI at runtime, which is the
+outcome these tests exist to surface at commit time instead.
+
 ## Documentation
 
 - `docs/INTEGRATION_GUIDE.md` is the primary technical reference — architecture, the customization

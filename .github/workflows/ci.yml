@@ -23,6 +23,13 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      # Run first and on its own so a catalog/GLB contract break reports as itself rather than as
+      # one failure buried in the full suite — this is the check an option-authoring mistake trips.
       - run: npx vitest run tests/glbContract.test.ts
+      # `--fail-on-contract-violation` re-derives the same node/material contract from the shipped
+      # binaries and fails on an unsatisfied entry. The script and its test have existed since the
+      # asset-pipeline work but no workflow ever invoked it, so the gate was documentation rather
+      # than enforcement (#34).
+      - run: npm run assets:report
       - run: npm test -- --run
       - run: npm run build

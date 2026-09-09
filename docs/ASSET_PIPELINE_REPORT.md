@@ -10,7 +10,6 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Compression: draco
 - Largest textures: T_Brakes_Wilwood-4_D (1024×1024, 87.0 KiB), Caliper_cover_logo_D (600×172, 34.3 KiB), T_glass (512×512, 5.6 KiB)
 - Semantic contract: 38 satisfied, 12 unsatisfied
-- Inspection duration: 166.5 ms
 
 ## 4Runner wheel (authored) (`4runner`)
 
@@ -18,7 +17,6 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Meshes: 1   Triangles: 13,588   Materials: 2   Textures: 0
 - Compression: draco
 - Semantic contract: not applicable (mounted running gear — takes on its mount point's identity at runtime)
-- Inspection duration: 5.3 ms
 
 ## 4Runner tire (authored) (`4runner`)
 
@@ -26,7 +24,6 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Meshes: 1   Triangles: 35,471   Materials: 1   Textures: 0
 - Compression: draco
 - Semantic contract: not applicable (mounted running gear — takes on its mount point's identity at runtime)
-- Inspection duration: 17.3 ms
 
 ## Corolla GT-S (AE86) body (`ae86`)
 
@@ -35,7 +32,6 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Compression: draco
 - Largest textures: Palette.png (256×256, 4.4 KiB)
 - Semantic contract: 6 satisfied, 0 unsatisfied
-- Inspection duration: 10.8 ms
 
 ## RAV4 body (`rav4`)
 
@@ -44,4 +40,3 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Compression: draco
 - Largest textures: T_glass.light_B (512×512, 5.7 KiB), T_metal.chrome_B (512×512, 4.9 KiB), T_metal.chrome_M-T_metal.chrome_R (512×512, 4.8 KiB)
 - Semantic contract: 10 satisfied, 17 unsatisfied
-- Inspection duration: 60.3 ms
