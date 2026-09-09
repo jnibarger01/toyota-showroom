@@ -12,9 +12,8 @@ export interface LeadRepository {
 }
 
 /**
- * Node/Vitest implementation. Production swaps this for D1 from `instrumentation.ts`.
- * Idempotency is intentionally immutable: a reused key returns the first accepted request rather
- * than allowing a retry with changed data to mutate customer PII.
+ * Explicit test-only/local-fixture implementation. It is never the ambient runtime default because
+ * customer contact data must not appear accepted when durable persistence is unavailable.
  */
 export class InMemoryLeadRepository implements LeadRepository {
   private readonly leads = new Map<string, Lead>();
@@ -50,7 +49,14 @@ export class InMemoryLeadRepository implements LeadRepository {
   }
 }
 
-let repository: LeadRepository = new InMemoryLeadRepository();
+/** Default authority: reject writes until the runtime explicitly installs durable persistence. */
+export class UnavailableLeadRepository implements LeadRepository {
+  async create(_input: ValidatedLeadInput): Promise<LeadCreateResult> {
+    throw new Error("Lead persistence is unavailable; the request was not accepted.");
+  }
+}
+
+let repository: LeadRepository = new UnavailableLeadRepository();
 
 export function getLeadRepository(): LeadRepository {
   return repository;
