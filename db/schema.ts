@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text, index, uniqueIndex } from "drizzle-orm/sqlite-core";
 import type { PaintStudioState } from "../lib/types/paintStudio";
 
 /**
@@ -56,4 +56,29 @@ export const configurationRevisions = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("configuration_revisions_config_idx").on(table.configurationId, table.revision)],
+);
+
+/**
+ * Customer lead intake. This table deliberately contains only the minimum contact/request fields
+ * the application needs to hand the inquiry to a configured downstream workflow. Edge request
+ * metadata, analytics identifiers, user agents, and IP addresses are not persisted with PII.
+ */
+export const leads = sqliteTable(
+  "leads",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    email: text("email").notNull(),
+    message: text("message").notNull(),
+    vehicleId: text("vehicle_id"),
+    /** Internal deduplication key. Never returned in the public Lead domain model. */
+    idempotencyKey: text("idempotency_key"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("leads_idempotency_idx").on(table.idempotencyKey),
+    index("leads_vehicle_idx").on(table.vehicleId),
+    index("leads_created_idx").on(table.createdAt),
+  ],
 );
