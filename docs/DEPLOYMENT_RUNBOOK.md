@@ -169,6 +169,32 @@ Expect health `status: "ok"` and a `201` with a `configurationId`. Same checks a
 
 ---
 
+## Demo service worker (Pages only)
+
+`public/sw.js` caches the static shell and the vehicle assets so repeat visits to the Pages demo do
+not re-download the ~1.2 MiB GLB, and so a cached build still opens with the network offline.
+
+**It is gated on runtime proof, not on a build flag.** `lib/pwa/demoServiceWorker.ts` registers it
+only once `getPersistenceMode()` resolves to `"local"` — that is, once the app has confirmed the API
+routes are absent. A service worker installed against the Worker deployment could serve stale
+configuration responses from cache, which is a much worse failure than the download it saves.
+
+Strategies: cache-first for `/assets/*` (content-hashed, `immutable`, so a hit cannot be wrong);
+stale-while-revalidate for `/models/*`, `/draco/*`, `/renders/*`, `/images/*` (large and stable, but
+`public/_headers` serves them `must-revalidate` because the optimisation scripts rewrite them in
+place under unchanged names); network-first for `/catalog/v1/*.json`. `/api/*` is never intercepted.
+
+### Kill switch
+
+Bump `CACHE_VERSION` in `public/sw.js`. `activate` deletes every cache that is not the current
+version, so a bump evicts everything previously stored. The worker also calls
+`skipWaiting`/`clients.claim`, so an update takes effect on the next navigation instead of waiting
+for every tab to close — a sticky cache on a demo surface is worse than no cache at all.
+
+To remove it entirely for a browser: promoting that origin to the Worker path is enough. On the next
+load the mode resolves to `"worker"` and the registration is torn down automatically, with no
+"clear your site data" instruction needed.
+
 ## 4. Routine deploys
 
 **Static site:** nothing to run — push (or merge) to `main` and `.github/workflows/pages.yml`

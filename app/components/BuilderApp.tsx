@@ -44,6 +44,7 @@ import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
+import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -182,6 +183,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const { configuration, catalog, status, error } = useConfiguration();
   const persistenceMode = usePersistenceMode();
+
+  useEffect(() => {
+    // Gated on the *resolved* mode rather than a build flag: the demo cache may only exist where the
+    // app has proven the API routes are absent. The "worker" case actively unregisters, which is
+    // what makes a browser that visited the Pages demo recoverable when it later hits a real
+    // deployment on the same origin.
+    void syncDemoServiceWorker(persistenceMode, { basePath: import.meta.env.BASE_URL });
+  }, [persistenceMode]);
   const isLocalPersistence = persistenceMode === "local";
 
   /**
