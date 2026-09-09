@@ -347,6 +347,30 @@ describe("BuilderApp", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("cancels a running cinematic tour when the view is recentred", async () => {
+    await renderBuilderReady();
+
+    const toggle = await screen.findByTestId("cinematic-tour-toggle");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+
+    // The tour drives the camera from a GSAP timeline, so a recentre underneath it would be
+    // overwritten on the tour's very next frame — the control has to stop the tour first.
+    fireEvent.click(screen.getByTestId("recenter-view"));
+
+    await waitFor(() => expect(toggle).toHaveTextContent(/Tour/i));
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("names the camera control Recenter so it cannot be confused with the build Reset", async () => {
+    await renderBuilderReady();
+
+    // Two controls both called "Reset" — one moving the camera, one discarding the configuration —
+    // would be a genuine hazard, not just an ambiguous query.
+    expect(screen.getByTestId("recenter-view")).toHaveAccessibleName(/recenter/i);
+    expect(screen.getAllByRole("button", { name: /^reset$/i })).toHaveLength(1);
+  });
+
   it("cancels the cinematic tour when a camera preset is chosen manually", async () => {
     await renderBuilderReady();
 

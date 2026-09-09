@@ -148,6 +148,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   /** Cinematic camera tour (hero → wheels → interior), distinct from the onboarding tour card. */
   const [cinematicTourStatus, setCinematicTourStatus] = useState<TourStatus>("idle");
   const [cinematicTourAction, setCinematicTourAction] = useState<TourAction | null>(null);
+  /** Bumped to ask the canvas to re-frame the active preset. See `VehicleCanvas.resetViewSignal`. */
+  const [resetViewSignal, setResetViewSignal] = useState(0);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const controllerRef = useRef<VehicleSceneController | null>(null);
   const stageRef = useRef<HTMLElement>(null);
@@ -723,6 +725,20 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               </button>
             </div>
             <div className="viewport-actions">
+              <button
+                type="button"
+                data-testid="recenter-view"
+                title="Recenter view"
+                aria-label="Recenter view"
+                onClick={() => {
+                  // Cancel a running tour first: it drives the camera from a GSAP timeline, so a
+                  // reset underneath it would be overwritten on the tour's next frame.
+                  if (cinematicTourStatus !== "idle") dispatchCinematicTour("cancel");
+                  setResetViewSignal((value) => value + 1);
+                }}
+              >
+                <RotateCcw size={17} />
+              </button>
               <button title="Zoom"><ZoomIn size={17} /></button>
               <button title="Settings"><Settings2 size={17} /></button>
               <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
@@ -757,6 +773,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               terrain={terrain}
               environmentPreset={environmentPreset}
               hdriPresetId={configuration?.paintStudio?.hdriPresetId}
+              resetViewSignal={resetViewSignal}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}

@@ -109,6 +109,19 @@ type Props = {
    * mirrors status for the Play/Pause control.
    */
   tourAction?: TourAction | null;
+  /**
+   * Bumped by the chrome's "Recenter view" control to re-frame the active preset.
+   *
+   * Named "recenter", not "reset", because the sidebar already has a Reset that discards the whole
+   * build. Two controls a few hundred pixels apart both called Reset, one moving the camera and one
+   * throwing away the configuration, is a mistake waiting to happen.
+   *
+   * A counter rather than a boolean or a preset object, for the same reason `tourAction` carries a
+   * `seq`: resetting twice in a row is a legitimate thing to ask for, and re-sending an unchanged
+   * value would make the second request a no-op. This is the pointer-driven equivalent of the Home
+   * key, which reaches the same `resetToPreset` directly.
+   */
+  resetViewSignal?: number;
   onTourStatusChange?: (status: TourStatus) => void;
   /** Fired as each catalog preset becomes the tour's current shot (toolbar highlight + cameraState). */
   onTourStep?: (preset: CameraPreset) => void;
@@ -123,7 +136,7 @@ type Props = {
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -686,6 +699,17 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     if (tourActiveRef.current) return;
     cameraController.transitionToPreset(cameraPreset);
   }, [cameraPreset]);
+
+  useEffect(() => {
+    // `undefined` is the initial render, not a request — resetting on mount would fight the
+    // preset transition that has just been started for the initial pose.
+    if (resetViewSignal === undefined) return;
+    const cameraController = cameraControllerRef.current;
+    if (!cameraController) return;
+    // Snaps rather than tweens, matching the Home key: a reset is a recovery action, and someone
+    // who has lost the vehicle off-frame wants it back now, not in 0.85s.
+    cameraController.resetToPreset(cameraPresetRef.current);
+  }, [resetViewSignal]);
 
   // Builder chrome play/pause/cancel — seq bumps so repeated identical actions still fire.
   useEffect(() => {

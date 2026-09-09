@@ -122,6 +122,19 @@ export class CameraController {
     this.controls.minDistance = this.limits.minDistance;
     this.controls.maxDistance = this.limits.maxDistance;
     this.controls.maxPolarAngle = this.limits.maxPolarAngle;
+
+    /*
+     * Touch mapping, stated rather than inherited.
+     *
+     * These happen to be OrbitControls' defaults today, which is exactly why they are written down:
+     * a showroom's core gesture is "one finger turns the car, two fingers zoom", and leaving that
+     * to a transitive dependency's defaults means a three upgrade can change the product's primary
+     * interaction without anything in this repo mentioning it. `DOLLY_PAN` rather than `DOLLY_ROTATE`
+     * because a two-finger twist that rolls the camera reads as a bug on a vehicle sitting on a
+     * floor plane.
+     */
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+
     this.controls.target.set(...options.initialPreset.target);
 
     // Cinematic tour seizes these controls while playing; pointer/wheel on `domElement` cancels.

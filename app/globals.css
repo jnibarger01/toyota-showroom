@@ -143,6 +143,23 @@ button { font: inherit; color: inherit; }
 .stage { min-width: 0; position: relative; display: grid; grid-template-rows: 1fr auto; background: #0c1015; }
 .vehicle-canvas { position: absolute; inset: 0 0 84px; }
 /*
+ * The stage owns every gesture that starts on it.
+ *
+ * `touch-action: none` is the load-bearing line. Without it the browser claims one-finger drags for
+ * page scrolling before OrbitControls ever sees a `pointermove`, so on a phone a drag intended to
+ * orbit the vehicle scrolls the configurator instead — and because the browser has already begun
+ * scrolling, `preventDefault` in a listener cannot take it back. It is set on the canvas rather
+ * than the host so the surrounding chrome still scrolls normally.
+ *
+ * `overscroll-behavior: contain` stops a gesture that reaches a scroll boundary from chaining out
+ * to the page and triggering pull-to-refresh mid-orbit.
+ *
+ * `user-select: none` prevents a slow drag from starting a text selection that then fights the
+ * orbit for the rest of the gesture.
+ */
+.vehicle-canvas > canvas { touch-action: none; }
+.vehicle-canvas { overscroll-behavior: contain; -webkit-user-select: none; user-select: none; }
+/*
  * The stage is keyboard-operable (arrows orbit, +/- zoom, Home resets), so it needs a focus
  * indicator as much as any button does. Inset rather than outset because the canvas is absolutely
  * positioned against the stage edges, where an outer ring would be clipped.
