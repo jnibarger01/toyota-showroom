@@ -4,6 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { CameraPresetConfig } from "../types/vehicle";
 import { motionDuration, prefersReducedMotion } from "./motionPreference";
 import { createCinematicTour, type CinematicTour, type TourStatus } from "./cinematicTour";
+import { publishViewerState, subscribeViewerControl } from "./viewerControlEvents";
 
 export type { TourStatus };
 
@@ -53,6 +54,7 @@ export class CameraController {
   private readonly tour: CinematicTour;
   private readonly limits: CameraControllerLimits;
   private readonly onAutoRotateChange?: (enabled: boolean) => void;
+  private readonly unsubscribeViewerControl: () => void;
   private disposed = false;
   private presets: readonly CameraPresetConfig[];
   private activePresetId: string | undefined;
@@ -95,6 +97,25 @@ export class CameraController {
         onStep: options.onTourStep,
       },
     );
+
+    this.unsubscribeViewerControl = subscribeViewerControl((action) => {
+      switch (action) {
+        case "zoom-in":
+          this.dollyBy(-KEYBOARD_ZOOM_STEP);
+          break;
+        case "zoom-out":
+          this.dollyBy(KEYBOARD_ZOOM_STEP);
+          break;
+        case "reset-camera": {
+          const preset = this.presets.find((item) => item.id === this.activePresetId) ?? this.presets[0];
+          if (preset) this.resetToPreset(preset);
+          break;
+        }
+        case "toggle-auto-rotate":
+          this.setAutoRotate(!this.controls.autoRotate);
+          break;
+      }
+    });
   }
 
   get isTourActive(): boolean {
@@ -142,6 +163,7 @@ export class CameraController {
     if (enabled && this.isTourActive) this.tour.cancel();
     this.controls.autoRotate = enabled;
     this.onAutoRotateChange?.(enabled);
+    publishViewerState({ autoRotate: enabled });
   }
 
   update(): void {
@@ -230,6 +252,7 @@ export class CameraController {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.unsubscribeViewerControl();
     this.controls.removeEventListener("start", this.handleControlsStart);
     this.tour.dispose();
     this.controls.dispose();
