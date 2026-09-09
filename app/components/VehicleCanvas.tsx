@@ -59,6 +59,9 @@ import {
   type EnvironmentPreset,
 } from "../../lib/three/environmentController";
 import { RenderController } from "../../lib/three/renderController";
+import { createPrefetchScheduler, type PrefetchScheduler } from "../../lib/three/prefetch";
+import { prefetchHdriPreset } from "../../lib/three/hdriEnvironment";
+import { HDRI_PRESETS } from "../../lib/data/paintStudio";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
 
 export type { Terrain, EnvironmentPreset };
@@ -183,6 +186,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
+    /** Declared out here so the effect's cleanup can cancel it even if setup fails part-way. */
+    let prefetcher: PrefetchScheduler | null = null;
     let cancelled = false;
 
     void (async () => {
@@ -657,9 +662,24 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       }
 
       canvasElement.dataset.loadPhase = progressive.phase;
+
+      // Only now — the vehicle is on screen and settled — is speculative work allowed to start.
+      // Prefetching HDRIs before this point would compete for bandwidth with the vehicle itself.
+      // The paint studio's `hdri-sunset` preset carries a real `.hdr` that is otherwise fetched,
+      // parsed and PMREM-filtered while the viewer waits on a preset they have already been shown.
+      prefetcher = createPrefetchScheduler({
+        load: prefetchHdriPreset,
+        ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl).map((preset) => preset.id),
+        tier: renderController.currentQuality.tier,
+        saveData: (navigator as { connection?: { saveData?: boolean } }).connection?.saveData === true,
+        isSuspended: () => canvasElement.dataset.idle === "1",
+      });
+      prefetcher.start();
+
       if (import.meta.env.DEV) {
         (window as unknown as Record<string, unknown>).__vehicleProgressiveLoad = progressive;
         (window as unknown as Record<string, unknown>).__vehicleQuality = renderController.currentQuality;
+        (window as unknown as Record<string, unknown>).__vehiclePrefetch = () => prefetcher?.completed() ?? [];
       }
 
       // cleanup already assigned above (before GLB await).
@@ -670,6 +690,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
     return () => {
       cancelled = true;
+      // Before `cleanup`: an in-flight prefetch holds no scene references, but there is no reason to
+      // let speculative fetches outlive the canvas that wanted them.
+      prefetcher?.dispose();
+      prefetcher = null;
       cleanup?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time setup; see latest-value refs above.

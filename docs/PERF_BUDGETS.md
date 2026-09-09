@@ -72,6 +72,30 @@ It is deliberately **not** wired into `QualityGovernor`'s stepping decision. Tha
 against the CPU signal, and this repo has no GPU available to measure against (the same constraint
 `docs/POSTPROCESSING_EVALUATION.md` documents). Changing the policy needs real-device data first.
 
+## Idle prefetch
+
+`lib/three/prefetch.ts` warms assets a viewer is likely to reach for next, started from
+`VehicleCanvas` once progressive load reports `ready`.
+
+Scope is narrow on purpose: **HDRIs only**. Grade switches load nothing (every grade of a vehicle
+shares one GLB) and paint options are material parameters, not downloads. The only builder
+selection that triggers a cold fetch is an HDRI preset carrying an `hdrUrl` — today `hdri-sunset` —
+where a multi-hundred-KB `.hdr` is fetched, parsed and PMREM-filtered while the viewer waits on an
+option already presented to them. #53's title says "grade / paint assets"; for this catalog there
+are none, and prefetching resident assets would be motion without effect.
+
+Budget, enforced by construction rather than by a number:
+
+| Guard | Why |
+|---|---|
+| Starts only after `ready` | Bandwidth before first paint delays the vehicle itself |
+| `requestIdleCallback` (4s timeout) | Yields to rendering and interaction; the timeout stops a never-idle page from never prefetching |
+| Stops while `data-idle="1"` | A backgrounded tab must not spend someone's data |
+| Off on the `low` tier and under Save-Data | Both are explicit constraint signals `quality.ts` already respects |
+| Sequential, one attempt per id | A queue cannot saturate the connection it is staying out of the way of |
+
+`window.__vehiclePrefetch()` lists warmed ids in DEV.
+
 ## Client bundle budgets
 
 `scripts/bundle-budget.mjs` gates gzipped chunk sizes in `dist/client/assets` against

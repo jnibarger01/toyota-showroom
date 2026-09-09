@@ -106,6 +106,26 @@ function loadHdr(url: string): Promise<THREE.DataTexture> {
 }
 
 /**
+ * Warms the HDR texture cache for a preset without applying it.
+ *
+ * `loadHdr` memoises by URL, so a later `applyHdriPreset` for the same preset resolves from cache
+ * instead of starting a cold fetch of a multi-hundred-KB `.hdr` — the hitch #53 is about. Resolves
+ * to `false` when there is nothing to do (unknown preset, or a procedural-lighting-only preset with
+ * no `hdrUrl`) and swallows failures: a prefetch that fails must be indistinguishable from one that
+ * never ran, because `applyHdriPreset` will retry and report for itself.
+ */
+export async function prefetchHdriPreset(hdriPresetId: string): Promise<boolean> {
+  const preset = getHdriPreset(hdriPresetId);
+  if (!preset?.hdrUrl) return false;
+  try {
+    await loadHdr(preset.hdrUrl);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Narrows to a real `WebGLRenderer`, the only thing `PMREMGenerator` can be constructed against.
  *
  * Deliberately `instanceof` rather than three's usual `.isWebGLRenderer` duck-type: this module's
