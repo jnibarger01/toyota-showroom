@@ -74,10 +74,7 @@ export const POST = withRouteTelemetry(
       { data: lead },
       {
         status: created ? 201 : 200,
-        headers: withSecurityHeaders({
-          "Cache-Control": "no-store",
-          ...(created ? { Location: `/api/v1/leads/${encodeURIComponent(lead.id)}` } : {}),
-        }),
+        headers: withSecurityHeaders({ "Cache-Control": "no-store" }),
       },
     );
   },
