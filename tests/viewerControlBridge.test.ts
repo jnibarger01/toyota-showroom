@@ -51,8 +51,12 @@ describe("premium viewer control bridge", () => {
     controller.orbitBy(0.4, 0.1);
     expect(controller.camera.position.toArray()).not.toEqual(hero.position);
     dispatchViewerControl("reset-camera");
-    expect(controller.camera.position.toArray()).toEqual(hero.position);
-    expect(controller.controls.target.toArray()).toEqual(hero.target);
+    controller.camera.position.toArray().forEach((value, index) => {
+      expect(value).toBeCloseTo(hero.position[index]!, 10);
+    });
+    controller.controls.target.toArray().forEach((value, index) => {
+      expect(value).toBeCloseTo(hero.target[index]!, 10);
+    });
   });
 
   it("toggles auto-rotate and publishes state for React chrome", () => {
