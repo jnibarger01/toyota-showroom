@@ -15,6 +15,12 @@
  *   - `model_loaded`        download and decode time for the vehicle, and its size
  *   - `first_frame`         time from scene setup to the first rendered frame
  *   - `quality_changed`     which hardware walks down the ladder, how far, and how fast
+ *   - `environment_applied` whether image-based lighting is actually live, and on which backend
+ *
+ * `environment_applied` exists because IBL was silently absent on the WebGPU path for entire
+ * releases: the code cleared `scene.environment` for any non-WebGL renderer and nothing anywhere
+ * reported it, so the preferred backend shipped without reflections and no signal said so. A
+ * fidelity feature that can switch itself off needs to be observable, not merely correct today.
  *
  * ## Buffered, then flushed once
  *
@@ -32,7 +38,12 @@
  * devtools and in a Playwright run — enough to actually tune the governor.
  */
 
-export type MetricName = "renderer_selected" | "model_loaded" | "first_frame" | "quality_changed";
+export type MetricName =
+  | "renderer_selected"
+  | "model_loaded"
+  | "first_frame"
+  | "quality_changed"
+  | "environment_applied";
 
 export interface Metric {
   name: MetricName;

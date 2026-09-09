@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { applyHdriPreset, type HdriEnvironmentHandle, type HdriLightRefs } from "./hdriEnvironment";
+import { recordMetric } from "../observability/clientMetrics";
 
 /**
  * Owns the runtime environment/lighting-rig authority `VehicleCanvas.tsx` used to keep as inline
@@ -55,6 +56,18 @@ export interface EnvironmentControllerOptions {
   initialPreset: EnvironmentPreset;
   /** Points shown only for the Night preset. Matches `quality.starfieldCount` at the call site. */
   starfieldCount?: number;
+}
+
+/**
+ * Labels the backend for telemetry only. Unlike `hdriEnvironment`'s narrowing guard this is a
+ * duck-type: a test double declaring `isWebGLRenderer: true` should be *reported* as webgl, and
+ * nothing here touches GL state, so there is no reason to demand a real instance.
+ */
+function isWebGLRendererLike(renderer: THREE.WebGLRenderer | { isWebGLRenderer?: boolean }): boolean {
+  return (
+    renderer instanceof THREE.WebGLRenderer ||
+    (renderer as { isWebGLRenderer?: boolean }).isWebGLRenderer === true
+  );
 }
 
 export class EnvironmentController {
@@ -235,6 +248,18 @@ export class EnvironmentController {
       return;
     }
     this.hdriHandle = handle;
+
+    // Reports whether image-based lighting is actually live, not merely requested. A preset with no
+    // `hdrUrl` is procedural-lighting-only by design and correctly reports `ibl: "none"`; the value
+    // worth watching is `requested`+`none` on a preset that does carry an `hdrUrl`, which is what a
+    // regression of the WebGPU env-map path would look like from the outside.
+    recordMetric({
+      name: "environment_applied",
+      labels: {
+        ibl: this.scene.environment ? "active" : "none",
+        backend: isWebGLRendererLike(renderer) ? "webgl" : "webgpu",
+      },
+    });
   }
 
   dispose(): void {

@@ -106,6 +106,19 @@ function loadHdr(url: string): Promise<THREE.DataTexture> {
 }
 
 /**
+ * Narrows to a real `WebGLRenderer`, the only thing `PMREMGenerator` can be constructed against.
+ *
+ * Deliberately `instanceof` rather than three's usual `.isWebGLRenderer` duck-type: this module's
+ * signature also accepts `{ isWebGLRenderer?: boolean }` test doubles, and a double must never be
+ * routed into the PMREM branch, which would immediately touch real GL state and throw.
+ */
+function isWebGLRenderer(
+  renderer: THREE.WebGLRenderer | { isWebGLRenderer?: boolean },
+): renderer is THREE.WebGLRenderer {
+  return renderer instanceof THREE.WebGLRenderer;
+}
+
+/**
  * Applies lighting + optional env map for a catalog HDRI preset id.
  * Returns a dispose handle for any PMREM target created for this application.
  */
@@ -140,14 +153,35 @@ export async function applyHdriPreset(
     return null;
   }
 
-  // PMREMGenerator is WebGL-only; WebGPU builds still get the lighting palette above.
-  if (!(renderer instanceof THREE.WebGLRenderer)) {
-    refs.scene.environment = null;
-    return null;
-  }
-
   try {
     const hdr = await loadHdr(preset.hdrUrl);
+
+    // `PMREMGenerator` prefilters the equirectangular map into a roughness-matched mip chain, which
+    // is what makes a rough material's reflection blur correctly instead of mirroring. It is a
+    // WebGL-only generator.
+    //
+    // It does NOT follow that a non-WebGL renderer should get no environment at all, which is what
+    // this branch used to do (`scene.environment = null`). WebGPU is the *preferred* renderer here
+    // (`createRenderer` tries `navigator.gpu` first), so that shortcut removed image-based lighting
+    // from the path most users hit — and for car paint, environment reflection is the dominant
+    // shading cue, not a refinement. The vehicle read as flat under analytic lights only, silently.
+    //
+    // three's WebGPU backend samples an equirectangular `scene.environment` natively, so assign the
+    // texture directly there. Roughness response is less accurate than a prefiltered chain; that is
+    // a real but far smaller error than having no reflections.
+    if (!isWebGLRenderer(renderer)) {
+      refs.scene.environment = hdr;
+      refs.scene.environmentIntensity = palette.envIntensity;
+      return {
+        // `hdr` belongs to `textureCache` and is shared with every later caller for this URL —
+        // detach it, never dispose it. Disposing would break the next application that reads the
+        // cached promise.
+        dispose: () => {
+          if (refs.scene.environment === hdr) refs.scene.environment = null;
+        },
+      };
+    }
+
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envMap = pmrem.fromEquirectangular(hdr).texture;
     refs.scene.environment = envMap;
@@ -156,6 +190,7 @@ export async function applyHdriPreset(
     return {
       dispose: () => {
         if (refs.scene.environment === envMap) refs.scene.environment = null;
+        // Unlike `hdr`, this target is created per application and owned solely by this handle.
         envMap.dispose();
       },
     };
