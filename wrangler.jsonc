@@ -3,56 +3,26 @@
   "name": "toyota-showroom",
 
   // Deliberately no "main" here. vite.config.ts's `cloudflare()` plugin auto-discovers this file
-  // during `npm run build`, and its config-time hook resolves `main` against disk as a *source*
-  // entry it expects to bundle itself — pointing it at dist/server/index.js (vinext's own SSR
-  // output, produced by a separate internal build stage) makes the plugin either fail outright on a
-  // clean build ("doesn't point to an existing file", main not written yet) or, on a stale dist/,
-  // try to re-parse vinext's already-bundled output as source and choke on its duplicate `export
-  // default`. Deploy the built Worker by passing the path on the CLI instead — see `npm run deploy`
-  // — which reads bindings from this file without ever routing through Vite's plugin resolution.
-  //
-  // Matches the @cloudflare/workers-types version already pinned in package.json
-  // ("^4.20260702.1" encodes the 2026-07-02 Workers runtime snapshot its types describe) — keep
-  // these two in lockstep when either is bumped.
+  // during `npm run build`, and its config-time hook resolves `main` against disk as source. Deploy
+  // the already-built Worker by passing dist/server/index.js on the CLI; package.json owns that
+  // command and this file owns bindings/environment configuration.
   "compatibility_date": "2026-07-02",
-  // Required: the built Worker entry (dist/server/index.js) imports `node:async_hooks`
-  // (AsyncLocalStorage) — vinext's RSC runtime depends on it. Without this flag the Worker throws
-  // at startup on every request.
   "compatibility_flags": ["nodejs_compat"],
 
-  // This Worker serves the dynamic /api/v1/configurations/** routes only. The static site
-  // (dist/client — catalog fixtures, the GLB, images, the app shell) is deployed separately by
-  // .github/workflows/pages.yml to GitHub Pages; the two are independent deployment targets by
-  // design (see scripts/generate-static-api.ts's top-of-file comment for why).
-  // vinext's own Cloudflare integration auto-adds a static-assets binding pointing at dist/client
-  // when generating its deploy-time config (visible at dist/client/wrangler.json after a build) —
-  // this file does not declare one itself. That matters for `npm run deploy`: as of this GLB
-  // (public/models/modsnation_7416_assets_assembled.glb, ~39 MiB), an assets-inclusive deploy fails
-  // with "Asset too large" — Cloudflare Workers Static Assets cap a single file at 25 MiB. Verified
-  // via `wrangler deploy dist/server/index.js --no-bundle --dry-run`, which succeeds and correctly
-  // reports the D1 binding once the assets directory is swapped for an empty one. Until the GLB is
-  // reduced below that limit (or excluded from the assets directory some other way), deploy the
-  // Worker for its API routes only and keep relying on .github/workflows/pages.yml for the static
-  // site, which is what the current build already assumes.
+  // D1 is authoritative for server-side state, including saved configurations and customer leads.
+  // The static client/assets are deployed separately; see the deployment workflows/runbook.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "toyota-showroom",
-      // Real id, from `wrangler d1 create toyota-showroom` (docs/DEPLOYMENT_RUNBOOK.md §2).
-      // Not a secret — Cloudflare's D1 ids are not credentials, safe to commit.
       "database_id": "2af4c97e-c69a-4882-9c6b-f09f32e39948",
-      // Points Wrangler's own D1 migration runner (`wrangler d1 migrations apply`) at the same SQL
-      // files drizzle-kit generates (`npm run db:generate` → db/migrations/*.sql), so there is one
-      // migration source of truth rather than two competing migration tools.
       "migrations_dir": "db/migrations"
     }
   ],
 
-  // Throttles POST/PATCH/DELETE on /api/v1/configurations, keyed by client IP
-  // (lib/server/rateLimit.ts) — there is no user-account system (see Task 10's ownership model) to
-  // key on instead. `namespace_id` is developer-chosen, not Cloudflare-issued (unlike D1's
-  // `database_id`), so this needs no real account to be a valid, real value; picked 1001 with no
-  // significance beyond being unique among this Worker's bindings.
+  // Cloudflare rate-limit namespaces are account-scoped, so production/staging and each traffic
+  // class use distinct ids. Configuration writes remain permissive for interactive building;
+  // customer lead intake gets a tighter anti-spam budget; catalog reads remain high-volume.
   "ratelimits": [
     {
       "name": "CONFIG_WRITE_LIMITER",
@@ -60,28 +30,19 @@
       "simple": { "limit": 30, "period": 60 }
     },
     {
-      // Catalog and media reads. An order of magnitude above the write limit because these are
-      // cheap, cacheable, idempotent, and one page load legitimately makes several — a guard
-      // against scripted abuse, not a quota a person clicking through the lineup can reach.
-      //
-      // 1003, not 1002: staging's write limiter already holds 1002, and namespaces are scoped to
-      // the account rather than the Worker.
+      "name": "LEAD_WRITE_LIMITER",
+      "namespace_id": "1005",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
       "name": "CATALOG_READ_LIMITER",
       "namespace_id": "1003",
       "simple": { "limit": 300, "period": 60 }
     }
   ],
 
-  // Analytics Engine dataset for the structured request telemetry in `lib/server/telemetry.ts`.
-  //
-  // Optional at runtime by design, exactly like `CONFIG_WRITE_LIMITER`: `recordRequest` resolves
-  // the binding ambiently and skips the data point when it is absent, so `npm run dev`, `vitest`,
-  // and the GitHub Pages export need no binding and no account. The structured `console.log` it
-  // always emits is the baseline channel — `wrangler tail` streams it and Logpush ships it — and
-  // this binding adds queryable aggregates on top.
-  //
-  // Unlike D1, no resource has to be created first: an Analytics Engine dataset is created on
-  // first write, so this binding is complete as committed.
+  // Optional structured request telemetry. `recordRequest` remains safe when this binding is absent
+  // in local Node/Vitest environments and never receives lead body PII.
   "analytics_engine_datasets": [
     {
       "binding": "TELEMETRY",
@@ -89,13 +50,8 @@
     }
   ],
 
-  // Named environment for `.github/workflows/deploy-staging.yml`, which deploys every pull request
-  // here before it can reach the production Worker (top-level config above, deployed by `npm run
-  // deploy` — there is no CI-driven production deploy workflow; this repo's Worker is deployed
-  // manually today, same standing gap `npm run deploy`'s own dependency on real Cloudflare
-  // credentials already documents). `compatibility_date`/`compatibility_flags` are inherited from
-  // the top level; Wrangler does not merge `d1_databases`/`ratelimits`, so both are restated here
-  // pointing at their own staging resources rather than production's.
+  // Pull-request Worker deployment uses separate D1, telemetry, and rate-limit state. Wrangler does
+  // not merge these resource arrays from the top-level environment, so they are restated here.
   "env": {
     "staging": {
       "name": "toyota-showroom-staging",
@@ -103,9 +59,6 @@
         {
           "binding": "DB",
           "database_name": "toyota-showroom-staging",
-          // Real id, from `wrangler d1 create toyota-showroom-staging`. A *separate* database
-          // from production's: staging is expected to be reset/reseeded freely, which production
-          // must never be.
           "database_id": "4acd8ec7-26f2-40c0-b2d6-31377f395089",
           "migrations_dir": "db/migrations"
         }
@@ -113,23 +66,22 @@
       "analytics_engine_datasets": [
         {
           "binding": "TELEMETRY",
-          // Separate from production's, so a PR's staging traffic cannot skew the numbers the
-          // quality governor's thresholds will be tuned against.
           "dataset": "toyota_showroom_requests_staging"
         }
       ],
       "ratelimits": [
         {
           "name": "CONFIG_WRITE_LIMITER",
-          // Distinct from production's 1001 — Cloudflare rate limiter namespaces are scoped to the
-          // account, not the Worker, so reusing a namespace id here would share one 30-writes/minute
-          // budget between every PR's staging deploy and production itself.
           "namespace_id": "1002",
           "simple": { "limit": 30, "period": 60 }
         },
         {
+          "name": "LEAD_WRITE_LIMITER",
+          "namespace_id": "1006",
+          "simple": { "limit": 10, "period": 60 }
+        },
+        {
           "name": "CATALOG_READ_LIMITER",
-          // Distinct from production's 1003, for the same account-scoping reason as above.
           "namespace_id": "1004",
           "simple": { "limit": 300, "period": 60 }
         }

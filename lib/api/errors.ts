@@ -36,6 +36,11 @@ export function invalidBody(message: string): ApiError {
   return new ApiError(422, "invalid_body", message);
 }
 
+/** Request body exceeds the endpoint's pre-parse safety budget. */
+export function payloadTooLarge(message: string): ApiError {
+  return new ApiError(413, "payload_too_large", message);
+}
+
 /** The client's `expectedRevision` no longer matches the stored record. */
 export function revisionConflict(message: string): ApiError {
   return new ApiError(409, "revision_conflict", message);
@@ -46,7 +51,7 @@ export function forbidden(message: string): ApiError {
   return new ApiError(403, "forbidden", message);
 }
 
-/** The caller exceeded the configuration-write rate limit (lib/server/rateLimit.ts). */
+/** The caller exceeded an API rate limit (lib/server/rateLimit.ts). */
 export function tooManyRequests(message: string): ApiError {
   return new ApiError(429, "rate_limited", message);
 }
