@@ -1,4 +1,5 @@
 import { BuilderApp } from "../components/BuilderApp";
+import { PremiumViewerControls } from "../components/PremiumViewerControls";
 import { getAllVehicleSlugs } from "../../lib/data/vehicles";
 
 export const dynamic = "force-static";
@@ -12,5 +13,10 @@ export default async function VehiclePage({ params }: { params: Promise<{ slug: 
   const { slug } = await params;
   // `key` forces a clean remount on vehicle switches — see the comment on BuilderApp's bootstrap
   // effect for why that's the chosen reset strategy over clearing state imperatively in an effect.
-  return <BuilderApp key={slug} vehicleSlug={slug} />;
+  return (
+    <>
+      <BuilderApp key={slug} vehicleSlug={slug} />
+      <PremiumViewerControls />
+    </>
+  );
 }
