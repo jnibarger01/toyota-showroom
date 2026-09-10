@@ -61,6 +61,7 @@ import {
 import { RenderController } from "../../lib/three/renderController";
 import { createPrefetchScheduler, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
+import { readQualityPreference, type QualityPreference } from "../../lib/three/qualityPreference";
 import { prefetchHdriPreset } from "../../lib/three/hdriEnvironment";
 import { HDRI_PRESETS } from "../../lib/data/paintStudio";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
@@ -131,6 +132,15 @@ type Props = {
    * same reason as `resetViewSignal`: re-entering after exiting is a legitimate repeat request.
    */
   enterXrSignal?: number;
+  /**
+   * Viewer's quality choice. `"auto"` hands the tier back to `QualityGovernor`; anything else pins
+   * it, suspending automatic adaptation — see `lib/three/qualityPreference.ts` for why a pinned
+   * tier turns the governor off rather than merely seeding it.
+   */
+  qualityPreference?: QualityPreference;
+  /** Reports the stored preference once the renderer exists, so the chrome can show the real value
+   * rather than assuming a default the viewer may have changed on a previous visit. */
+  onQualityPreferenceLoaded?: (preference: QualityPreference) => void;
   /** Reports whether this device can offer AR at all, so the chrome can omit the control entirely
    * rather than show one that fails on tap. */
   onXrSupported?: (supported: boolean) => void;
@@ -150,7 +160,7 @@ type Props = {
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, onXrSupported, onXrPresentingChange, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, onXrSupported, onXrPresentingChange, qualityPreference, onQualityPreferenceLoaded, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -185,6 +195,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const cameraPresetRef = useRef(cameraPreset);
   const onXrSupportedRef = useRef(onXrSupported);
   const onXrPresentingChangeRef = useRef(onXrPresentingChange);
+  const onQualityPreferenceLoadedRef = useRef(onQualityPreferenceLoaded);
   const xrControllerRef = useRef<XrSessionController | null>(null);
   useEffect(() => {
     onReadyRef.current = onReady;
@@ -198,7 +209,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onPartSelectRef.current = onPartSelect;
     onXrSupportedRef.current = onXrSupported;
     onXrPresentingChangeRef.current = onXrPresentingChange;
-  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange]);
+    onQualityPreferenceLoadedRef.current = onQualityPreferenceLoaded;
+  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onQualityPreferenceLoaded]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -236,6 +248,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         return;
       }
       renderControllerRef.current = renderController;
+      onQualityPreferenceLoadedRef.current?.(readQualityPreference());
       const canvasElement = renderController.canvas;
 
       const cameraController = new CameraController({
@@ -773,6 +786,13 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     // who has lost the vehicle off-frame wants it back now, not in 0.85s.
     cameraController.resetToPreset(cameraPresetRef.current);
   }, [resetViewSignal]);
+
+  useEffect(() => {
+    // `undefined` means the chrome is not driving this; leave whatever the renderer read from
+    // storage in place rather than forcing it back to a default the viewer did not choose.
+    if (qualityPreference === undefined) return;
+    renderControllerRef.current?.setQualityPreference(qualityPreference);
+  }, [qualityPreference]);
 
   useEffect(() => {
     if (enterXrSignal === undefined) return;

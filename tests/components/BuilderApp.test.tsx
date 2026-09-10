@@ -347,6 +347,26 @@ describe("BuilderApp", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("announces a selection change in the polite live region", async () => {
+    await renderBuilderReady();
+
+    const region = screen.getByTestId("selection-announcement");
+    // Empty on arrival: the initial configuration is state, not a change the viewer made, and
+    // announcing it would read the whole build aloud on load.
+    expect(region).toHaveTextContent("");
+    expect(region).toHaveAttribute("aria-live", "polite");
+
+    // An unselected paint swatch — selecting an already-active one is a no-op and would announce
+    // nothing, which would make this test pass for the wrong reason.
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+    await waitFor(() =>
+      expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual(["paint-0r2-solar-octane"]),
+    );
+
+    // Coalesced by a short timer, so this is the first point the text can appear.
+    await waitFor(() => expect(region).toHaveTextContent("Paint: Solar Octane selected."), { timeout: 2000 });
+  });
+
   it("cancels a running cinematic tour when the view is recentred", async () => {
     await renderBuilderReady();
 
