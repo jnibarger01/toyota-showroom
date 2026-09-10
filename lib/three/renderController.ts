@@ -2,12 +2,16 @@ import * as THREE from "three";
 import * as THREE_WEBGPU from "three/webgpu";
 import {
   collectBrowserDeviceHints,
+  CONSTRUCTION_TIME_QUALITY_KEYS,
+  qualitySettingsFor,
   resolveQuality,
   type QualitySettings,
 } from "./quality";
 import { QualityGovernor } from "./qualityGovernor";
+import { preferredTierHint, readQualityPreference, writeQualityPreference, type QualityPreference } from "./qualityPreference";
 import { createCanvasIdleGate, type CanvasIdleGate } from "./canvasIdle";
 import { FrameTimeTracker, formatFrameStats, type FrameStatsSnapshot } from "./frameStats";
+import { createGpuTimer, type GpuTimer } from "./gpuTimer";
 import { recordMetric } from "../observability/clientMetrics";
 
 /**
@@ -57,6 +61,10 @@ export type RendererLike = {
   renderAsync?: (scene: THREE.Scene, camera: THREE.Camera) => Promise<void>;
   dispose(): void;
   shadowMap: { enabled: boolean };
+  /** Present on both real renderers. Used only when handing the loop to an XR device — rAF cannot
+   * pace frames for a headset or phone compositor. Optional so test doubles need not provide it. */
+  setAnimationLoop?: (callback: ((time: number, frame?: unknown) => void) | null) => void | Promise<void>;
+  xr?: { enabled: boolean; setSession(session: unknown): Promise<void> | void };
   toneMapping: THREE.ToneMapping;
   toneMappingExposure: number;
   /** Real on `THREE.WebGLRenderer` (constructor sets it `true`), absent on `WebGPURenderer` —
@@ -93,10 +101,12 @@ export class RenderController {
   private readonly resizeObserver: ResizeObserver;
   private readonly idleGate: CanvasIdleGate;
   private readonly frameStats = new FrameTimeTracker(60);
-  private readonly governor: QualityGovernor;
+  readonly governor: QualityGovernor;
   private readonly options: RenderControllerOptions;
   private readonly handleContextLost: (event: Event) => void;
   private readonly handleContextRestored: () => void;
+  /** GPU-side frame timing where the platform offers it; `null` otherwise. See `gpuTimer.ts`. */
+  private readonly gpuTimer: GpuTimer | null;
 
   private quality: QualitySettings;
   private scene: THREE.Scene | null = null;
@@ -107,6 +117,8 @@ export class RenderController {
   private rafId = 0;
   private framePublishCount = 0;
   private disposed = false;
+  /** True while an XR device is pacing frames instead of `requestAnimationFrame`. */
+  private xrPresenting = false;
 
   /**
    * `rendererFactory` defaults to the real WebGPU/WebGL2 construction (`createRenderer` below) —
@@ -121,9 +133,15 @@ export class RenderController {
     options: RenderControllerOptions,
     rendererFactory: (antialias: boolean) => Promise<{ renderer: RendererLike; mode: RendererMode }> = createRenderer,
   ): Promise<RenderController> {
-    const quality = resolveQuality(collectBrowserDeviceHints());
+    // A stored viewer preference outranks device inference — that is the whole point of it. It is
+    // read here rather than applied after construction so `antialias`, which cannot change on a
+    // live renderer, is right the first time.
+    const preference = readQualityPreference();
+    const quality = resolveQuality(collectBrowserDeviceHints(preferredTierHint(preference)));
     const { renderer, mode } = await rendererFactory(quality.antialias);
-    return new RenderController(renderer, mode, quality, options);
+    const controller = new RenderController(renderer, mode, quality, options);
+    if (preference !== "auto") controller.governor.setPinnedTier(preference);
+    return controller;
   }
 
   private constructor(renderer: RendererLike, mode: RendererMode, quality: QualitySettings, options: RenderControllerOptions) {
@@ -133,6 +151,9 @@ export class RenderController {
     this.quality = quality;
     this.host = options.host;
     this.options = options;
+
+    this.gpuTimer = createGpuTimer(renderer);
+    if (this.gpuTimer) this.canvas.dataset.gpuTimer = this.gpuTimer.source;
 
     applyRendererQuality(renderer, quality);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -241,14 +262,61 @@ export class RenderController {
    * Re-applies a quality tier to the live renderer: pixel ratio, shadow map enablement, dataset,
    * and a resize (matching the pre-extraction `applyTier`'s own unconditional resize — a safety
    * re-sync, not something this changes behavior on). Does NOT re-apply quality-dependent state
-   * other controllers own (e.g. `EnvironmentController`'s shadow-casting lights) — that is what
-   * `onQualityChange` is for.
+   * other controllers own (e.g. `EnvironmentController`'s shadow-casting lights, its starfield
+   * density) — that is what `onQualityChange` is for.
+   *
+   * `CONSTRUCTION_TIME_QUALITY_KEYS` (antialias, authored running gear) cannot follow a live tier
+   * change; see that constant for why. Dev builds warn when a change would have needed them, so the
+   * limitation shows up while tuning the tier table rather than as an unexplained shortfall between
+   * the cost a downgrade claims to shed and the cost it actually sheds.
    */
   applyQuality(next: QualitySettings): void {
+    if (process.env.NODE_ENV !== "production") {
+      const ignored = CONSTRUCTION_TIME_QUALITY_KEYS.filter((key) => this.quality[key] !== next[key]);
+      if (ignored.length > 0) {
+        console.warn(
+          `[quality] ${this.quality.tier} → ${next.tier} also changes ${ignored.join(", ")}, ` +
+            "which only apply at construction/load time and will keep their original values.",
+        );
+      }
+    }
     this.quality = next;
     applyRendererQuality(this.renderer, next);
     this.canvas.dataset.quality = next.tier;
     this.resize();
+  }
+
+  /**
+   * Applies and persists a viewer's quality preference, taking effect immediately.
+   *
+   * `"auto"` releases the pin and hands the tier back to `QualityGovernor`, leaving the current
+   * tier in place until measured frame time moves it — releasing the pin is not itself a reason to
+   * jump somewhere, and the governor resumes from live data.
+   *
+   * A pinned tier still cannot change `CONSTRUCTION_TIME_QUALITY_KEYS`. Choosing `high` on a
+   * renderer built without MSAA gets everything except antialiasing, which needs a reload; the
+   * alternative — recreating the renderer under the viewer — would drop the scene and camera pose
+   * to change one sample count. `qualityPreferenceNeedsReload` lets the UI say so plainly.
+   */
+  setQualityPreference(preference: QualityPreference): void {
+    writeQualityPreference(preference);
+    const pinned = this.governor.setPinnedTier(preference === "auto" ? null : preference);
+    if (pinned) {
+      this.applyQuality(pinned);
+      this.options.onQualityChange?.(pinned);
+    }
+  }
+
+  /**
+   * Whether the live renderer can honour `preference` in full, or needs a reload to do so.
+   *
+   * Only the construction-time keys can be out of reach; everything else `applyQuality` handles.
+   */
+  qualityPreferenceNeedsReload(preference: QualityPreference): boolean {
+    const target = preferredTierHint(preference);
+    if (!target) return false;
+    const wanted = qualitySettingsFor(target);
+    return CONSTRUCTION_TIME_QUALITY_KEYS.some((key) => this.quality[key] !== wanted[key]);
   }
 
   /** Starts the render loop, calling `tick()` once before every frame's paint. */
@@ -272,15 +340,23 @@ export class RenderController {
     });
   }
 
+  /** One frame. Called from the rAF chain normally, and from `setAnimationLoop` while in XR. */
   private loop(): void {
     if (!this.running || this.disposed) return;
-    if (this.suspended) return;
+    // Idle suspension is a page-visibility concept and does not apply in XR: the canvas is not what
+    // the viewer is looking at, and an IntersectionObserver on it says nothing about the headset.
+    if (this.suspended && !this.xrPresenting) return;
     const stats = this.frameStats.record(performance.now());
     // Reuses the delta frameStats already computed rather than timing the loop a second time.
     this.governor.recordFrame(stats.lastFrameMs);
     this.framePublishCount += 1;
     if (stats.samples > 0 && this.framePublishCount % 30 === 0) {
       this.canvas.dataset.frameStats = formatFrameStats(stats);
+      const gpuMs = this.gpuTimer?.lastGpuMs();
+      // Published beside the CPU stats rather than folded into them: the whole value of this number
+      // is the *gap* between it and `avgFrameMs`, which is what says whether the scene is GPU-bound
+      // and therefore whether the tier ladder can help at all.
+      if (typeof gpuMs === "number") this.canvas.dataset.gpuFrameMs = gpuMs.toFixed(2);
     }
     this.tick?.();
     if (!this.scene || !this.camera) {
@@ -289,17 +365,63 @@ export class RenderController {
     }
     const scene = this.scene;
     const camera = this.camera;
+    this.gpuTimer?.beginFrame();
     const paint = this.renderer.renderAsync
       ? this.renderer.renderAsync(scene, camera)
       : Promise.resolve(this.renderer.render(scene, camera));
+    // Ends the query around the *issuing* of the frame's work, which is what both timer APIs
+    // measure — not around its completion, which is what the promise below settles on.
+    this.gpuTimer?.endFrame();
     void paint.finally(() => {
-      if (this.running && !this.suspended) this.queueFrame();
+      // In XR the device asks for the next frame itself; self-queueing would run two loops.
+      if (this.running && !this.suspended && !this.xrPresenting) this.queueFrame();
     });
+  }
+
+  /**
+   * Hands frame pacing to an XR device, or takes it back.
+   *
+   * `requestAnimationFrame` cannot drive a headset or phone compositor: those frames are paced by
+   * the device and delivered through `renderer.setAnimationLoop`, which is also what supplies the
+   * per-frame `XRFrame` and the correct per-eye projection. Running the rAF chain as well would
+   * render every frame twice, so entering cancels it and exiting restarts it.
+   *
+   * Called by `XrSessionController.onPresentingChange` rather than reached for directly, so the
+   * handover always follows the session's real state instead of an optimistic guess about it.
+   */
+  setXrPresenting(presenting: boolean): void {
+    if (this.disposed || this.xrPresenting === presenting) return;
+    this.xrPresenting = presenting;
+
+    if (presenting) {
+      this.cancelPendingRaf();
+      void this.renderer.setAnimationLoop?.(() => this.loop());
+      return;
+    }
+
+    void this.renderer.setAnimationLoop?.(null);
+    // Resume the page-driven chain only if this controller is still meant to be rendering — an XR
+    // session can outlive a tab switch, so `suspended` may legitimately be true on the way out.
+    if (this.running && !this.suspended) this.queueFrame();
+  }
+
+  /** Whether an XR device currently paces frames. */
+  get isXrPresenting(): boolean {
+    return this.xrPresenting;
   }
 
   /** Latest ring-buffer frame-timing snapshot — the `__vehicleFrameStats` dev hook's data source. */
   getFrameStats(): FrameStatsSnapshot {
     return this.frameStats.snapshot();
+  }
+
+  /**
+   * Most recent GPU-side frame duration in ms, or `null` when this platform offers no timer or none
+   * has resolved yet. Compare against `getFrameStats().avgFrameMs`: a large gap means CPU-bound, and
+   * the quality ladder — which only controls GPU cost — cannot recover that frame time.
+   */
+  getGpuFrameMs(): number | null {
+    return this.gpuTimer?.lastGpuMs() ?? null;
   }
 
   /**
@@ -326,6 +448,9 @@ export class RenderController {
     this.canvas.removeEventListener("webglcontextlost", this.handleContextLost);
     this.canvas.removeEventListener("webglcontextrestored", this.handleContextRestored);
     this.idleGate.dispose();
+    // Detach the XR loop before disposing the renderer, or it keeps invoking a torn-down scene.
+    if (this.xrPresenting) void this.renderer.setAnimationLoop?.(null);
+    this.gpuTimer?.dispose();
     this.resizeObserver.disconnect();
     this.renderer.dispose();
     this.canvas.remove();

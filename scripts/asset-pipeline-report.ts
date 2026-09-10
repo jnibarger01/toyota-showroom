@@ -283,7 +283,13 @@ function renderMarkdown(metrics: AssetMetrics[]): string {
             (asset.unexpectedContractViolations.length > 0 ? ` (**${asset.unexpectedContractViolations.length} unexpected**)` : "")
         : "- Semantic contract: not applicable (mounted running gear — takes on its mount point's identity at runtime)",
     );
-    lines.push(`- Inspection duration: ${asset.processingDurationMs.toFixed(1)} ms`);
+    // `processingDurationMs` is deliberately NOT written into the report.
+    //
+    // It is wall-clock time for parsing the asset, so it changes on every run and differs between
+    // any two machines — it measures the host, not the asset. Committing it made the generated
+    // document non-reproducible: regenerating produced a diff even when every asset was byte
+    // identical, which is precisely what stops a generated artifact from being usable as a CI gate
+    // (#34). The field stays on the in-memory result for anyone profiling the script.
     if (asset.warnings.length > 0) {
       lines.push(`- Warnings: ${asset.warnings.join("; ")}`);
     }

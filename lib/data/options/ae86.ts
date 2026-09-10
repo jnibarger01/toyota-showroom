@@ -14,11 +14,33 @@ import type { CustomizationOption } from "../../types/customization";
  * so targeting only `Car` leaves `Wheel1`–`Wheel4` untouched — the same guarantee the 4Runner's
  * `metal.chrome` (shared by six nodes) already relies on.
  *
+ * ## Why a material split cannot rescue this catalog (investigated for #26)
+ *
+ * #26 proposes authoring separate glass/chrome/trim materials so this catalog can grow. That is not
+ * achievable from the shipped asset by any scripted means, and the reason is worth recording so the
+ * investigation is not repeated:
+ *
+ * The single `Body` material carries one 256x256 `Palette.png` baseColorTexture, and **that texture
+ * is baked lighting, not a material atlas**. Sampling every triangle's centroid UV against the
+ * decoded PNG gives **128 distinct colours across the `Car` mesh** in smooth gradients
+ * (`#9bb3bd`, `#a4bac3`, `#c195b6`, `#e2b2db`, ...) — shading variation, not flat per-material
+ * swatches. There is no discrete region a "glass" or "chrome" material could be cut along.
+ *
+ * Splitting `Body` into `Body` + `Wheel` by mesh *is* trivially possible, since `Wheel1`–`Wheel4`
+ * are separate meshes. It would unlock nothing: the wheel's sampled colours run from `#201309`
+ * (tire) to `#f5ac9a` (baked-lit rim) continuously, so a colour applied to a `Wheel` material still
+ * multiplies rim and tire together — exactly the outcome the paragraph below already predicted. A
+ * split that adds a material name without adding a capability is worse than none, because the
+ * catalog would then imply a wheel finish it cannot honour.
+ *
+ * Making this vehicle configurable needs a re-authored source model with real material assignments,
+ * not a transform over this export. Until then the paint-only catalog is the honest surface.
+ *
  * Deliberately NOT included here, and why:
  * - A "wheel finish" option targeting `Wheel1`–`Wheel4` would be mechanically safe the same way, but
- *   each wheel mesh's baked texture region likely covers rim *and* tire together with no material
- *   split — tinting the slot would tint the tire rubber too. Skipped until a better-authored asset
- *   (or a UV-masked texture swap) makes that separable.
+ *   each wheel mesh's baked texture region covers rim *and* tire together with no material split —
+ *   tinting the slot would tint the tire rubber too. Confirmed by the palette sampling above, not
+ *   merely suspected.
  * - The procedural accessories (`lib/three/proceduralParts.ts` — roof rack, light bar, rock sliders)
  *   are hand-positioned in local coordinates tuned to the 4Runner/procedural body's proportions; this
  *   is a much smaller, differently-shaped 1980s coupe, so attaching them would misplace the geometry,

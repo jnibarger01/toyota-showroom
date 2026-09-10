@@ -122,6 +122,8 @@ export class QualityGovernor {
   private slowStreak = 0;
   private fastStreak = 0;
   private changedAt = Number.NEGATIVE_INFINITY;
+  /** When true, frame time is still measured but never acts. See `setPinnedTier`. */
+  private pinned = false;
 
   constructor(options: QualityGovernorOptions) {
     this.onChange = options.onChange;
@@ -133,6 +135,46 @@ export class QualityGovernor {
   /** The tier currently in effect. */
   get tier(): QualityTier {
     return TIER_LADDER[this.tierIndex]!;
+  }
+
+  /** Whether a viewer has pinned the tier, suspending automatic adaptation. */
+  get isPinned(): boolean {
+    return this.pinned;
+  }
+
+  /**
+   * Pins the tier to a viewer's explicit choice, or releases back to automatic adaptation.
+   *
+   * Pinning suspends stepping entirely rather than merely seeding the ladder: a preference the next
+   * slow frame silently reverts is not a preference, and the whole reason someone reaches for this
+   * control is that the automatic policy is getting their device wrong.
+   *
+   * Frame time keeps being recorded while pinned, so `averageFrameTimeMs` stays meaningful for
+   * telemetry and releasing the pin resumes from live data rather than a stale average.
+   *
+   * Returns the settings to apply, or `null` when nothing changed — the caller owns applying them,
+   * the same way `onChange` does, so this stays free of renderer knowledge.
+   */
+  setPinnedTier(tier: QualityTier | null): QualitySettings | null {
+    if (tier === null) {
+      if (!this.pinned) return null;
+      this.pinned = false;
+      // Streaks accumulated under the pin describe a period the governor was not acting on; acting
+      // on them now would fire an immediate step the viewer did not ask for.
+      this.slowStreak = 0;
+      this.fastStreak = 0;
+      this.changedAt = this.now();
+      return null;
+    }
+
+    this.pinned = true;
+    const index = TIER_LADDER.indexOf(tier);
+    if (index < 0 || index === this.tierIndex) return null;
+    this.tierIndex = index;
+    this.slowStreak = 0;
+    this.fastStreak = 0;
+    this.changedAt = this.now();
+    return qualitySettingsFor(tier);
   }
 
   /** Smoothed frame time in ms, or 0 before any sample. Exposed for telemetry. */
@@ -158,6 +200,11 @@ export class QualityGovernor {
       this.framesSeen === 1
         ? deltaMs
         : this.averageFrameMs + EWMA_ALPHA * (deltaMs - this.averageFrameMs);
+
+    // Pinned: keep measuring (telemetry stays meaningful, and releasing the pin resumes from live
+    // data) but never act. Placed after the average update and before every stepping branch so
+    // there is exactly one early return rather than a `pinned` check on each.
+    if (this.pinned) return;
 
     if (this.framesSeen <= WARMUP_FRAMES) return;
     if (this.now() - this.changedAt < CHANGE_COOLDOWN_MS) return;

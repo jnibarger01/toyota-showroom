@@ -231,25 +231,34 @@ export default function ComparePage() {
             ? `Side-by-side option categories for ${MIN_COMPARE}–${MAX_COMPARE} saved garage builds.`
             : `Pick ${MIN_COMPARE}–${MAX_COMPARE} models to see them side by side.`}
         </p>
-        <div className="compare-mode-tabs" role="tablist" aria-label="Compare mode">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "catalog"}
-            className={mode === "catalog" ? "active" : ""}
-            onClick={() => setMode("catalog")}
-          >
-            Catalog vehicles
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === "builds"}
-            className={mode === "builds" ? "active" : ""}
-            onClick={() => setMode("builds")}
-          >
-            Garage builds
-          </button>
+        {/*
+          * The garage link is a sibling of the tablist, not a child of it. `role="tablist"` may only
+          * contain tabs, so nesting an ordinary navigation link inside made assistive technology
+          * announce a three-tab group whose third "tab" navigates away — axe reports it as a
+          * critical `aria-required-children` violation. The wrapper keeps the original single-row
+          * layout, so this is a DOM-structure fix with no visual change.
+          */}
+        <div className="compare-mode-bar">
+          <div className="compare-mode-tabs" role="tablist" aria-label="Compare mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "catalog"}
+              className={mode === "catalog" ? "active" : ""}
+              onClick={() => setMode("catalog")}
+            >
+              Catalog vehicles
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "builds"}
+              className={mode === "builds" ? "active" : ""}
+              onClick={() => setMode("builds")}
+            >
+              Garage builds
+            </button>
+          </div>
           <a className="compare-garage-link" href={pageUrl("garage")}>
             <Warehouse size={14} /> Open garage
           </a>

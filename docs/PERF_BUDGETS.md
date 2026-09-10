@@ -52,8 +52,100 @@ rAF loop stops; leaving idle restarts it. Canvas `data-idle="1"` reflects the ga
 
 `lib/three/frameStats.ts` records a rolling window of frame deltas on the WebGPU/WebGL path used by
 `VehicleCanvas`. Latest summary is written to `canvas.dataset.frameStats`; in DEV,
-`window.__vehicleFrameStats()` returns the snapshot. No GPU timer queries (not portable across
-WebGPU + WebGL2).
+`window.__vehicleFrameStats()` returns the snapshot. `snapshot()` keeps a running sum rather than
+re-adding the ring buffer, because the render loop calls it every frame while publishing only every
+30th.
+
+### GPU timing
+
+`lib/three/gpuTimer.ts` adds the GPU-side counterpart, behind capability detection: three's
+`trackTimestamp`/`resolveTimestampsAsync` on WebGPU, `EXT_disjoint_timer_query_webgl2` on the
+classic WebGL2 renderer, and `null` where neither exists — both are optional features and neither is
+universal. Published as `canvas.dataset.gpuFrameMs`, read via `RenderController.getGpuFrameMs()`.
+
+Read it **against** `avgFrameMs`, not instead of it. `avgFrameMs` is the wall-clock gap between rAF
+callbacks, so it cannot distinguish a CPU-bound frame from a GPU-bound one — and every knob the
+quality ladder controls is GPU cost. A large CPU/GPU gap means stepping the tier down will degrade
+the image without recovering frame time.
+
+It is deliberately **not** wired into `QualityGovernor`'s stepping decision. That policy was tuned
+against the CPU signal, and this repo has no GPU available to measure against (the same constraint
+`docs/POSTPROCESSING_EVALUATION.md` documents). Changing the policy needs real-device data first.
+
+## Idle prefetch
+
+`lib/three/prefetch.ts` warms assets a viewer is likely to reach for next, started from
+`VehicleCanvas` once progressive load reports `ready`.
+
+Scope is narrow on purpose: **HDRIs only**. Grade switches load nothing (every grade of a vehicle
+shares one GLB) and paint options are material parameters, not downloads. The only builder
+selection that triggers a cold fetch is an HDRI preset carrying an `hdrUrl` — today `hdri-sunset` —
+where a multi-hundred-KB `.hdr` is fetched, parsed and PMREM-filtered while the viewer waits on an
+option already presented to them. #53's title says "grade / paint assets"; for this catalog there
+are none, and prefetching resident assets would be motion without effect.
+
+Budget, enforced by construction rather than by a number:
+
+| Guard | Why |
+|---|---|
+| Starts only after `ready` | Bandwidth before first paint delays the vehicle itself |
+| `requestIdleCallback` (4s timeout) | Yields to rendering and interaction; the timeout stops a never-idle page from never prefetching |
+| Stops while `data-idle="1"` | A backgrounded tab must not spend someone's data |
+| Off on the `low` tier and under Save-Data | Both are explicit constraint signals `quality.ts` already respects |
+| Sequential, one attempt per id | A queue cannot saturate the connection it is staying out of the way of |
+
+`window.__vehiclePrefetch()` lists warmed ids in DEV.
+
+## XR (immersive AR)
+
+`lib/three/xrSession.ts` owns `immersive-ar` session lifecycle only. The control appears in the
+builder chrome solely where `navigator.xr.isSessionSupported("immersive-ar")` resolves true, so on
+every desktop browser and on iOS today it is absent rather than present-and-failing.
+
+The load-bearing detail is frame pacing. `RenderController` normally drives its own
+`requestAnimationFrame` chain, which **cannot** pace an XR device: those frames come from the
+headset or phone compositor via `renderer.setAnimationLoop`, which also supplies the `XRFrame` and
+the correct per-eye projection. `setXrPresenting` cancels the rAF chain on entry and restores it on
+exit; running both would render every frame twice.
+
+`OrbitControls` is disabled for the duration — the device owns the pose, and orbit input writing to
+the same camera fights head tracking, which reads as motion sickness rather than as a camera bug.
+The cinematic tour already takes the controls the same way.
+
+Idle suspension does not apply while presenting: an `IntersectionObserver` on the page canvas says
+nothing about what the headset is showing.
+
+**Not verified on hardware.** The session lifecycle is unit-tested against a stubbed `navigator.xr`
+(ordering of the renderer handover, declined permission, device-initiated exit, unmount during the
+permission prompt). Whether AR *looks* correct on a phone is not something any test here can claim.
+No hit-testing or placement UI: `local-floor` puts the vehicle on the viewer's real floor, which is
+enough to walk around it.
+
+## Client bundle budgets
+
+`scripts/bundle-budget.mjs` gates gzipped chunk sizes in `dist/client/assets` against
+`scripts/bundle-budgets.json`, run in CI after `npm run build`.
+
+```bash
+npm run bundle:budget          # check
+npm run bundle:budget:update   # re-baseline with 15% headroom, then commit the diff
+```
+
+Budgets are keyed on the de-hashed chunk stem. A chunk with **no** budget entry fails just as a
+chunk over budget does — an unbudgeted chunk is how a budget file stops covering the thing it was
+written for.
+
+Measured in gzip because that is what the connection pays for; raw byte counts move for reasons
+that do not change download time. #43 asked for per-route budgets — the build emits one `page`
+chunk per route with no manifest mapping them back, and the expensive code (Three.js, the Draco
+decoder) is lazily loaded and shared, so attributing it per route would either double-count it or
+hide it. Chunk budgets state the same constraint without the arithmetic being a lie, and the
+realistic regression — something pulling Three.js into the shared framework chunk — trips them
+immediately.
+
+Current headline chunks (gzipped): `VehicleCanvas` ~233 KiB (Three.js), `buildTools` ~166 KiB,
+`draco_decoder` ~145 KiB, `framework` ~58 KiB. All three large ones are lazily loaded, so the
+landing route does not pay for them.
 
 ## Tests
 

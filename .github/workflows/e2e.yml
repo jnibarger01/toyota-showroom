@@ -1,6 +1,7 @@
 name: E2E and visual regression
 
-# Runs everything in tests/e2e/ (Playwright) against the real static export, served under the same
+# Runs everything in tests/e2e/ (Playwright) — interaction, visual regression, and the axe-core
+# accessibility gate (tests/e2e/a11y.spec.ts, #42) — against the real static export, served under the same
 # /toyota-showroom/ sub-path GitHub Pages actually serves it at (scripts/preview-server.mjs, wired
 # up as playwright.config.ts's webServer). Separate from ci.yml's "verify" job so a flaky visual
 # diff (see playwright.config.ts's maxDiffPixelRatio note) never blocks the fast unit/lint/typecheck

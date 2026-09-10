@@ -59,6 +59,11 @@ import {
   type EnvironmentPreset,
 } from "../../lib/three/environmentController";
 import { RenderController } from "../../lib/three/renderController";
+import { createPrefetchScheduler, type PrefetchScheduler } from "../../lib/three/prefetch";
+import { XrSessionController } from "../../lib/three/xrSession";
+import { readQualityPreference, type QualityPreference } from "../../lib/three/qualityPreference";
+import { prefetchHdriPreset } from "../../lib/three/hdriEnvironment";
+import { HDRI_PRESETS } from "../../lib/data/paintStudio";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
 
 export type { Terrain, EnvironmentPreset };
@@ -109,6 +114,38 @@ type Props = {
    * mirrors status for the Play/Pause control.
    */
   tourAction?: TourAction | null;
+  /**
+   * Bumped by the chrome's "Recenter view" control to re-frame the active preset.
+   *
+   * Named "recenter", not "reset", because the sidebar already has a Reset that discards the whole
+   * build. Two controls a few hundred pixels apart both called Reset, one moving the camera and one
+   * throwing away the configuration, is a mistake waiting to happen.
+   *
+   * A counter rather than a boolean or a preset object, for the same reason `tourAction` carries a
+   * `seq`: resetting twice in a row is a legitimate thing to ask for, and re-sending an unchanged
+   * value would make the second request a no-op. This is the pointer-driven equivalent of the Home
+   * key, which reaches the same `resetToPreset` directly.
+   */
+  resetViewSignal?: number;
+  /**
+   * Bumped by the chrome's "View in AR" control to enter an immersive-AR session. Counter for the
+   * same reason as `resetViewSignal`: re-entering after exiting is a legitimate repeat request.
+   */
+  enterXrSignal?: number;
+  /**
+   * Viewer's quality choice. `"auto"` hands the tier back to `QualityGovernor`; anything else pins
+   * it, suspending automatic adaptation — see `lib/three/qualityPreference.ts` for why a pinned
+   * tier turns the governor off rather than merely seeding it.
+   */
+  qualityPreference?: QualityPreference;
+  /** Reports the stored preference once the renderer exists, so the chrome can show the real value
+   * rather than assuming a default the viewer may have changed on a previous visit. */
+  onQualityPreferenceLoaded?: (preference: QualityPreference) => void;
+  /** Reports whether this device can offer AR at all, so the chrome can omit the control entirely
+   * rather than show one that fails on tap. */
+  onXrSupported?: (supported: boolean) => void;
+  /** Reports session start/end so the chrome can swap the control and hide overlapping UI. */
+  onXrPresentingChange?: (presenting: boolean) => void;
   onTourStatusChange?: (status: TourStatus) => void;
   /** Fired as each catalog preset becomes the tour's current shot (toolbar highlight + cameraState). */
   onTourStep?: (preset: CameraPreset) => void;
@@ -123,7 +160,7 @@ type Props = {
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, onXrSupported, onXrPresentingChange, qualityPreference, onQualityPreferenceLoaded, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -156,6 +193,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   // Read by the Home-key handler, which lives in the run-once setup effect and so cannot close over
   // the prop directly — it would reset to whichever preset was active at mount.
   const cameraPresetRef = useRef(cameraPreset);
+  const onXrSupportedRef = useRef(onXrSupported);
+  const onXrPresentingChangeRef = useRef(onXrPresentingChange);
+  const onQualityPreferenceLoadedRef = useRef(onQualityPreferenceLoaded);
+  const xrControllerRef = useRef<XrSessionController | null>(null);
   useEffect(() => {
     onReadyRef.current = onReady;
     onErrorRef.current = onError;
@@ -166,10 +207,15 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onTourStepRef.current = onTourStep;
     onPartHoverRef.current = onPartHover;
     onPartSelectRef.current = onPartSelect;
-  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect]);
+    onXrSupportedRef.current = onXrSupported;
+    onXrPresentingChangeRef.current = onXrPresentingChange;
+    onQualityPreferenceLoadedRef.current = onQualityPreferenceLoaded;
+  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onQualityPreferenceLoaded]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
+    /** Declared out here so the effect's cleanup can cancel it even if setup fails part-way. */
+    let prefetcher: PrefetchScheduler | null = null;
     let cancelled = false;
 
     void (async () => {
@@ -202,6 +248,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         return;
       }
       renderControllerRef.current = renderController;
+      onQualityPreferenceLoadedRef.current?.(readQualityPreference());
       const canvasElement = renderController.canvas;
 
       const cameraController = new CameraController({
@@ -644,9 +691,43 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       }
 
       canvasElement.dataset.loadPhase = progressive.phase;
+
+      // Only now — the vehicle is on screen and settled — is speculative work allowed to start.
+      // Prefetching HDRIs before this point would compete for bandwidth with the vehicle itself.
+      // The paint studio's `hdri-sunset` preset carries a real `.hdr` that is otherwise fetched,
+      // parsed and PMREM-filtered while the viewer waits on a preset they have already been shown.
+      prefetcher = createPrefetchScheduler({
+        load: prefetchHdriPreset,
+        ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl).map((preset) => preset.id),
+        tier: renderController.currentQuality.tier,
+        saveData: (navigator as { connection?: { saveData?: boolean } }).connection?.saveData === true,
+        isSuspended: () => canvasElement.dataset.idle === "1",
+      });
+      prefetcher.start();
+
+      // XR last: it needs the renderer, and there is nothing worth showing in AR until the vehicle
+      // has actually settled into the scene.
+      const xrController = new XrSessionController({
+        renderer: renderController.renderer as unknown as ConstructorParameters<typeof XrSessionController>[0]["renderer"],
+        onPresentingChange: (presenting) => {
+          // The renderer's frame source has to change hands; `CameraController` must also stop
+          // writing the camera, because in XR the device owns the pose entirely and an orbit tween
+          // fighting head tracking is motion sickness, not a camera bug.
+          renderController.setXrPresenting(presenting);
+          cameraController.setControlsEnabled(!presenting);
+          onXrPresentingChangeRef.current?.(presenting);
+        },
+        onError: (message) => onErrorRef.current(message),
+      });
+      xrControllerRef.current = xrController;
+      void xrController.isSupported().then((supported) => {
+        if (!cancelled) onXrSupportedRef.current?.(supported);
+      });
+
       if (import.meta.env.DEV) {
         (window as unknown as Record<string, unknown>).__vehicleProgressiveLoad = progressive;
         (window as unknown as Record<string, unknown>).__vehicleQuality = renderController.currentQuality;
+        (window as unknown as Record<string, unknown>).__vehiclePrefetch = () => prefetcher?.completed() ?? [];
       }
 
       // cleanup already assigned above (before GLB await).
@@ -657,6 +738,14 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
     return () => {
       cancelled = true;
+      // Before `cleanup`: an in-flight prefetch holds no scene references, but there is no reason to
+      // let speculative fetches outlive the canvas that wanted them.
+      prefetcher?.dispose();
+      prefetcher = null;
+      // Before the renderer goes: ending the session releases the device camera, and a session
+      // outliving its canvas leaves that running behind a page the viewer has left.
+      xrControllerRef.current?.dispose();
+      xrControllerRef.current = null;
       cleanup?.();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time setup; see latest-value refs above.
@@ -686,6 +775,29 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     if (tourActiveRef.current) return;
     cameraController.transitionToPreset(cameraPreset);
   }, [cameraPreset]);
+
+  useEffect(() => {
+    // `undefined` is the initial render, not a request — resetting on mount would fight the
+    // preset transition that has just been started for the initial pose.
+    if (resetViewSignal === undefined) return;
+    const cameraController = cameraControllerRef.current;
+    if (!cameraController) return;
+    // Snaps rather than tweens, matching the Home key: a reset is a recovery action, and someone
+    // who has lost the vehicle off-frame wants it back now, not in 0.85s.
+    cameraController.resetToPreset(cameraPresetRef.current);
+  }, [resetViewSignal]);
+
+  useEffect(() => {
+    // `undefined` means the chrome is not driving this; leave whatever the renderer read from
+    // storage in place rather than forcing it back to a default the viewer did not choose.
+    if (qualityPreference === undefined) return;
+    renderControllerRef.current?.setQualityPreference(qualityPreference);
+  }, [qualityPreference]);
+
+  useEffect(() => {
+    if (enterXrSignal === undefined) return;
+    void xrControllerRef.current?.enter();
+  }, [enterXrSignal]);
 
   // Builder chrome play/pause/cancel — seq bumps so repeated identical actions still fire.
   useEffect(() => {

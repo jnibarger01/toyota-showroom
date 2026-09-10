@@ -21,6 +21,8 @@
     "assets:optimize": "node scripts/optimize-models.mjs",
     "assets:report": "tsx scripts/asset-pipeline-report.ts --fail-on-contract-violation",
     "assets:benchmark-compression": "node scripts/benchmark-compression.mjs",
+    "bundle:budget": "node scripts/bundle-budget.mjs",
+    "bundle:budget:update": "node scripts/bundle-budget.mjs --update",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply toyota-showroom --local",
     "db:migrate:remote": "wrangler d1 migrations apply toyota-showroom --remote",
@@ -40,6 +42,7 @@
     "three-mesh-bvh": "^0.9.14"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@cloudflare/vite-plugin": "1.37.1",
     "@cloudflare/workers-types": "^4.20260702.1",
     "@gltf-transform/core": "^4.4.2",

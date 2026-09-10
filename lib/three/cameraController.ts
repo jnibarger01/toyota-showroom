@@ -77,6 +77,19 @@ export class CameraController {
     this.controls.minDistance = this.limits.minDistance;
     this.controls.maxDistance = this.limits.maxDistance;
     this.controls.maxPolarAngle = this.limits.maxPolarAngle;
+
+    /*
+     * Touch mapping, stated rather than inherited.
+     *
+     * These happen to be OrbitControls' defaults today, which is exactly why they are written down:
+     * a showroom's core gesture is "one finger turns the car, two fingers zoom", and leaving that
+     * to a transitive dependency's defaults means a three upgrade can change the product's primary
+     * interaction without anything in this repo mentioning it. `DOLLY_PAN` rather than `DOLLY_ROTATE`
+     * because a two-finger twist that rolls the camera reads as a bug on a vehicle sitting on a
+     * floor plane.
+     */
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+
     this.controls.target.set(...options.initialPreset.target);
     this.controls.autoRotate = false;
     this.controls.autoRotateSpeed = 0.8;
@@ -164,6 +177,19 @@ export class CameraController {
     this.controls.autoRotate = enabled;
     this.onAutoRotateChange?.(enabled);
     publishViewerState({ autoRotate: enabled });
+  }
+
+  /**
+   * Enables or disables `OrbitControls`.
+   *
+   * Exists for XR (#16): while an immersive session is presenting, the device owns the camera pose
+   * completely, and orbit input writing to the same camera fights head tracking — which reads as
+   * motion sickness, not as a camera bug. The cinematic tour already takes the controls this way
+   * for the same reason (via its own `setControlsEnabled` seam); this exposes it to a second caller
+   * rather than giving XR a private path to the same field.
+   */
+  setControlsEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
   }
 
   update(): void {

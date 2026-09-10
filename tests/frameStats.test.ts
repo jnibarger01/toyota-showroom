@@ -44,3 +44,48 @@ describe("FrameTimeTracker", () => {
     expect(next.lastFrameMs).toBe(16);
   });
 
+
+describe("running-sum equivalence", () => {
+  /**
+   * `snapshot()` maintains `sum` incrementally rather than re-adding the ring buffer each call.
+   * This pins the optimisation to the behaviour it replaced: the average must still match a plain
+   * summation, including after the buffer has wrapped many times and after a reset.
+   */
+  function bruteForceAverage(samples: number[], capacity: number): number {
+    const live = samples.slice(-capacity);
+    return live.reduce((total, value) => total + value, 0) / live.length;
+  }
+
+  it("matches a brute-force average after the ring buffer wraps repeatedly", () => {
+    const capacity = 8;
+    const tracker = new FrameTimeTracker(capacity);
+    const deltas: number[] = [];
+    let now = 0;
+
+    tracker.record(now); // seeds the clock, produces no sample
+    for (let i = 0; i < 200; i += 1) {
+      const delta = 8 + (i % 17) * 1.5;
+      deltas.push(delta);
+      now += delta;
+      tracker.record(now);
+    }
+
+    const snapshot = tracker.snapshot();
+    expect(snapshot.samples).toBe(capacity);
+    expect(snapshot.avgFrameMs).toBeCloseTo(bruteForceAverage(deltas, capacity), 6);
+  });
+
+  it("clears the running sum on reset so stale frames cannot leak into the next average", () => {
+    const tracker = new FrameTimeTracker(4);
+    let now = 0;
+    tracker.record(now);
+    for (const delta of [100, 100, 100]) tracker.record((now += delta));
+
+    tracker.reset();
+
+    now = 0;
+    tracker.record(now);
+    tracker.record((now += 10));
+    expect(tracker.snapshot().avgFrameMs).toBeCloseTo(10, 6);
+  });
+});

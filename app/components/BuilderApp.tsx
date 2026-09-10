@@ -18,6 +18,7 @@ import {
   Lightbulb,
   Loader2,
   Mountain,
+  Move3d,
   Map,
   PaintBucket,
   Pause,
@@ -43,6 +44,9 @@ import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
+import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
+import type { QualityPreference } from "../../lib/three/qualityPreference";
+import { describeGradeChange, describeSelectionChange } from "../../lib/showroom/selectionAnnouncement";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -148,7 +152,21 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   /** Cinematic camera tour (hero → wheels → interior), distinct from the onboarding tour card. */
   const [cinematicTourStatus, setCinematicTourStatus] = useState<TourStatus>("idle");
   const [cinematicTourAction, setCinematicTourAction] = useState<TourAction | null>(null);
+  /** Bumped to ask the canvas to re-frame the active preset. See `VehicleCanvas.resetViewSignal`. */
+  const [resetViewSignal, setResetViewSignal] = useState(0);
+  /** Bumped to request an immersive-AR session. See `VehicleCanvas.enterXrSignal`. */
+  const [enterXrSignal, setEnterXrSignal] = useState(0);
+  /** Stays false on every device without AR, so the control is absent rather than present-and-broken. */
+  const [xrSupported, setXrSupported] = useState(false);
+  const [xrPresenting, setXrPresenting] = useState(false);
+  /** Mirrors the renderer's stored preference; `VehicleCanvas` reports the real value on mount. */
+  const [qualityPreference, setQualityPreference] = useState<QualityPreference>("auto");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  /** Text for the polite live region — the only channel that reports a selection to a screen reader
+   * when focus is not on the control that changed (deep link, undo, grade switch). */
+  const [announcement, setAnnouncement] = useState("");
+  const previousSelectionsRef = useRef<SelectionMap | null>(null);
+  const announcementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controllerRef = useRef<VehicleSceneController | null>(null);
   const stageRef = useRef<HTMLElement>(null);
   // The full, grade-independent set of options this GLB can satisfy — captured once from
@@ -174,6 +192,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const { configuration, catalog, status, error } = useConfiguration();
   const persistenceMode = usePersistenceMode();
+
+  useEffect(() => {
+    // Gated on the *resolved* mode rather than a build flag: the demo cache may only exist where the
+    // app has proven the API routes are absent. The "worker" case actively unregisters, which is
+    // what makes a browser that visited the Pages demo recoverable when it later hits a real
+    // deployment on the same origin.
+    void syncDemoServiceWorker(persistenceMode, { basePath: import.meta.env.BASE_URL });
+  }, [persistenceMode]);
   const isLocalPersistence = persistenceMode === "local";
 
   /**
@@ -191,6 +217,41 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
    * a no-op then — the `prev.id === id` check below only clears or replaces when the controller's
    * own state has actually moved.
    */
+  useEffect(() => {
+    const selections = configuration?.selections;
+    if (!selections) return;
+
+    const previous = previousSelectionsRef.current;
+    previousSelectionsRef.current = selections;
+    // First configuration is the initial state, not a change the viewer made. Announcing it would
+    // read the whole build aloud on arrival.
+    if (!previous) return;
+
+    const message = describeSelectionChange(previous, selections, bootstrap?.catalog ?? []);
+    if (!message) return;
+
+    // Coalesced rather than announced per change. Dragging across paint chips fires a configuration
+    // update per chip, and a live region asked to speak each one either queues them all or cuts
+    // itself off mid-word; announcing only where the viewer paused is what they actually chose.
+    //
+    // The timer is held in a ref rather than cancelled from this effect's cleanup. Cleanup runs on
+    // every `configuration` change, and a selection is immediately followed by another change with
+    // no selection delta when the store persists and bumps the revision — so cleanup-based
+    // cancellation killed the pending announcement every single time, and nothing was ever spoken.
+    if (announcementTimerRef.current !== null) clearTimeout(announcementTimerRef.current);
+    announcementTimerRef.current = setTimeout(() => {
+      announcementTimerRef.current = null;
+      setAnnouncement(message);
+    }, 220);
+  }, [configuration, bootstrap?.catalog]);
+
+  useEffect(
+    () => () => {
+      if (announcementTimerRef.current !== null) clearTimeout(announcementTimerRef.current);
+    },
+    [],
+  );
+
   useEffect(() => {
     const controller = controllerRef.current;
     const id = controller?.selectedPartId;
@@ -341,6 +402,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       rememberConfigurationId(vehicleSlug, fresh.configurationId);
       setBootstrap({ ...bootstrap, configuration: fresh });
       await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+
+      // Announced explicitly rather than left to the selection diff: the grade is not a selection,
+      // and its change is exactly what a screen-reader user cannot otherwise infer — a switch that
+      // drops incompatible options would otherwise be heard only as options disappearing.
+      const gradeName = bootstrap.vehicle.grades.find((grade) => grade.id === gradeId)?.name ?? gradeId;
+      setAnnouncement(describeGradeChange(gradeName));
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -592,6 +659,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       </header>
 
       {/*
+        Polite live region for selection and grade changes (#51).
+        Always present and always empty-or-updated rather than conditionally rendered: a live region
+        mounted at the same moment its text appears is frequently missed, because the announcement
+        depends on the node already being observed. `role="status"` carries an implicit
+        aria-live="polite", so a change never interrupts whatever is being read.
+      */}
+      <p className="sr-only" role="status" aria-live="polite" data-testid="selection-announcement">
+        {announcement}
+      </p>
+
+      {/*
         `loadError` is also set by VehicleCanvas *after* bootstrap — a renderer failure or a GLB
         that fell back to the simplified model. Rendering it only in the pre-bootstrap branch would
         leave those failures invisible, which is exactly the silent-degradation this integration is
@@ -723,8 +801,57 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               </button>
             </div>
             <div className="viewport-actions">
+              <button
+                type="button"
+                data-testid="recenter-view"
+                title="Recenter view"
+                aria-label="Recenter view"
+                onClick={() => {
+                  // Cancel a running tour first: it drives the camera from a GSAP timeline, so a
+                  // reset underneath it would be overwritten on the tour's next frame.
+                  if (cinematicTourStatus !== "idle") dispatchCinematicTour("cancel");
+                  setResetViewSignal((value) => value + 1);
+                }}
+              >
+                <RotateCcw size={17} />
+              </button>
+              {xrSupported ? (
+                <button
+                  type="button"
+                  data-testid="enter-xr"
+                  title="View in AR"
+                  aria-label="View in AR"
+                  disabled={xrPresenting}
+                  onClick={() => setEnterXrSignal((value) => value + 1)}
+                >
+                  <Move3d size={17} />
+                </button>
+              ) : null}
               <button title="Zoom"><ZoomIn size={17} /></button>
-              <button title="Settings"><Settings2 size={17} /></button>
+              {/*
+                * A native <select> rather than an icon button opening a popover. It is keyboard
+                * operable, announces correctly, and needs no focus management — the boring option is
+                * the right one for a control most viewers will never touch. It replaces a
+                * "Settings" button that had no handler at all, which was worse than useless: it
+                * took focus and announced as an actionable control while doing nothing.
+                */}
+              <label className="quality-select" title="Rendering quality">
+                <Settings2 size={17} aria-hidden="true" />
+                <span className="sr-only">Rendering quality</span>
+                <select
+                  data-testid="quality-preference"
+                  value={qualityPreference}
+                  onChange={(event) => setQualityPreference(event.target.value as QualityPreference)}
+                >
+                  {/* Short labels: the icon and the accessible name already say "quality", and the
+                    * longer "Quality: Auto" form widened the toolbar row enough to push the camera
+                    * preset buttons under the left rail. */}
+                  <option value="auto">Auto</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </label>
               <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
             </div>
           </div>
@@ -757,6 +884,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               terrain={terrain}
               environmentPreset={environmentPreset}
               hdriPresetId={configuration?.paintStudio?.hdriPresetId}
+              resetViewSignal={resetViewSignal}
+              enterXrSignal={enterXrSignal}
+              onXrSupported={setXrSupported}
+              onXrPresentingChange={setXrPresenting}
+              qualityPreference={qualityPreference}
+              onQualityPreferenceLoaded={setQualityPreference}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}

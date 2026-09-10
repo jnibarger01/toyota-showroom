@@ -12,6 +12,8 @@
 
   /* Toyota red accent */
   --accent: #eb0a1e;
+  /* Foreground for text sitting on `--accent`. See the `.primary` rule for the contrast maths. */
+  --text-on-accent: #ffffff;
   --accent-2: #ff3b4a;
 
   /* Typography scale */
@@ -86,7 +88,19 @@ button { font: inherit; color: inherit; }
 .top-actions { display: flex; gap: 10px; }
 .top-actions button { border-radius: 9px; height: 38px; padding: 0 14px; display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); }
 .ghost { background: #151a21; }
-.primary { background: var(--accent); border-color: var(--accent) !important; }
+/*
+ * Foreground is set explicitly rather than inherited.
+ *
+ * `.primary` fills with Toyota red (`--accent`, #eb0a1e) but inherited `--text` (#f4f7fa), giving
+ * 4.25:1 — under the 4.5:1 WCAG AA threshold for 16px normal text, and a real axe `color-contrast`
+ * failure. Pure white on the same red is 4.57:1 and passes. `.compare-bar .primary` had already
+ * been patched to white one-off; this makes it the rule instead of a local workaround.
+ *
+ * The brand red is deliberately not altered to buy more headroom — that is a brand decision, not an
+ * implementation one. The margin over threshold is real but thin, so a future change to `--accent`
+ * needs to re-check this pairing rather than assume it still passes.
+ */
+.primary { background: var(--accent); border-color: var(--accent) !important; color: var(--text-on-accent); }
 .top-actions .icon-action { width: 38px; padding: 0; justify-content: center; }
 .top-actions button:disabled { opacity: .45; }
 .tour-card { position: fixed; z-index: 30; top: 82px; right: 18px; width: 310px; padding: 16px 38px 16px 16px; border: 1px solid #7a2f34; border-radius: 12px; background: #1d1519; box-shadow: var(--shadow-elevated); }
@@ -143,6 +157,23 @@ button { font: inherit; color: inherit; }
 .stage { min-width: 0; position: relative; display: grid; grid-template-rows: 1fr auto; background: #0c1015; }
 .vehicle-canvas { position: absolute; inset: 0 0 84px; }
 /*
+ * The stage owns every gesture that starts on it.
+ *
+ * `touch-action: none` is the load-bearing line. Without it the browser claims one-finger drags for
+ * page scrolling before OrbitControls ever sees a `pointermove`, so on a phone a drag intended to
+ * orbit the vehicle scrolls the configurator instead — and because the browser has already begun
+ * scrolling, `preventDefault` in a listener cannot take it back. It is set on the canvas rather
+ * than the host so the surrounding chrome still scrolls normally.
+ *
+ * `overscroll-behavior: contain` stops a gesture that reaches a scroll boundary from chaining out
+ * to the page and triggering pull-to-refresh mid-orbit.
+ *
+ * `user-select: none` prevents a slow drag from starting a text selection that then fights the
+ * orbit for the rest of the gesture.
+ */
+.vehicle-canvas > canvas { touch-action: none; }
+.vehicle-canvas { overscroll-behavior: contain; -webkit-user-select: none; user-select: none; }
+/*
  * The stage is keyboard-operable (arrows orbit, +/- zoom, Home resets), so it needs a focus
  * indicator as much as any button does. Inset rather than outset because the canvas is absolutely
  * positioned against the stage edges, where an outer ring would be clipped.
@@ -172,6 +203,24 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 4px; padding: 5px; border-radius: 10px; border: 1px solid #2a323d;
   background: rgba(12,16,21,.84); backdrop-filter: blur(14px); pointer-events: auto;
 }
+/* Visible to assistive technology, not on screen. Used where an icon carries the meaning and a
+ * text label would crowd the control — the icon is `aria-hidden`, this is what gets announced. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Quality selector sits in the viewport action row: the icon is decoration, the native <select>
+ * carries the interaction, so the label wraps both and stays a single focusable control. */
+.quality-select { display: inline-flex; align-items: center; gap: 4px; }
+.quality-select select {
+  background: transparent; border: 0; color: inherit; font: inherit; font-size: 11px;
+  padding: 2px 4px; cursor: pointer;
+  /* Bounded so a longer label cannot widen the toolbar row. */
+  max-width: 72px;
+}
+.quality-select select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .camera-group > svg { margin: 0 6px; color: #b7c0cb; }
 .camera-group button, .viewport-actions button {
   border: 0; background: transparent; height: 32px; border-radius: 7px; padding: 0 9px; color: #9aa4b0; font-size: 11px;
@@ -510,7 +559,10 @@ button { font: inherit; color: inherit; }
 .garage-build-actions .danger { color: #ffb4b8; border-color: #743036; }
 .garage-compare-bar { position: sticky; bottom: 16px; z-index: 5; }
 .garage-card .garage-open { margin-top: 6px; }
-.compare-mode-tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
+/* Wrapper introduced so the garage link can sit outside `role="tablist"` (which may only contain
+ * tabs) while the row still reads as one horizontal group. */
+.compare-mode-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
+.compare-mode-tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .compare-mode-tabs button {
   height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #2c343e;
   background: #151a21; color: #929ca9; font-size: 12px;

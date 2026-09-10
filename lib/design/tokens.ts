@@ -24,6 +24,9 @@ export const colors = {
     muted: "#5b6572",
   },
   accent: "#eb0a1e",
+  /** Foreground for text on `accent`. White clears WCAG AA (4.57:1) where the body `text` does not
+   * (4.25:1) — see the `.primary` rule in `app/globals.css`. */
+  textOnAccent: "#ffffff",
   accent2: "#ff3b4a",
 } as const;
 
