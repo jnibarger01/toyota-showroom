@@ -14,11 +14,14 @@
   "link": 4096,
   "loader-circle": 1024,
   "page": 9216,
+  "PremiumViewerControls": 1024,
   "query": 1024,
   "rolldown-runtime": 1024,
+  "rotate-ccw": 1024,
   "router": 4096,
   "triangle-alert": 1024,
   "VehicleCanvas": 275456,
+  "viewerControlEvents": 1024,
   "warehouse": 1024,
   "x": 1024
 }
