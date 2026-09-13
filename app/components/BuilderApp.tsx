@@ -47,6 +47,7 @@ import { configurationStore, useConfiguration, usePersistenceMode } from "../../
 import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
 import type { QualityPreference } from "../../lib/three/qualityPreference";
 import { describeGradeChange, describeSelectionChange } from "../../lib/showroom/selectionAnnouncement";
+import { describeTourScene } from "../../lib/showroom/tourAnnouncement";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -165,6 +166,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   /** Text for the polite live region — the only channel that reports a selection to a screen reader
    * when focus is not on the control that changed (deep link, undo, grade switch). */
   const [announcement, setAnnouncement] = useState("");
+  /** Separate polite region for cinematic-tour scene names (#71) — must not share #51's region. */
+  const [tourAnnouncement, setTourAnnouncement] = useState("");
   const previousSelectionsRef = useRef<SelectionMap | null>(null);
   const announcementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controllerRef = useRef<VehicleSceneController | null>(null);
@@ -356,6 +359,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     dispatchCinematicTour("play");
   }, [cinematicTourStatus, dispatchCinematicTour]);
 
+  const cinematicTourToggleLabel =
+    cinematicTourStatus === "playing"
+      ? "Pause cinematic tour"
+      : cinematicTourStatus === "paused"
+        ? "Resume cinematic tour"
+        : "Play cinematic tour";
+
   const handleTourStep = useCallback((next: CameraPreset) => {
     setPreset(next);
     configurationStore.setCameraState({
@@ -363,6 +373,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       position: next.position,
       target: next.target,
     });
+    // Scene names for SR — distinct live region from selection announcements (#51 / #71).
+    setTourAnnouncement(describeTourScene(next));
   }, []);
 
   /**
@@ -668,6 +680,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       <p className="sr-only" role="status" aria-live="polite" data-testid="selection-announcement">
         {announcement}
       </p>
+      {/*
+        Separate polite live region for cinematic-tour scene names (#71). Kept apart from the
+        selection region so a paint-chip update cannot overwrite a tour step (and vice versa).
+      */}
+      <p className="sr-only" role="status" aria-live="polite" data-testid="tour-scene-announcement">
+        {tourAnnouncement}
+      </p>
 
       {/*
         `loadError` is also set by VehicleCanvas *after* bootstrap — a renderer failure or a GLB
@@ -793,11 +812,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 data-testid="cinematic-tour-toggle"
                 className={cinematicTourStatus !== "idle" ? "selected" : ""}
                 aria-pressed={cinematicTourStatus === "playing"}
-                title={cinematicTourStatus === "playing" ? "Pause cinematic tour" : "Play cinematic tour"}
+                aria-label={cinematicTourToggleLabel}
+                title={cinematicTourToggleLabel}
                 onClick={toggleCinematicTour}
               >
-                {cinematicTourStatus === "playing" ? <Pause size={14} /> : <Play size={14} />}
-                <span>{cinematicTourStatus === "playing" ? "Pause" : cinematicTourStatus === "paused" ? "Resume" : "Tour"}</span>
+                {cinematicTourStatus === "playing" ? <Pause size={14} aria-hidden /> : <Play size={14} aria-hidden />}
+                <span aria-hidden="true">{cinematicTourStatus === "playing" ? "Pause" : cinematicTourStatus === "paused" ? "Resume" : "Tour"}</span>
               </button>
             </div>
             <div className="viewport-actions">
