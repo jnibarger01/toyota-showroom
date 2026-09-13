@@ -70,7 +70,10 @@ describe("createCinematicTour play/pause/cancel", () => {
 
   beforeEach(() => {
     stubMatchMedia(false);
+    // Clear AND rewind: leaving the playhead past 0 makes a subsequent time(0.01) seek
+    // backwards, which does not re-fire callbacks on a freshly built child timeline.
     gsap.globalTimeline.clear();
+    gsap.globalTimeline.pause(0);
     cameraPosition = { x: 0, y: 0, z: 0 };
     cameraTarget = { x: 0, y: 0, z: 0 };
     controlsEnabled = true;
@@ -85,6 +88,7 @@ describe("createCinematicTour play/pause/cancel", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     gsap.globalTimeline.clear();
+    gsap.globalTimeline.pause(0);
     dom.remove();
   });
 
@@ -172,12 +176,20 @@ describe("createCinematicTour play/pause/cancel", () => {
     tour.dispose();
   });
 
-  it("collapses motion under prefers-reduced-motion while still stepping presets", () => {
+  it("collapses camera tweens under prefers-reduced-motion while still stepping presets", () => {
     stubMatchMedia(true);
     const tour = makeTour();
     tour.play();
-    // Zero-duration tweens complete on the next tick of the global timeline.
+    // First call + zero-duration tweens land on hero before any hold elapses — no long camera tween.
     gsap.globalTimeline.time(0.01);
+    expect(steps).toEqual(["hero"]);
+    expect(cameraPosition.x).toBe(hero.position[0]);
+    expect(cameraPosition.y).toBe(hero.position[1]);
+    expect(cameraPosition.z).toBe(hero.position[2]);
+
+    // Instant cuts still keep per-scene holds so each onStep is a distinct beat for SR (#71).
+    // Three holds at 0.55s plus zero-duration tweens finish well under 2s.
+    gsap.globalTimeline.time(2);
     expect(steps).toEqual(["hero", "wheels", "interior"]);
     expect(completes).toBe(1);
     expect(cameraPosition.x).toBe(interior.position[0]);

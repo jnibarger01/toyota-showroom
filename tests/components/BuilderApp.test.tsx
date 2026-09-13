@@ -335,16 +335,34 @@ describe("BuilderApp", () => {
 
     const toggle = await screen.findByTestId("cinematic-tour-toggle");
     expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveAccessibleName(/play cinematic tour/i);
     expect(toggle).toHaveTextContent(/Tour/i);
 
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(toggle).toHaveAccessibleName(/pause cinematic tour/i);
     expect(toggle).toHaveTextContent(/Pause/i);
     expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("wheels");
 
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).toHaveTextContent(/Resume/i));
     expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveAccessibleName(/resume cinematic tour/i);
+  });
+
+  it("announces cinematic tour scene names in a live region distinct from selection announcements", async () => {
+    await renderBuilderReady();
+
+    const tourRegion = screen.getByTestId("tour-scene-announcement");
+    const selectionRegion = screen.getByTestId("selection-announcement");
+    expect(tourRegion).toHaveAttribute("aria-live", "polite");
+    expect(tourRegion).toHaveTextContent("");
+    expect(selectionRegion).toHaveTextContent("");
+
+    fireEvent.click(await screen.findByTestId("cinematic-tour-toggle"));
+    await waitFor(() => expect(tourRegion).toHaveTextContent("Tour scene: Wheels."));
+    // Selection region must stay untouched — #71 and #51 are separate channels.
+    expect(selectionRegion).toHaveTextContent("");
   });
 
   it("announces a selection change in the polite live region", async () => {
