@@ -638,3 +638,23 @@ button { font: inherit; color: inherit; }
 .paint-micro-controls label span { color: #84909d; font-variant-numeric: tabular-nums; }
 .paint-micro-controls input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: #c45c5c; }
 .paint-micro-controls input[type="color"] { width: 42px; height: 28px; border: 1px solid #343d48; border-radius: 6px; background: transparent; padding: 0; }
+
+.garage-share-toast,
+.compare-share-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+.garage-share-toast {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #eb0a1e) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #eb0a1e) 35%, transparent);
+  font-size: 13px;
+}
+.garage-share-toast button,
+.compare-share-row button {
+  margin-left: auto;
+}
