@@ -753,9 +753,12 @@ runs `npx playwright install --with-deps chromium` for a browser matching its ow
 that CI browser renders meaningfully differently from the sandbox's older one, the very first CI
 run of this workflow may fail on a difference that reflects the browser build, not a real
 regression. The fix, if that happens, is exactly what it would be for any future legitimate visual
-change: `npm run test:e2e:update` (after `npm run build`) and commit the regenerated PNGs under
-`tests/e2e/visual.spec.ts-snapshots/` — ideally run once, in CI itself or an environment with real
-Playwright browser access, rather than assumed away.
+change: regenerate Linux Chromium baselines with the one-command flow in CONTRIBUTING.md
+(`npm run build && npm run test:e2e:update-visual`), or label the PR
+`update-snapshots` so `.github/workflows/update-visual-snapshots.yml` refreshes them on
+`ubuntu-latest` and pushes to the branch — ideally not from macOS/Windows, where font hinting
+alone produces diffs. Known visual flakes are tracked in `tests/e2e/visual-quarantine.json`
+(owner issue required; exit after `stablePassThreshold` consecutive green e2e runs on `main`).
 
 ### Build-and-restore E2E test (`tests/e2e/build-and-restore.spec.ts`)
 

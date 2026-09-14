@@ -62,6 +62,7 @@ npm test        # unit tests (vitest)
 npm run typecheck
 npm run build
 npm run test:e2e   # Playwright against dist/client under /toyota-showroom/
+npm run test:e2e:update-visual  # refresh Linux Chromium visual baselines (see CONTRIBUTING.md)
 npm run test:a11y  # axe-core serious/critical gate (explore/compare/builder/garage)
 npm run test:perf  # Lighthouse + entry gzip budget on builder route
 ```
