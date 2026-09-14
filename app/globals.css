@@ -630,6 +630,35 @@ button { font: inherit; color: inherit; }
 .canvas-fallback-title { margin: 0; font-size: 13px; font-weight: 600; }
 .canvas-fallback-body { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
 
+/*
+ * Asset-path empty/error (#75). Overlays the live stage without replacing it (unlike
+ * `.canvas-fallback`, which is the React error-boundary stand-in). `pointer-events: none` on the
+ * shell keeps orbit and builder chrome usable; only the notice card captures clicks (Retry).
+ */
+.canvas-model-status {
+  position: absolute; inset: 0 0 84px; z-index: 2;
+  display: grid; place-items: center;
+  pointer-events: none;
+}
+/* Empty is expected (no authored GLB); keep it out of the vehicle's silhouette. */
+.canvas-model-status--empty {
+  place-items: end center;
+  padding-bottom: 12px;
+}
+.canvas-model-status-notice {
+  pointer-events: auto;
+  display: flex; align-items: center; gap: 12px;
+  max-width: 460px; margin: 16px; padding: 12px 14px;
+  border: 1px solid #2a323d; border-radius: 10px;
+  background: rgba(11, 15, 20, 0.92); color: #e6ebf2;
+}
+.canvas-model-status--error .canvas-model-status-notice { border-color: #3a2b2e; }
+.canvas-model-status-title { margin: 0; font-size: 13px; font-weight: 600; }
+.canvas-model-status-body { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.canvas-model-status-notice > button.ghost {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px;
+}
+
 /* Route-level error and 404 pages. */
 .route-error {
   min-height: 100vh; display: grid; place-content: center; justify-items: center;
