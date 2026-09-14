@@ -48,6 +48,38 @@ export interface CameraControllerState {
 export const KEYBOARD_ORBIT_STEP_RADIANS = 0.12;
 export const KEYBOARD_ZOOM_STEP = 0.6;
 
+/** OrbitControls desktop defaults — kept explicit so a three upgrade cannot silently change feel. */
+export const DESKTOP_DAMPING_FACTOR = 0.05;
+export const DESKTOP_ROTATE_SPEED = 1.0;
+export const DESKTOP_ZOOM_SPEED = 1.0;
+
+/**
+ * Mobile inertia / gesture speeds.
+ *
+ * Touch deltas are larger and more abrupt than mouse deltas. The stock `dampingFactor` of 0.05
+ * leaves the vehicle coasting for too long after a finger lifts, which reads as lag rather than
+ * weight on a phone. A higher factor settles sooner while still keeping a short inertia tail.
+ * Slightly lower rotate/zoom speeds compensate for the larger per-frame touch deltas so one-finger
+ * orbit and two-finger pinch feel comparable to desktop mouse drag / wheel.
+ */
+export const MOBILE_DAMPING_FACTOR = 0.1;
+export const MOBILE_ROTATE_SPEED = 0.85;
+export const MOBILE_ZOOM_SPEED = 0.9;
+
+/**
+ * Primary pointing device is a finger (phones / tablets). Prefer `(pointer: coarse)` over UA
+ * sniffing; fall back to `maxTouchPoints` only when matchMedia is unavailable (older tests).
+ */
+export function prefersCoarsePointer(): boolean {
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
+    return window.matchMedia("(pointer: coarse)").matches;
+  }
+  if (typeof navigator !== "undefined") {
+    return (navigator.maxTouchPoints ?? 0) > 1;
+  }
+  return false;
+}
+
 export class CameraController {
   readonly camera: THREE.PerspectiveCamera;
   readonly controls: OrbitControls;
@@ -89,6 +121,17 @@ export class CameraController {
      * floor plane.
      */
     this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+
+    /*
+     * Inertia / speed tuned for the primary pointer. Coarse (touch) devices get a snappier
+     * dampingFactor and slightly gentler rotate/zoom speeds — see MOBILE_* constants above.
+     * Reduced-motion already disabled damping entirely; the factor is still set so a later
+     * preference flip mid-session (rare) would resume with the right feel.
+     */
+    const coarse = prefersCoarsePointer();
+    this.controls.dampingFactor = coarse ? MOBILE_DAMPING_FACTOR : DESKTOP_DAMPING_FACTOR;
+    this.controls.rotateSpeed = coarse ? MOBILE_ROTATE_SPEED : DESKTOP_ROTATE_SPEED;
+    this.controls.zoomSpeed = coarse ? MOBILE_ZOOM_SPEED : DESKTOP_ZOOM_SPEED;
 
     this.controls.target.set(...options.initialPreset.target);
     this.controls.autoRotate = false;
