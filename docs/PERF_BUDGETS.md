@@ -98,9 +98,11 @@ Budget, enforced by construction rather than by a number:
 
 ## XR (immersive AR)
 
-`lib/three/xrSession.ts` owns `immersive-ar` session lifecycle only. The control appears in the
-builder chrome solely where `navigator.xr.isSessionSupported("immersive-ar")` resolves true, so on
-every desktop browser and on iOS today it is absent rather than present-and-failing.
+`lib/three/xrSession.ts` owns `immersive-ar` session lifecycle only. The builder always exposes the
+AR control: when `navigator.xr.isSessionSupported("immersive-ar")` is false (desktop browsers, iOS
+Safari today, insecure contexts) the control stays disabled and `lib/three/xrCapability.ts` supplies
+the unsupported-device message. Enter and exit both come from that one control so phone browsers that
+keep page chrome visible while presenting can leave AR without hunting for a system button.
 
 The load-bearing detail is frame pacing. `RenderController` normally drives its own
 `requestAnimationFrame` chain, which **cannot** pace an XR device: those frames come from the
@@ -115,11 +117,15 @@ The cinematic tour already takes the controls the same way.
 Idle suspension does not apply while presenting: an `IntersectionObserver` on the page canvas says
 nothing about what the headset is showing.
 
-**Not verified on hardware.** The session lifecycle is unit-tested against a stubbed `navigator.xr`
-(ordering of the renderer handover, declined permission, device-initiated exit, unmount during the
-permission prompt). Whether AR *looks* correct on a phone is not something any test here can claim.
-No hit-testing or placement UI: `local-floor` puts the vehicle on the viewer's real floor, which is
-enough to walk around it.
+**Not verified on hardware / no device e2e in CI.** The session lifecycle is unit-tested against a
+stubbed `navigator.xr` (ordering of the renderer handover, declined permission, device-initiated
+exit, unmount during the permission prompt). Builder chrome coverage pins enter/exit wiring and
+unsupported messaging via a mocked `VehicleCanvas` — Playwright CI has no WebXR runtime, so a
+device-only e2e would be flaky and is intentionally omitted. Whether AR *looks* correct on a phone
+is not something any test here can claim. No hit-testing or placement UI: `local-floor` puts the
+vehicle on the viewer's real floor, which is enough to walk around it. Configured paint, wheels, and
+accessories are the same `VehicleSceneController` scene the desktop path already paints — XR does
+not fork materials.
 
 ## Client bundle budgets
 

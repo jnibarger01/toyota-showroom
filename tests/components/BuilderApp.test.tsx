@@ -16,7 +16,7 @@ import { estimateBuildTotal, estimateMonthlyPayment, resolveGradeMsrp } from "..
  * what BuilderApp itself is responsible for: bootstrapping, the grade selector (Task 6), and wiring
  * the catalog to CustomizationButton.
  */
-const { fakeController } = vi.hoisted(() => ({
+const { fakeController, canvasXr } = vi.hoisted(() => ({
   fakeController: {
     applyOption: async () => true,
     removeOption: async () => true,
@@ -30,6 +30,8 @@ const { fakeController } = vi.hoisted(() => ({
     selectedPartId: undefined as string | undefined,
     getPart: (id: string) => ({ id, type: "wheel", label: "Front-left wheel", capabilities: ["selectable"] }),
   },
+  /** Stub WebXR capability for builder chrome tests (#16). jsdom has no navigator.xr. */
+  canvasXr: { supported: false as boolean },
 }));
 
 vi.mock("../../app/components/VehicleCanvas", () => ({
@@ -40,9 +42,15 @@ vi.mock("../../app/components/VehicleCanvas", () => ({
     onTourStatusChange?: (status: "idle" | "playing" | "paused") => void;
     onTourStep?: (preset: { id: string; label: string; position: [number, number, number]; target: [number, number, number] }) => void;
     onPartSelect?: (part: { id: string; type: string; label: string; capabilities: string[] } | undefined) => void;
+    enterXrSignal?: number;
+    exitXrSignal?: number;
+    onXrSupported?: (supported: boolean) => void;
+    onXrPresentingChange?: (presenting: boolean) => void;
+    onXrError?: (message: string) => void;
   }) => {
     useEffect(() => {
       props.onReady(fakeController, props.catalog);
+      props.onXrSupported?.(canvasXr.supported);
       // Deliberately once: BuilderApp's own contract is that the base model is not reloaded for
       // option/lift/camera changes (see docs/INTEGRATION_GUIDE.md's acceptance criteria table,
       // #9) — re-firing onReady on every prop change would silently mask a regression there.
@@ -66,6 +74,16 @@ vi.mock("../../app/components/VehicleCanvas", () => ({
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps -- stub mirrors tourAction only
     }, [props.tourAction]);
+    useEffect(() => {
+      if (props.enterXrSignal === undefined || props.enterXrSignal === 0) return;
+      props.onXrPresentingChange?.(true);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- stub mirrors enterXrSignal only
+    }, [props.enterXrSignal]);
+    useEffect(() => {
+      if (props.exitXrSignal === undefined || props.exitXrSignal === 0) return;
+      props.onXrPresentingChange?.(false);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- stub mirrors exitXrSignal only
+    }, [props.exitXrSignal]);
     return (
       <div data-testid="vehicle-canvas">
         {/* Stands in for a real pointer/keyboard click in VehicleCanvas: sets both halves a real
@@ -155,6 +173,7 @@ beforeEach(() => {
   window.localStorage.clear();
   configurationStore.reset();
   fakeController.selectedPartId = undefined; // fakeController is hoisted/shared across tests
+  canvasXr.supported = false;
 });
 
 afterEach(() => {
@@ -433,5 +452,34 @@ describe("BuilderApp", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByTestId("keyboard-shortcut-sheet")).toBeNull());
+  });
+
+  it("shows graceful unsupported-device messaging when WebXR immersive-ar is unavailable", async () => {
+    canvasXr.supported = false;
+    await renderBuilderReady();
+
+    const control = await screen.findByTestId("xr-walkaround");
+    expect(control).toBeDisabled();
+    expect(control).toHaveAccessibleName(/view in ar/i);
+    expect(await screen.findByTestId("xr-unsupported-message")).toHaveTextContent(
+      /not available on this device or browser/i,
+    );
+  });
+
+  it("enters and exits XR from the builder when the device reports support", async () => {
+    canvasXr.supported = true;
+    await renderBuilderReady();
+
+    const control = await screen.findByTestId("xr-walkaround");
+    await waitFor(() => expect(control).not.toBeDisabled());
+    expect(screen.queryByTestId("xr-unsupported-message")).toBeNull();
+
+    fireEvent.click(control);
+    await waitFor(() => expect(control).toHaveAttribute("aria-pressed", "true"));
+    expect(control).toHaveAccessibleName(/exit ar/i);
+
+    fireEvent.click(control);
+    await waitFor(() => expect(control).toHaveAttribute("aria-pressed", "false"));
+    expect(control).toHaveAccessibleName(/view in ar/i);
   });
 });

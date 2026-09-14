@@ -51,6 +51,12 @@ import {
   BUILDER_SHORTCUT_SHEET,
   resolveBuilderShortcut,
 } from "../../lib/showroom/builderShortcuts";
+import {
+  describeXrCapability,
+  xrControlEnabled,
+  xrControlLabel,
+  type XrCapability,
+} from "../../lib/three/xrCapability";
 import { PersistenceModeBanner } from "./PersistenceModeBanner";
 import { OwnerTokenDialog } from "./OwnerTokenDialog";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
@@ -170,9 +176,16 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [resetViewSignal, setResetViewSignal] = useState(0);
   /** Bumped to request an immersive-AR session. See `VehicleCanvas.enterXrSignal`. */
   const [enterXrSignal, setEnterXrSignal] = useState(0);
-  /** Stays false on every device without AR, so the control is absent rather than present-and-broken. */
-  const [xrSupported, setXrSupported] = useState(false);
+  /** Bumped to end the session from the builder chrome. See `VehicleCanvas.exitXrSignal`. */
+  const [exitXrSignal, setExitXrSignal] = useState(0);
+  /**
+   * Starts `pending` so we do not flash "unsupported" before the canvas has asked `navigator.xr`.
+   * `supported` / `unsupported` arrive from `VehicleCanvas.onXrSupported` once the vehicle settles.
+   */
+  const [xrCapability, setXrCapability] = useState<XrCapability>("pending");
   const [xrPresenting, setXrPresenting] = useState(false);
+  /** XR permission / start failures — kept off `loadError` so a declined camera prompt is dismissible noise, not a broken build. */
+  const [xrError, setXrError] = useState<string | null>(null);
   /** Mirrors the renderer's stored preference; `VehicleCanvas` reports the real value on mount. */
   const [qualityPreference, setQualityPreference] = useState<QualityPreference>("auto");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -382,6 +395,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       : cinematicTourStatus === "paused"
         ? "Resume cinematic tour"
         : "Play cinematic tour";
+
+  const xrEnabled = xrControlEnabled(xrCapability);
+  const xrLabel = xrControlLabel(xrPresenting);
+  const xrCapabilityMessage = describeXrCapability(xrCapability);
+  const xrTitle = xrCapabilityMessage ?? xrLabel;
 
   const handleTourStep = useCallback((next: CameraPreset) => {
     setPreset(next);
@@ -837,6 +855,29 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </div>
       ) : null}
 
+      {xrError ? (
+        <div className="config-error" role="status" data-testid="xr-error">
+          <AlertTriangle size={15} aria-hidden />
+          <span>{xrError}</span>
+          <button type="button" onClick={() => setXrError(null)}>Dismiss</button>
+        </div>
+      ) : null}
+
+      {/*
+        Visible only when AR is unavailable: the control stays in the toolbar (disabled) so shoppers
+        can find it, and this status explains why a tap does nothing. Hidden while pending/supported
+        so desktop WebGPU/WebGL viewers are not nagged by a permanent banner.
+      */}
+      {xrCapability === "unsupported" ? (
+        <p className="xr-capability-status" id="xr-capability-status" role="status" data-testid="xr-unsupported-message">
+          {xrCapabilityMessage}
+        </p>
+      ) : (
+        <span className="sr-only" id="xr-capability-status">
+          {xrCapabilityMessage ?? ""}
+        </span>
+      )}
+
       <PersistenceModeBanner mode={persistenceMode} />
 
       {ownerTokenReveal ? (
@@ -1000,18 +1041,23 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               >
                 <RotateCcw size={17} />
               </button>
-              {xrSupported ? (
-                <button
-                  type="button"
-                  data-testid="enter-xr"
-                  title="View in AR"
-                  aria-label="View in AR"
-                  disabled={xrPresenting}
-                  onClick={() => setEnterXrSignal((value) => value + 1)}
-                >
-                  <Move3d size={17} />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                data-testid="xr-walkaround"
+                title={xrTitle}
+                aria-label={xrLabel}
+                aria-describedby={xrCapabilityMessage ? "xr-capability-status" : undefined}
+                aria-pressed={xrPresenting}
+                disabled={!xrEnabled}
+                onClick={() => {
+                  if (!xrEnabled) return;
+                  setXrError(null);
+                  if (xrPresenting) setExitXrSignal((value) => value + 1);
+                  else setEnterXrSignal((value) => value + 1);
+                }}
+              >
+                <Move3d size={17} aria-hidden />
+              </button>
               <button title="Zoom"><ZoomIn size={17} /></button>
               {/*
                 * A native <select> rather than an icon button opening a popover. It is keyboard
@@ -1071,8 +1117,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               hdriPresetId={configuration?.paintStudio?.hdriPresetId}
               resetViewSignal={resetViewSignal}
               enterXrSignal={enterXrSignal}
-              onXrSupported={setXrSupported}
+              exitXrSignal={exitXrSignal}
+              onXrSupported={(supported) => setXrCapability(supported ? "supported" : "unsupported")}
               onXrPresentingChange={setXrPresenting}
+              onXrError={setXrError}
               qualityPreference={qualityPreference}
               onQualityPreferenceLoaded={setQualityPreference}
               onReady={handleSceneReady}
