@@ -23,6 +23,15 @@ export function absolutePageUrl(segment: string = ""): string {
   return trimmed ? `${SITE_URL}/${trimmed}/` : `${SITE_URL}/`;
 }
 
+/**
+ * Absolute URL for a root-relative public asset (`/images/…`, `/renders/…`).
+ * OG/Twitter crawlers need a fully qualified image URL under the Pages base (#41).
+ */
+export function absoluteAssetUrl(rootRelativePath: string): string {
+  const path = rootRelativePath.startsWith("/") ? rootRelativePath : `/${rootRelativePath}`;
+  return `${SITE_URL}${path}`;
+}
+
 /** Explore + every catalog vehicle — the Pages sitemap surface for #78. */
 export function buildPagesSitemapEntries(): MetadataRoute.Sitemap {
   const explore: MetadataRoute.Sitemap[number] = {

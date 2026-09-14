@@ -78,6 +78,17 @@ Pages export those routes do not exist, so the client detects their absence once
 the Worker (`lib/validation/configuration.ts`). Share on Pages always prefers deep links so a build
 can travel without D1.
 
+### Social preview (Open Graph)
+
+Shared builder links should unfurl as a vehicle card, not a blank app tab:
+
+| Surface | Share URL | Unfurl content |
+|---|---|---|
+| **GitHub Pages** | `/[slug]/?c=…` | Static vehicle OG (title + hero still) baked into HTML |
+| **Cloudflare Worker** | `/api/v1/share-card?slug=&c=` (copied by Share when Worker mode is detected) | Grade + paint + wheels from the deep-link payload; browsers 302 to the builder |
+
+See `docs/INTEGRATION_GUIDE.md` §4 "Open Graph + social preview" and `lib/showroom/openGraph.ts`.
+
 ### Promote to production persistence
 See docs/DEPLOYMENT_RUNBOOK.md for the full promote path.
 Short version: migrate remote D1, deploy the Worker, verify health, reload the builder so the demo banner clears.

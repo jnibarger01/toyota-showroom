@@ -3,6 +3,7 @@ import { BuilderApp } from "../components/BuilderApp";
 import { PremiumViewerControls } from "../components/PremiumViewerControls";
 import { getAllVehicleSlugs, getVehicleBySlug } from "../../lib/data/vehicles";
 import { absolutePageUrl } from "../../lib/site";
+import { buildSharePreview, sharePreviewToMetadata } from "../../lib/showroom/openGraph";
 
 export const dynamic = "force-static";
 
@@ -18,8 +19,18 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const vehicle = getVehicleBySlug(slug);
+  if (!vehicle) {
+    return {
+      title: "Toyota Showroom",
+      alternates: { canonical: absolutePageUrl(slug) },
+    };
+  }
+
+  // Static export cannot read `?c=` at request time — vehicle-level OG (hero still + model copy)
+  // is baked here. Worker share-card (#41) supplies grade/paint/wheels for crawler unfurls.
+  const preview = buildSharePreview({ vehicle });
   return {
-    title: vehicle ? `${vehicle.year} ${vehicle.model} | Toyota Showroom` : "Toyota Showroom",
+    ...sharePreviewToMetadata(preview),
     alternates: {
       canonical: absolutePageUrl(slug),
     },

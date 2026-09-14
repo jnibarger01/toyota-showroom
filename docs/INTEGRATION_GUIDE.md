@@ -651,6 +651,30 @@ Reading a configuration by id has never required the owner token (§5's "Ownersh
 visitor view and then freely re-customize the build in their own session, but never overwrites the
 original unless they also hold its owner token.
 
+### Open Graph + social preview (`lib/showroom/openGraph.ts`, #41)
+
+Shareable `?c=…` deep links (#15) restore a build, but crawlers (Slack, iMessage, Twitter/X) only
+see whatever Open Graph / Twitter meta tags the **first HTML response** carries — they do not run
+the WebGPU builder.
+
+**Pages (static export).** Each `/[slug]/` page bakes vehicle-level OG tags at build time via
+`generateMetadata` → `buildSharePreview(vehicle)`: title like `2024 4Runner | Toyota Showroom`, a
+short configure blurb, and `og:image` pointing at the catalog hero still
+(`absoluteAssetUrl(vehicle.media.hero.url)` under the Pages base). Home and Explore use the
+fallback card (`buildFallbackSharePreview`). Query-string `?c=` cannot change those static tags —
+GitHub Pages has no request-time HTML rewriter — so a Pages deep link unfurls as the **vehicle**
+card (not a blank generic tab), not the per-build grade/paint/wheels line.
+
+**Worker (production).** `GET /api/v1/share-card?slug=&c=` (`force-dynamic`) validates the deep
+link with the same catalog rules as saved configs, then:
+
+- Social crawler UA → `200` HTML with `og:title` / `og:description` / `og:image` from
+  `buildSharePreview({ vehicle, deepLink })` (grade + paint + wheels labels from the catalog).
+- Browser UA → `302` to `/[slug]/?c=…` so the visitor lands in the live builder.
+
+`BuilderApp.share()` copies the share-card URL when `persistenceMode === "worker"`, and the plain
+deep link otherwise. Unit coverage: `tests/openGraph.test.ts`.
+
 ### Component tests (`tests/components/*.test.tsx`)
 
 Every prior test in this project imports plain library modules under Node — none render a

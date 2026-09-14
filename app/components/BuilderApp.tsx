@@ -86,6 +86,7 @@ import {
   readBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
+import { createShareCardUrl } from "../../lib/showroom/openGraph";
 import { pinConfigurationToGarage } from "../../lib/showroom/garage";
 import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/paintStudio";
 import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/showroom/paintStudioHistory";
@@ -688,19 +689,24 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const share = useCallback(async () => {
     if (!configuration) return;
-    // Encode selections + camera into `?c=…` so the link restores without a D1/localStorage id.
-    const url = createBuildDeepLinkUrl(window.location.origin, window.location.pathname, {
+    const deepLinkInput = {
       gradeId: configuration.gradeId,
       selections: configuration.selections,
       cameraState: configuration.cameraState,
       paintStudio: configuration.paintStudio,
-    });
+    };
+    // Worker: share-card URL so Slack/iMessage/Twitter unfurl grade + paint + wheels (#41).
+    // Pages / local: plain `?c=…` deep link — static vehicle OG is already on `/[slug]/`.
+    const url =
+      persistenceMode === "worker"
+        ? createShareCardUrl(window.location.origin, import.meta.env.BASE_URL, vehicleSlug, deepLinkInput)
+        : createBuildDeepLinkUrl(window.location.origin, window.location.pathname, deepLinkInput);
     try {
       await navigator.clipboard.writeText(url);
       setGarageMessage(
         isLocalPersistence
           ? "Share link copied — deep link restores this build without cloud save"
-          : "Share link copied to clipboard",
+          : "Share link copied — preview shows this build's options",
       );
     } catch {
       // Set feedback before prompt: headless / permission-denied environments can hang on
@@ -716,7 +722,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         /* ignore non-interactive prompt failures */
       }
     }
-  }, [configuration, isLocalPersistence]);
+  }, [configuration, isLocalPersistence, persistenceMode, vehicleSlug]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
