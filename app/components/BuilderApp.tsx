@@ -76,7 +76,8 @@ import {
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
 import { pinConfigurationToGarage } from "../../lib/showroom/garage";
-import { PAINT_CUSTOM_OPTION_ID } from "../../lib/data/paintStudio";
+import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/paintStudio";
+import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/showroom/paintStudioHistory";
 
 /**
  * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
@@ -179,6 +180,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const searchRef = useRef<HTMLInputElement>(null);
   const undoStack = useRef<SelectionMap[]>([]);
   const redoStack = useRef<SelectionMap[]>([]);
+  /** Paint Studio undo/redo (#73) — distinct from selection-map stacks above. */
+  const paintHistoryRef = useRef(new PaintStudioHistory());
+  /** Which stack Ctrl/⌘Z should drive after the last committed change. */
+  const historyOwnerRef = useRef<"builder" | "paint">("builder");
 
   /**
    * Main-asset download progress, 0..1, or null when the size is unknown.
@@ -487,23 +492,102 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     [financedPrincipal, apr, termMonths],
   );
 
+  const syncHistoryAvailability = useCallback(() => {
+    const owner = historyOwnerRef.current;
+    if (owner === "paint") {
+      setHistoryAvailability({
+        canUndo: paintHistoryRef.current.canUndo,
+        canRedo: paintHistoryRef.current.canRedo,
+      });
+      return;
+    }
+    setHistoryAvailability({
+      canUndo: undoStack.current.length > 0,
+      canRedo: redoStack.current.length > 0,
+    });
+  }, []);
+
   const rememberHistory = useCallback(() => {
     if (!configuration) return;
     undoStack.current.push(structuredClone(configuration.selections));
     redoStack.current = [];
+    historyOwnerRef.current = "builder";
     setHistoryAvailability({ canUndo: true, canRedo: false });
   }, [configuration]);
 
+  const paintSnapshot = useCallback((): PaintStudioHistoryEntry | null => {
+    if (!configuration) return null;
+    return {
+      paintOptionId: (configuration.selections.paint ?? [])[0],
+      paintStudio: configuration.paintStudio
+        ? structuredClone(configuration.paintStudio)
+        : undefined,
+    };
+  }, [configuration]);
+
+  /** Push pre-change paint-custom / OEM option id + paintStudio. Session-local only. */
+  const rememberPaintHistory = useCallback(() => {
+    const snapshot = paintSnapshot();
+    if (!snapshot) return;
+    paintHistoryRef.current.push(snapshot);
+    historyOwnerRef.current = "paint";
+    setHistoryAvailability({ canUndo: paintHistoryRef.current.canUndo, canRedo: false });
+  }, [paintSnapshot]);
+
+  const restorePaintHistory = useCallback(
+    async (direction: "undo" | "redo"): Promise<boolean> => {
+      if (!configuration) return false;
+      const current = paintSnapshot();
+      if (!current) return false;
+      const entry =
+        direction === "undo"
+          ? paintHistoryRef.current.undo(current)
+          : paintHistoryRef.current.redo(current);
+      if (!entry) return false;
+
+      const currentSelections = configuration.selections;
+      const selections = {
+        ...currentSelections,
+        paint: entry.paintOptionId ? [entry.paintOptionId] : [],
+      };
+      const paintStudio = entry.paintStudio ?? defaultPaintStudioOem();
+      await configurationStore.setPaintStudio(paintStudio, selections);
+      syncHistoryAvailability();
+      return true;
+    },
+    [configuration, paintSnapshot, syncHistoryAvailability],
+  );
+
   const restoreHistory = useCallback(async (direction: "undo" | "redo") => {
     if (!configuration) return;
+
+    if (historyOwnerRef.current === "paint") {
+      const restored = await restorePaintHistory(direction);
+      if (restored) return;
+      // Exhausted paint stack for this direction — fall back to builder selection undo.
+      if (direction === "undo" && undoStack.current.length === 0) {
+        syncHistoryAvailability();
+        return;
+      }
+      if (direction === "redo" && redoStack.current.length === 0) {
+        syncHistoryAvailability();
+        return;
+      }
+      historyOwnerRef.current = "builder";
+    }
+
     const source = direction === "undo" ? undoStack.current : redoStack.current;
     const target = direction === "undo" ? redoStack.current : undoStack.current;
     const selections = source.pop();
-    if (!selections) return;
+    if (!selections) {
+      syncHistoryAvailability();
+      return;
+    }
     target.push(structuredClone(configuration.selections));
+    historyOwnerRef.current = "builder";
     setHistoryAvailability({ canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 });
     await configurationStore.replaceSelections(selections);
-  }, [configuration]);
+  }, [configuration, restorePaintHistory, syncHistoryAvailability]);
 
   const surpriseMe = useCallback(async () => {
     if (!configuration) return;
@@ -570,6 +654,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     setPreset(bootstrap.vehicle.threeDConfig.cameraPresets[0] ?? null);
     undoStack.current = [];
     redoStack.current = [];
+    paintHistoryRef.current.clear();
+    historyOwnerRef.current = "builder";
     setHistoryAvailability({ canUndo: false, canRedo: false });
   };
 
@@ -988,7 +1074,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               )}
               selectedPaintId={(configuration?.selections.paint ?? [])[0]}
               catalog={catalog}
-              onBeforeChange={rememberHistory}
+              onBeforeChange={rememberPaintHistory}
             />
           ) : null}
 
@@ -1020,7 +1106,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                     key={option.id}
                     option={option}
                     variant={SWATCH_CATEGORIES.has(category) ? "swatch" : "chip"}
-                    onBeforeSelect={rememberHistory}
+                    onBeforeSelect={category === "paint" ? rememberPaintHistory : rememberHistory}
                   />
                 ))}
               </div>
