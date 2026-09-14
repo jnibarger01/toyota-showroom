@@ -79,6 +79,32 @@ Pages export those routes do not exist, so the client detects their absence once
 the Worker (`lib/validation/configuration.ts`). Share on Pages always prefers deep links so a build
 can travel without D1.
 
+### Share / save funnel telemetry
+
+Client funnel events reuse `lib/observability/clientMetrics.ts` (same buffer + `sendBeacon` /
+console sink as renderer metrics). Stable names (no PII in payloads):
+
+| Event | When | Labels (fixed cardinality) |
+|---|---|---|
+| `build_started` | Builder session hydrates (once) | `source`: `fresh` \| `resume` \| `deep_link` |
+| `option_changed` | Catalog option toggled | `category` (e.g. `paint`) |
+| `share_copied` | Share link handed to clipboard/prompt | `link_kind`, `method` |
+| `deep_link_restored` | `?c=…` restored a build (once) | — |
+| `save_succeeded` / `save_failed` | Configuration persist flush | `surface` / `reason` |
+| `persistence_mode` | Mode latches (once) | `mode`: `worker` \| `local` |
+
+**How to read them**
+
+- **Local / no collector:** open DevTools → Console. On tab hide / `pagehide`, look for
+  `[metrics]` JSON (`flushMetrics`). Filter for the names above. Unit tests assert names and
+  payload shape in `tests/funnelTelemetry.test.ts`.
+- **Staging / production:** set `VITE_METRICS_URL` at build time to your collector (Vercel
+  Analytics ingest, Cloudflare Worker log endpoint, or any HTTPS JSON receiver). Batches POST via
+  `navigator.sendBeacon` as `{ metrics, at }`. Without that env var the sink stays console — honest
+  default when no backend is wired.
+- Helpers live in `lib/observability/funnelTelemetry.ts`; do not import vendor SDKs into the
+  BuilderApp chunk for this funnel.
+
 ### Social preview (Open Graph)
 
 Shared builder links should unfurl as a vehicle card, not a blank app tab:

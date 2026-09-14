@@ -90,6 +90,11 @@ import {
 } from "../../lib/showroom/deepLink";
 import { createShareCardUrl } from "../../lib/showroom/openGraph";
 import { pinConfigurationToGarage } from "../../lib/showroom/garage";
+import {
+  trackBuildStarted,
+  trackDeepLinkRestored,
+  trackShareCopied,
+} from "../../lib/observability/funnelTelemetry";
 import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/paintStudio";
 import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/showroom/paintStudioHistory";
 
@@ -324,10 +329,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         // `VehicleCanvas` for node-contract verification, so the scene controller it builds knows
         // about every option this GLB can satisfy across every grade — required for `changeGrade`
         // below to switch grades without reloading the model.
-        const [options, configuration] = await Promise.all([
+        const [options, resumed] = await Promise.all([
           configurationsApi.listVehicleOptions(vehicleSlug),
           resumeOrCreateConfiguration(vehicle, gradeId),
         ]);
+        const { configuration, source } = resumed;
 
         if (cancelled) return;
 
@@ -337,6 +343,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         // and narrow to mesh-verified options.
         const forGrade = options.filter((option) => isOptionAvailableForGrade(option, configuration.gradeId));
         configurationStore.hydrate(configuration, forGrade);
+        trackBuildStarted({ source });
 
         setBootstrap({ vehicle, catalog: options, configuration });
         setPreset(presetForConfiguration(vehicle, configuration));
@@ -780,12 +787,14 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     };
     // Worker: share-card URL so Slack/iMessage/Twitter unfurl grade + paint + wheels (#41).
     // Pages / local: plain `?c=…` deep link — static vehicle OG is already on `/[slug]/`.
+    const linkKind = persistenceMode === "worker" ? "share_card" : "deep_link";
     const url =
-      persistenceMode === "worker"
+      linkKind === "share_card"
         ? createShareCardUrl(window.location.origin, import.meta.env.BASE_URL, vehicleSlug, deepLinkInput)
         : createBuildDeepLinkUrl(window.location.origin, window.location.pathname, deepLinkInput);
     try {
       await navigator.clipboard.writeText(url);
+      trackShareCopied({ link_kind: linkKind, method: "clipboard" });
       setGarageMessage(
         isLocalPersistence
           ? "Share link copied — deep link restores this build without cloud save"
@@ -801,6 +810,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       );
       try {
         window.prompt("Copy this build link", url);
+        trackShareCopied({ link_kind: linkKind, method: "prompt" });
       } catch {
         /* ignore non-interactive prompt failures */
       }
@@ -1452,7 +1462,10 @@ function rememberConfigurationId(vehicleSlug: string, configurationId: string): 
  * than leaving the builder stuck on an error. The vehicle-id check also guards against a corrupted
  * or hand-edited storage value pointing at the wrong vehicle.
  */
-async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): Promise<VehicleConfiguration> {
+async function resumeOrCreateConfiguration(
+  vehicle: Vehicle,
+  gradeId: string,
+): Promise<{ configuration: VehicleConfiguration; source: "fresh" | "resume" | "deep_link" }> {
   // Deep-link `?c=…` wins over hash/localStorage: it carries selections + camera inline so Pages
   // and local static exports can restore a build without a durable configuration id.
   const deepLink = tryRestoreFromDeepLink(vehicle);
@@ -1466,7 +1479,8 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
       paintStudio: deepLink.paintStudio,
     });
     rememberConfigurationId(vehicle.slug, created.configurationId);
-    return created;
+    trackDeepLinkRestored();
+    return { configuration: created, source: "deep_link" };
   }
 
   const storedId = safeReadStoredId(vehicle.slug);
@@ -1474,7 +1488,7 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
   if (storedId) {
     try {
       const existing = await configurationsApi.getConfiguration(storedId);
-      if (existing.vehicleId === vehicle.slug) return existing;
+      if (existing.vehicleId === vehicle.slug) return { configuration: existing, source: "resume" };
     } catch {
       // Fall through to creating a new configuration.
     }
@@ -1486,7 +1500,7 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
     gradeId,
   });
   rememberConfigurationId(vehicle.slug, created.configurationId);
-  return created;
+  return { configuration: created, source: "fresh" };
 }
 
 /**

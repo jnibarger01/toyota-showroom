@@ -43,7 +43,15 @@ export type MetricName =
   | "model_loaded"
   | "first_frame"
   | "quality_changed"
-  | "environment_applied";
+  | "environment_applied"
+  // Share / save funnel (#46) — see lib/observability/funnelTelemetry.ts
+  | "build_started"
+  | "option_changed"
+  | "share_copied"
+  | "deep_link_restored"
+  | "save_succeeded"
+  | "save_failed"
+  | "persistence_mode";
 
 export interface Metric {
   name: MetricName;

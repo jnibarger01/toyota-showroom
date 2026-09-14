@@ -11,6 +11,12 @@ import type { PaintStudioState } from "../types/paintStudio";
 import { DEFAULT_HDRI_PRESET_ID, PAINT_CUSTOM_OPTION_ID } from "../data/paintStudio";
 import type { VehicleSceneController } from "../three/sceneController";
 import * as configurationsApi from "../api/configurations";
+import {
+  classifySaveFailure,
+  trackOptionChanged,
+  trackSaveFailed,
+  trackSaveSucceeded,
+} from "../observability/funnelTelemetry";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -147,6 +153,7 @@ export class ConfigurationStore {
     const pending = new Set(this.state.pending).add(option.id);
     this.setState({ configuration: next, pending, status: "saving", error: null });
     this.batchedOptionIds.add(option.id);
+    trackOptionChanged({ category: option.category });
 
     const applied = await this.applyToScene(option, !alreadyOn);
     if (applied) this.queueFlush();
@@ -280,6 +287,7 @@ export class ConfigurationStore {
           options,
         );
         this.lastPersisted = saved;
+        trackSaveSucceeded({ surface: "auto" });
 
         if (this.mutationVersion === sentVersion) {
           this.setState({
@@ -301,6 +309,7 @@ export class ConfigurationStore {
           this.flushRequested = true;
         }
       } catch (error) {
+        trackSaveFailed({ reason: classifySaveFailure(error) });
         await this.rollback(error instanceof Error ? error.message : String(error), batched);
         return;
       }
