@@ -1884,3 +1884,40 @@ reaching into component internals — both worse than the documented seam (`scen
 already returns the world-space bounding info a future camera controller would need).
 
 Budgets and acceptance notes: `docs/PERF_BUDGETS.md`.
+
+
+## 20. Mobile Touch Camera + Pinch-Zoom (#44)
+
+The configurator’s primary 3D gesture on phones and tablets is **one-finger orbit, two-finger
+pinch zoom**, with inertia that settles quickly enough to feel deliberate rather than laggy.
+Desktop mouse drag / wheel remain unchanged.
+
+### Runtime wiring
+
+| Concern | Where | Behaviour |
+| --- | --- | --- |
+| Touch → OrbitControls | `lib/three/cameraController.ts` | `touches.ONE = ROTATE`, `touches.TWO = DOLLY_PAN` (pinch zoom + two-finger pan; **not** `DOLLY_ROTATE`, which would twist the camera around the view axis and read as a bug on a vehicle sitting on a floor plane) |
+| Inertia / speeds | same | Fine pointer: `dampingFactor` 0.05, rotate/zoom speed 1.0. Coarse pointer (`(pointer: coarse)`): `dampingFactor` 0.1, rotate 0.85, zoom 0.9. `prefers-reduced-motion` still disables damping entirely. |
+| Page-scroll lock | `app/globals.css` | `.vehicle-canvas > canvas { touch-action: none }` so the browser does not claim one-finger drags for scrolling before OrbitControls sees `pointermove`. `overscroll-behavior: contain` blocks pull-to-refresh mid-orbit; `user-select: none` blocks text-selection fights. |
+| Reset affordance | Viewport “Recenter view” (`data-testid="recenter-view"`) + premium dock “Reset camera” | Pointer equivalent of the Home key. Cancels an in-flight cinematic tour first so GSAP cannot overwrite the snap. Named **Recenter**, not Reset, to avoid colliding with the build Reset control. |
+
+Picking / selection already ignores multi-touch and orbit drags (`VehicleCanvas` single-
+`activePointerId` + 6px drag threshold) so a pinch never selects a part.
+
+### Manual checklist (iOS Safari + Android Chrome)
+
+Run against a production or `npm run build` preview, not only desktop DevTools device mode:
+
+1. **One-finger orbit** — drag on the vehicle; the camera orbits; the page does **not** scroll / bounce.
+2. **Two-finger pinch** — pinch in/out zooms within the configured min/max distance; a two-finger twist does **not** roll the camera.
+3. **Inertia** — lift after a flick; the orbit coasts briefly then settles (snappier than desktop’s longer coast). With OS “Reduce Motion” on, coasting is off.
+4. **Overscroll** — orbit near the polar / distance limits without triggering pull-to-refresh.
+5. **Recenter** — orbit away, tap Recenter (or the dock Reset camera); camera snaps to the active preset; a running Tour cancels first.
+6. **Selection still works** — tap (not drag) a body panel still selects; a drag or pinch does not.
+
+### Automated coverage
+
+- `tests/cameraController.test.ts` — “touch mapping and mobile damping (#44)” asserts `touches` wiring and coarse vs fine damping/speeds.
+- `tests/mobileCameraTouch.test.ts` — CSS contract for `touch-action` / overscroll / user-select.
+- `tests/components/BuilderApp.test.tsx` — Recenter cancels tour and is not named “Reset”.
+- `tests/viewerControlBridge.test.ts` — dock “reset-camera” reaches `CameraController.resetToPreset`.
