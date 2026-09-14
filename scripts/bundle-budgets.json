@@ -15,6 +15,7 @@
   "link": 4096,
   "loader-circle": 1024,
   "page": 10240,
+  "PersistenceModeBanner": 1024,
   "PremiumViewerControls": 1024,
   "query": 1024,
   "rolldown-runtime": 1024,
