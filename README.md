@@ -133,7 +133,7 @@ readable PASS/FAIL table; a multi-second main-thread block in the shell fails TB
 Lazy 3D (`VehicleCanvas` / `.glb` / draco) is blocked during the Lighthouse run so metrics
 reflect the builder shell — full WebGPU under headless CI is not a stable signal — and is
 also excluded from the entry JS gzip sum. Chunk-level gzip gates remain in
-`npm run bundle:budget` (#43).
+`npm run bundle:budget` (#43) — route entry JS for `/`, `/explore`, `/4runner` plus per-chunk gzip gates; see `docs/PERF_BUDGETS.md`.
 
 ```bash
 npm run build

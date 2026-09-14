@@ -129,29 +129,35 @@ not fork materials.
 
 ## Client bundle budgets
 
-`scripts/bundle-budget.mjs` gates gzipped chunk sizes in `dist/client/assets` against
-`scripts/bundle-budgets.json`, run in CI after `npm run build`.
+`scripts/bundle-budget.mjs` gates client JS after `npm run build` (wired in `.github/workflows/ci.yml`).
+Two complementary checks (#43):
+
+1. **Route entry JS** — gzipped sum of `modulepreload` + sync `<script>` assets on the critical
+   routes `/` (home), `/explore`, and `/4runner` (builder). Cold-visit cost only; lazy
+   `VehicleCanvas` / Draco are not in the HTML preload set. Budgets live in
+   `scripts/route-bundle-budgets.json`.
+2. **Chunk sizes** — every hashed file under `dist/client/assets/*.js`, keyed on the de-hashed
+   stem, against `scripts/bundle-budgets.json`. Catches shared-chunk bloat and any new unbudgeted
+   chunk after a rename or split.
 
 ```bash
-npm run bundle:budget          # check
-npm run bundle:budget:update   # re-baseline with 15% headroom, then commit the diff
+npm run bundle:budget          # check routes + chunks
+npm run bundle:budget:update   # re-baseline both with 15% headroom, then commit the diff
 ```
 
-Budgets are keyed on the de-hashed chunk stem. A chunk with **no** budget entry fails just as a
-chunk over budget does — an unbudgeted chunk is how a budget file stops covering the thing it was
-written for.
+A route or chunk over budget, or a chunk/route with **no** budget entry, fails with a readable
+`FAIL` report — the same acceptance as “a PR that adds >budget JS to a critical route fails CI”.
+Measured in gzip because that is what the connection pays for.
 
-Measured in gzip because that is what the connection pays for; raw byte counts move for reasons
-that do not change download time. #43 asked for per-route budgets — the build emits one `page`
-chunk per route with no manifest mapping them back, and the expensive code (Three.js, the Draco
-decoder) is lazily loaded and shared, so attributing it per route would either double-count it or
-hide it. Chunk budgets state the same constraint without the arithmetic being a lie, and the
-realistic regression — something pulling Three.js into the shared framework chunk — trips them
-immediately.
+| Route | What it gates | Notes |
+|---|---|---|
+| `/` | Home / default builder shell entry JS | Same `BuilderApp` surface as `/[slug]` |
+| `/explore` | Explore catalog entry JS | Must stay far below builder (no `buildTools`) |
+| `/4runner` | Canonical builder entry JS | Matches Lighthouse preview target; still excludes lazy 3D |
 
-Current headline chunks (gzipped): `VehicleCanvas` ~233 KiB (Three.js), `buildTools` ~166 KiB,
-`draco_decoder` ~145 KiB, `framework` ~58 KiB. All three large ones are lazily loaded, so the
-landing route does not pay for them.
+Headline chunks (gzipped, lazy): `VehicleCanvas` ~235 KiB (Three.js), `buildTools` ~166 KiB,
+`draco_decoder` ~145 KiB, `framework` ~58 KiB. Route entry budgets cover the non-lazy set only;
+chunk budgets cover the lazy set so Three.js cannot silently move into the shared framework chunk.
 
 ## Tests
 
