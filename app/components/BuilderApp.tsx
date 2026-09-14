@@ -88,11 +88,6 @@ import {
   readBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
-import {
-  exportConfigurationJson,
-  formatConfigurationJsonError,
-  validateConfigurationJson,
-} from "../../lib/showroom/configJson";
 import { createShareCardUrl } from "../../lib/showroom/openGraph";
 import { pinConfigurationToGarage } from "../../lib/showroom/garage";
 import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/paintStudio";
@@ -657,10 +652,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     URL.revokeObjectURL(url);
   }, [bootstrap, catalog, configuration]);
 
-  /** Portable JSON backup / support handoff — complements deep links (#45). */
-  const exportConfigJson = useCallback(() => {
+  /** Portable JSON backup / support handoff — complements deep links (#45).
+   * Loaded on click so validators stay out of the BuilderApp chunk budget. */
+  const exportConfigJson = useCallback(async () => {
     if (!configuration || !bootstrap) return;
     try {
+      const { exportConfigurationJson } = await import("../../lib/showroom/configJson");
       const json = exportConfigurationJson({
         vehicleId: configuration.vehicleId,
         modelYear: configuration.modelYear,
@@ -678,7 +675,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       URL.revokeObjectURL(url);
       setGarageMessage("Configuration JSON exported");
     } catch (error) {
-      setGarageMessage(formatConfigurationJsonError(error));
+      setGarageMessage(error instanceof Error ? error.message : "Could not export configuration JSON.");
     }
   }, [bootstrap, configuration]);
 
@@ -686,6 +683,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     async (raw: string) => {
       if (!bootstrap || !controllerRef.current) return;
       try {
+        const { validateConfigurationJson } = await import("../../lib/showroom/configJson");
         const imported = validateConfigurationJson(raw, {
           expectedVehicleId: bootstrap.vehicle.slug,
           expectedModelYear: bootstrap.vehicle.year,
@@ -712,7 +710,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         setHistoryAvailability({ canUndo: false, canRedo: false });
         setGarageMessage("Build restored from configuration JSON");
       } catch (error) {
-        setGarageMessage(formatConfigurationJsonError(error));
+        setGarageMessage(error instanceof Error ? error.message : "Could not import configuration JSON.");
       }
     },
     [bootstrap, vehicleSlug],
@@ -728,7 +726,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         const raw = await file.text();
         await importConfigJsonText(raw);
       } catch (error) {
-        setGarageMessage(formatConfigurationJsonError(error));
+        setGarageMessage(error instanceof Error ? error.message : "Could not import configuration JSON.");
       }
     },
     [importConfigJsonText],
@@ -1071,7 +1069,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
           <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
-          <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={exportConfigJson}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
+          <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={() => void exportConfigJson()}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
             <span>Next.js</span><span>React</span><span>Three.js</span>
