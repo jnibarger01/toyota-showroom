@@ -126,6 +126,40 @@ button { font: inherit; color: inherit; }
   background: #110e10; color: #e8eaed; font-size: 10px; white-space: nowrap;
 }
 
+
+/* One-time owner-token reveal after first Save build (#80). */
+.owner-token-dialog {
+  position: fixed; z-index: 50; top: 72px; left: 50%; transform: translateX(-50%);
+  width: min(420px, calc(100vw - 24px));
+  padding: 18px 40px 16px 18px; border: 1px solid #7a2f34; border-radius: 12px;
+  background: #1d1519; box-shadow: var(--shadow-elevated);
+}
+.owner-token-dialog-heading {
+  display: flex; align-items: center; gap: 8px; color: #f0c674;
+}
+.owner-token-dialog-heading strong { font-size: 13px; }
+.owner-token-dialog p { margin: 8px 0 0; color: #bac1ca; font-size: 11px; line-height: 1.55; }
+.owner-token-value {
+  display: block; margin-top: 10px; padding: 10px; border-radius: 8px;
+  border: 1px solid #3b4652; background: #0c1015; color: #e8eaed;
+  font-size: 11px; word-break: break-all; line-height: 1.45;
+}
+.owner-token-recovery {
+  display: flex; gap: 6px; align-items: flex-start; color: #f0c674 !important;
+}
+.owner-token-actions {
+  display: grid; gap: 6px; margin-top: 12px;
+}
+.owner-token-actions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  width: 100%; border: 1px solid #3b4652; border-radius: 7px; padding: 8px;
+  background: #1c242d; font-size: 11px;
+}
+.owner-token-actions button.primary {
+  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
+}
+
+
 .workspace { height: calc(100vh - 72px); display: grid; grid-template-columns: 238px minmax(0, 1fr) 304px; }
 .left-rail, .right-panel { background: rgba(12,16,21,.95); overflow: auto; }
 .left-rail { border-right: 1px solid #202731; padding: 24px 16px; }
@@ -597,7 +631,7 @@ button { font: inherit; color: inherit; }
 
 @media print {
   body { overflow: visible; }
-  .topbar nav, .top-actions, .left-rail .rail-item, .garage-card, .quick-tools, .stage-toolbar, .gpu-status, .option-tools, .tour-card, .shortcut-sheet, .persistence-banner { display: none !important; }
+  .topbar nav, .top-actions, .left-rail .rail-item, .garage-card, .quick-tools, .stage-toolbar, .gpu-status, .option-tools, .tour-card, .shortcut-sheet, .persistence-banner, .owner-token-dialog { display: none !important; }
   .workspace { grid-template-columns: 180px 1fr 280px; height: auto; }
   .builder-shell { background: #fff; color: #111; }
 }
