@@ -475,7 +475,7 @@ export default function ComparePage() {
                   <tr>
                     <th />
                     {builds.map((build) => (
-                      <th key={build.configurationId}>
+                      <th key={build.configurationId} data-testid="compare-build-slot">
                         <span>
                           {build.modelYear} {build.model}
                         </span>
@@ -522,16 +522,26 @@ export default function ComparePage() {
                       ))}
                     </tr>
                   ) : (
-                    buildRows.map((row) => (
-                      <tr key={row.category}>
-                        <th>{row.label}</th>
-                        {builds.map((build) => (
-                          <td key={build.configurationId}>
-                            {row.byBuild.get(build.configurationId) ?? "—"}
-                          </td>
-                        ))}
-                      </tr>
-                    ))
+                    buildRows.map((row) => {
+                      const values = builds.map(
+                        (build) => row.byBuild.get(build.configurationId) ?? "—",
+                      );
+                      const hasDelta = new Set(values).size > 1;
+                      return (
+                        <tr
+                          key={row.category}
+                          data-testid={hasDelta ? "compare-spec-delta" : "compare-option-row"}
+                          data-category={row.category}
+                        >
+                          <th>{row.label}</th>
+                          {builds.map((build) => (
+                            <td key={build.configurationId}>
+                              {row.byBuild.get(build.configurationId) ?? "—"}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
