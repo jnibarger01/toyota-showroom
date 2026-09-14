@@ -17,6 +17,7 @@ import {
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
 import { listVehicleOptions } from "../../lib/api/configurations";
 import { getVehicle } from "../../lib/api/client";
+import { GARAGE_PERSISTENCE_NOTE_COPY } from "../components/PersistenceModeBanner";
 
 export default function GaragePage() {
   const [groups, setGroups] = useState<GarageGroup[] | null>(null);
@@ -158,7 +159,7 @@ export default function GaragePage() {
         </p>
         {persistenceMode === "local" ? (
           <p className="garage-persistence-note" data-testid="garage-persistence-note">
-            Demo / offline mode — builds stay in this browser (localStorage), not Worker/D1.
+            {GARAGE_PERSISTENCE_NOTE_COPY}
           </p>
         ) : null}
       </header>
