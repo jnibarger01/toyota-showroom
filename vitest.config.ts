@@ -5,9 +5,8 @@ import { defineConfig } from "vitest/config";
  * expect a worker environment the unit tests neither have nor need. Tests run in plain Node
  * against the library modules, which is why most of them import no React or renderer.
  *
- * `.test.tsx` files are the exception — real component tests (`tests/components/*`) need a DOM,
- * so they run under jsdom via `environmentMatchGlobs` rather than switching every test in the
- * suite to jsdom, which would slow down the (much larger) plain-Node suite for no benefit.
+ * `.test.tsx` files are the exception — real component tests (`tests/components/*`) need a DOM.
+ * Vitest projects keep those tests in jsdom while the larger plain-Node suite stays in Node.
  *
  * No `@vitejs/plugin-react` here: Vitest's own module runner transforms `.tsx` via esbuild
  * directly, ahead of any Vite plugin pipeline, so the `esbuild.jsx` option below is what actually
@@ -22,9 +21,24 @@ export default defineConfig({
   // JSX transform is classic (`React.createElement`, no auto-import) unless told otherwise.
   esbuild: { jsx: "automatic", jsxImportSource: "react" },
   test: {
-    environment: "node",
-    environmentMatchGlobs: [["tests/components/**/*.test.tsx", "jsdom"]],
-    setupFiles: ["tests/components/setup.ts"],
-    include: ["tests/**/*.test.{ts,tsx}"],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          environment: "node",
+          include: ["tests/**/*.test.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "components",
+          environment: "jsdom",
+          setupFiles: ["tests/components/setup.ts"],
+          include: ["tests/components/**/*.test.tsx"],
+        },
+      },
+    ],
   },
 });
