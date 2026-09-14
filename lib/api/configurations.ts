@@ -8,6 +8,7 @@ import type { PaintStudioState } from "../types/paintStudio";
 import { ApiError, type ApiErrorBody } from "./errors";
 import { isOptionAvailableForGrade } from "../data/options";
 import { localConfigurationTransport } from "./localConfigurationTransport";
+import { trackPersistenceMode } from "../observability/funnelTelemetry";
 
 /**
  * The only module in the client that talks to the configuration endpoints.
@@ -89,6 +90,7 @@ function notifyPersistenceModeListeners(): void {
 function setRemoteAvailable(value: boolean): void {
   if (remoteAvailable === value) return;
   remoteAvailable = value;
+  trackPersistenceMode(value ? "worker" : "local");
   notifyPersistenceModeListeners();
 }
 
