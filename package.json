@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
     "test:e2e:update": "playwright test --update-snapshots",
     "typecheck": "tsc --noEmit",
     "assets:optimize": "node scripts/optimize-models.mjs",

@@ -62,6 +62,7 @@ npm test        # unit tests (vitest)
 npm run typecheck
 npm run build
 npm run test:e2e   # Playwright against dist/client under /toyota-showroom/
+npm run test:a11y  # axe-core serious/critical gate (explore/compare/builder/garage)
 npm run test:perf  # Lighthouse + entry gzip budget on builder route
 ```
 
@@ -102,6 +103,24 @@ reason. See `docs/DEPLOYMENT_RUNBOOK.md` §3 for how to add secrets and the chec
 required staging later.
 
 
+
+## Accessibility gate (axe-core)
+
+CI (`.github/workflows/e2e.yml`) runs Playwright axe-core scans on explore, compare, builder
+chrome, and garage against the same production preview as the visual suite
+(`scripts/preview-server.mjs` under `/toyota-showroom/`). The gate fails on **serious** and
+**critical** impacts only; minor/moderate findings are printed for information.
+
+Known exceptions live in `tests/e2e/a11y.spec.ts` as `A11Y_ALLOWLIST` — each entry needs a
+rationale (today: exclude `.vehicle-canvas`, because axe cannot judge 3D pixels). Prefer fixing
+the DOM over extending the list.
+
+```bash
+npm run build
+npx playwright install chromium   # once
+npm run test:a11y                 # axe only
+# or: npm run test:e2e            # full Playwright suite including a11y
+```
 
 ## Lighthouse budget (builder route)
 
