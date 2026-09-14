@@ -134,6 +134,12 @@ type Props = {
    */
   enterXrSignal?: number;
   /**
+   * Bumped by the chrome's "Exit AR" control. Same counter pattern as `enterXrSignal` — ending from
+   * the builder must work even when the headset's own exit control is not in reach (phone browsers
+   * often leave the page chrome visible while presenting).
+   */
+  exitXrSignal?: number;
+  /**
    * Viewer's quality choice. `"auto"` hands the tier back to `QualityGovernor`; anything else pins
    * it, suspending automatic adaptation — see `lib/three/qualityPreference.ts` for why a pinned
    * tier turns the governor off rather than merely seeding it.
@@ -142,11 +148,16 @@ type Props = {
   /** Reports the stored preference once the renderer exists, so the chrome can show the real value
    * rather than assuming a default the viewer may have changed on a previous visit. */
   onQualityPreferenceLoaded?: (preference: QualityPreference) => void;
-  /** Reports whether this device can offer AR at all, so the chrome can omit the control entirely
-   * rather than show one that fails on tap. */
+  /** Reports whether this device can offer AR at all, so the chrome can show a disabled control
+   * with unsupported-device messaging rather than one that fails on tap. */
   onXrSupported?: (supported: boolean) => void;
-  /** Reports session start/end so the chrome can swap the control and hide overlapping UI. */
+  /** Reports session start/end so the chrome can swap enter ↔ exit on the same control. */
   onXrPresentingChange?: (presenting: boolean) => void;
+  /**
+   * XR-only failures (unsupported hardware after a tap, declined camera permission). Kept distinct
+   * from `onError` so a refused AR prompt cannot look like a broken vehicle load.
+   */
+  onXrError?: (message: string) => void;
   onTourStatusChange?: (status: TourStatus) => void;
   /** Fired as each catalog preset becomes the tour's current shot (toolbar highlight + cameraState). */
   onTourStep?: (preset: CameraPreset) => void;
@@ -161,7 +172,7 @@ type Props = {
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, onXrSupported, onXrPresentingChange, qualityPreference, onQualityPreferenceLoaded, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -203,6 +214,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const cameraPresetRef = useRef(cameraPreset);
   const onXrSupportedRef = useRef(onXrSupported);
   const onXrPresentingChangeRef = useRef(onXrPresentingChange);
+  const onXrErrorRef = useRef(onXrError);
   const onQualityPreferenceLoadedRef = useRef(onQualityPreferenceLoaded);
   const xrControllerRef = useRef<XrSessionController | null>(null);
   useEffect(() => {
@@ -217,8 +229,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onPartSelectRef.current = onPartSelect;
     onXrSupportedRef.current = onXrSupported;
     onXrPresentingChangeRef.current = onXrPresentingChange;
+    onXrErrorRef.current = onXrError;
     onQualityPreferenceLoadedRef.current = onQualityPreferenceLoaded;
-  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onQualityPreferenceLoaded]);
+  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -734,7 +747,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           cameraController.setControlsEnabled(!presenting);
           onXrPresentingChangeRef.current?.(presenting);
         },
-        onError: (message) => onErrorRef.current(message),
+        onError: (message) => {
+          // Prefer the XR-specific channel so a declined permission is not painted as a GLB failure.
+          if (onXrErrorRef.current) onXrErrorRef.current(message);
+          else onErrorRef.current(message);
+        },
       });
       xrControllerRef.current = xrController;
       void xrController.isSupported().then((supported) => {
@@ -815,6 +832,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     if (enterXrSignal === undefined) return;
     void xrControllerRef.current?.enter();
   }, [enterXrSignal]);
+
+  useEffect(() => {
+    if (exitXrSignal === undefined) return;
+    void xrControllerRef.current?.exit();
+  }, [exitXrSignal]);
 
   // Builder chrome play/pause/cancel — seq bumps so repeated identical actions still fire.
   useEffect(() => {
