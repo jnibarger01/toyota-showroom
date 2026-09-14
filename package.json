@@ -18,6 +18,7 @@
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
     "test:e2e:update": "playwright test --update-snapshots",
+    "test:e2e:update-visual": "playwright test --update-snapshots tests/e2e/visual.spec.ts",
     "typecheck": "tsc --noEmit",
     "assets:optimize": "node scripts/optimize-models.mjs",
     "assets:report": "tsx scripts/asset-pipeline-report.ts --fail-on-contract-violation",

@@ -1,0 +1,6 @@
+{
+  "$schemaComment": "Known-flake registry for Playwright visual specs (#48). Empty means every visual.spec.ts test is expected green. See CONTRIBUTING.md § Browser gate.",
+  "stablePassThreshold": 5,
+  "maxQuarantineDays": 90,
+  "entries": []
+}
