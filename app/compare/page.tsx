@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Truck, Warehouse } from "lucide-react";
+import { ArrowLeft, Share2, Truck, Warehouse } from "lucide-react";
 import { compareVehicles, listVehicles, pageUrl, MAX_COMPARE, MIN_COMPARE } from "../../lib/api/client";
 import type { SpecCategory, Vehicle, VehicleSummary } from "../../lib/types/vehicle";
 import type { VehicleConfiguration } from "../../lib/types/customization";
@@ -12,6 +12,12 @@ import {
   parseBuildIdsFromSearch,
   type BuildCompareRow,
 } from "../../lib/showroom/garage";
+import {
+  buildsToCompareDeepLinkInput,
+  createCompareDeepLinkUrl,
+  readCompareDeepLinkParam,
+  validateCompareDeepLink,
+} from "../../lib/showroom/compareDeepLink";
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
 import { getVehicle } from "../../lib/api/client";
 
@@ -100,17 +106,53 @@ export default function ComparePage() {
   // populated `?vehicles=` query and confirmed gone once seeding moved into the effect below.
   const [picked, setPicked] = useState<string[]>([]);
   const [pickedBuilds, setPickedBuilds] = useState<string[]>([]);
+  const [fromDeepLink, setFromDeepLink] = useState(false);
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const search = window.location.search;
-    const buildIds = parseBuildIdsFromSearch(search).slice(0, MAX_COMPARE);
+    const cmp = readCompareDeepLinkParam(search);
     /* eslint-disable react-hooks/set-state-in-effect -- one-shot URL seed */
-    if (buildIds.length > 0) {
+    if (cmp) {
       setMode("builds");
-      setPickedBuilds(buildIds);
+      setFromDeepLink(true);
+      try {
+        const restored = validateCompareDeepLink(cmp).slice(0, MAX_COMPARE);
+        setBuilds(restored);
+        setPickedBuilds(restored.map((build) => build.configurationId));
+        void loadCatalogsForBuilds(restored).then((catalogs) => {
+          setBuildRows(buildSharedOptionRows(restored, catalogs));
+        });
+        void (async () => {
+          const totals: Record<string, number> = {};
+          const catalogs = await loadCatalogsForBuilds(restored);
+          for (const build of restored) {
+            try {
+              const vehicle = await getVehicle(build.vehicleId);
+              const catalog = catalogs.get(build.vehicleId) ?? [];
+              totals[build.configurationId] = estimateBuildTotal(
+                resolveGradeMsrp(vehicle, build.gradeId),
+                catalog,
+                build,
+              );
+            } catch {
+              /* optional */
+            }
+          }
+          setBuildTotals(totals);
+        })();
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : String(err));
+      }
     } else {
-      setMode("catalog");
-      setPicked(parseSlugsFromSearch(search).slice(0, MAX_COMPARE));
+      const buildIds = parseBuildIdsFromSearch(search).slice(0, MAX_COMPARE);
+      if (buildIds.length > 0) {
+        setMode("builds");
+        setPickedBuilds(buildIds);
+      } else {
+        setMode("catalog");
+        setPicked(parseSlugsFromSearch(search).slice(0, MAX_COMPARE));
+      }
     }
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
@@ -157,6 +199,8 @@ export default function ComparePage() {
 
   useEffect(() => {
     if (!canCompareBuilds) return;
+    // Deep-link restore already hydrated `builds` from `?cmp=` (no D1 ids).
+    if (fromDeepLink) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -192,7 +236,7 @@ export default function ComparePage() {
     return () => {
       cancelled = true;
     };
-  }, [pickedBuilds, canCompareBuilds]);
+  }, [pickedBuilds, canCompareBuilds, fromDeepLink]);
 
   const specRows = useMemo(() => (vehicles ? buildSpecRows(vehicles) : []), [vehicles]);
   const rowsByCategory = useMemo(
@@ -210,6 +254,30 @@ export default function ComparePage() {
       if (current.length >= MAX_COMPARE) return current;
       return [...current, slug];
     });
+  };
+
+  const shareCompareDeepLink = async () => {
+    if (!builds || builds.length < MIN_COMPARE) return;
+    const result = createCompareDeepLinkUrl(
+      window.location.origin,
+      pageUrl("compare"),
+      buildsToCompareDeepLinkInput(builds.slice(0, MAX_COMPARE)),
+    );
+    if (!result.ok) {
+      setShareMessage(result.message);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(result.url);
+      setShareMessage("Compare link copied — restores this set without cloud ids");
+    } catch {
+      setShareMessage(result.url);
+      try {
+        window.prompt("Copy this garage compare link", result.url);
+      } catch {
+        /* ignore */
+      }
+    }
   };
 
   return (
@@ -359,10 +427,40 @@ export default function ComparePage() {
       ) : (
         <>
           <p className="panel-empty">
-            Select builds in your <a href={pageUrl("garage")}>garage</a>, or open a compare link with{" "}
-            <code>?builds=…</code>. Showing {pickedBuilds.length} selected build
-            {pickedBuilds.length === 1 ? "" : "s"}.
+            Select builds in your <a href={pageUrl("garage")}>garage</a>, or open a shareable{" "}
+            <code>?cmp=…</code> deep link (vehicle + option ids, no D1). Legacy{" "}
+            <code>?builds=…</code> still works in this browser. Showing {pickedBuilds.length} selected
+            build{pickedBuilds.length === 1 ? "" : "s"}
+            {fromDeepLink ? " (restored from deep link)" : ""}.
           </p>
+          {builds && builds.length >= MIN_COMPARE ? (
+            <div className="compare-share-row">
+              <button
+                type="button"
+                className="ghost"
+                data-testid="compare-share-link"
+                onClick={() => void shareCompareDeepLink()}
+              >
+                <Share2 size={14} aria-hidden /> Copy shareable compare link
+              </button>
+            </div>
+          ) : null}
+          {shareMessage ? (
+            <div
+              className={
+                shareMessage.includes("too long") || shareMessage.startsWith("Select ")
+                  ? "config-error"
+                  : "garage-share-toast"
+              }
+              role="status"
+              data-testid="compare-share-message"
+            >
+              <span>{shareMessage}</span>
+              <button type="button" onClick={() => setShareMessage(null)}>
+                Dismiss
+              </button>
+            </div>
+          ) : null}
 
           {!canCompareBuilds ? (
             <p className="panel-empty">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, GitCompare, Loader2, Trash2, Truck, Warehouse } from "lucide-react";
+import { ArrowLeft, GitCompare, Loader2, Share2, Trash2, Truck, Warehouse } from "lucide-react";
 import { pageUrl, MAX_COMPARE, MIN_COMPARE } from "../../lib/api/client";
 import { getPersistenceMode, subscribePersistenceMode, type PersistenceMode } from "../../lib/api/configurations";
 import {
@@ -9,6 +9,11 @@ import {
   removeGarageBuild,
   type GarageGroup,
 } from "../../lib/showroom/garage";
+import {
+  buildsToCompareDeepLinkInput,
+  createCompareDeepLinkUrl,
+  type CreateCompareDeepLinkResult,
+} from "../../lib/showroom/compareDeepLink";
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
 import { listVehicleOptions } from "../../lib/api/configurations";
 import { getVehicle } from "../../lib/api/client";
@@ -20,6 +25,7 @@ export default function GaragePage() {
   const [picked, setPicked] = useState<string[]>([]);
   const [persistenceMode, setPersistenceMode] = useState<PersistenceMode>(() => getPersistenceMode());
   const [totals, setTotals] = useState<Record<string, number>>({});
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoadError(null);
@@ -74,6 +80,44 @@ export default function GaragePage() {
     () => (groups ?? []).reduce((sum, group) => sum + group.builds.length, 0),
     [groups],
   );
+
+  /** Prefer `?cmp=` deep link (vehicle + option ids) so a second browser can restore without D1 ids. */
+  const compareShare: CreateCompareDeepLinkResult | null = useMemo(() => {
+    if (picked.length < MIN_COMPARE || !groups) return null;
+    const selected = [];
+    for (const group of groups) {
+      for (const build of group.builds) {
+        if (!picked.includes(build.pin.configurationId)) continue;
+        if (!build.configuration) continue;
+        selected.push(build.configuration);
+      }
+    }
+    if (selected.length < MIN_COMPARE) return null;
+    return createCompareDeepLinkUrl(
+      typeof window !== "undefined" ? window.location.origin : "https://example.invalid",
+      pageUrl("compare"),
+      buildsToCompareDeepLinkInput(selected.slice(0, MAX_COMPARE)),
+    );
+  }, [picked, groups]);
+
+  const shareCompareLink = async () => {
+    if (!compareShare) return;
+    if (!compareShare.ok) {
+      setShareMessage(compareShare.message);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(compareShare.url);
+      setShareMessage("Compare link copied — opens the same build set without cloud ids");
+    } catch {
+      setShareMessage(compareShare.url);
+      try {
+        window.prompt("Copy this garage compare link", compareShare.url);
+      } catch {
+        /* ignore non-interactive prompt failures */
+      }
+    }
+  };
 
   const onRemove = async (configurationId: string, canMutate: boolean) => {
     const message = canMutate
@@ -218,6 +262,24 @@ export default function GaragePage() {
         </div>
       ) : null}
 
+      {shareMessage ? (
+        <div
+          className={shareMessage.startsWith("Compare link is too long") || shareMessage.startsWith("Select ") ? "config-error" : "garage-share-toast"}
+          role="status"
+          data-testid="garage-compare-share-message"
+        >
+          <span>{shareMessage}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setShareMessage(null);
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+
       {picked.length > 0 ? (
         <div className="compare-bar garage-compare-bar" role="region" aria-label="Compare selected builds">
           <GitCompare size={16} aria-hidden />
@@ -226,13 +288,42 @@ export default function GaragePage() {
             {picked.length < MIN_COMPARE ? ` (need ${MIN_COMPARE})` : ""}
           </span>
           {picked.length >= MIN_COMPARE ? (
-            <a
-              className="primary"
-              href={`${pageUrl("compare")}?builds=${picked.join(",")}`}
-              data-testid="garage-compare-link"
-            >
-              Compare builds
-            </a>
+            compareShare?.ok ? (
+              <>
+                <a
+                  className="primary"
+                  href={compareShare.url}
+                  data-testid="garage-compare-link"
+                >
+                  Compare builds
+                </a>
+                <button
+                  type="button"
+                  className="ghost"
+                  data-testid="garage-compare-share"
+                  onClick={() => void shareCompareLink()}
+                >
+                  <Share2 size={14} aria-hidden /> Copy link
+                </button>
+              </>
+            ) : compareShare && !compareShare.ok ? (
+              <button
+                type="button"
+                className="primary"
+                data-testid="garage-compare-share-error"
+                onClick={() => setShareMessage(compareShare.message)}
+              >
+                Link too long — details
+              </button>
+            ) : (
+              <a
+                className="primary"
+                href={`${pageUrl("compare")}?builds=${picked.join(",")}`}
+                data-testid="garage-compare-link"
+              >
+                Compare builds
+              </a>
+            )
           ) : (
             <span className="compare-bar-hint">Select at least {MIN_COMPARE} builds</span>
           )}
