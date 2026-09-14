@@ -17,7 +17,7 @@
  * notice card (and its Retry button) capture clicks.
  */
 
-import { AlertTriangle, Box, RotateCcw } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
 
 export type CanvasModelStatusKind = "empty" | "error";
 
@@ -40,7 +40,9 @@ type Props = {
 
 export function CanvasModelStatus({ kind, onRetry }: Props) {
   const copy = CANVAS_MODEL_STATUS_COPY[kind];
-  const Icon = kind === "error" ? AlertTriangle : Box;
+  // Reuse AlertTriangle (already a budgeted chunk) — empty vs error is distinguished by
+  // copy, role, and the Retry CTA, not by a second Lucide icon that would open a new chunk.
+  const Icon = AlertTriangle;
 
   return (
     <div
