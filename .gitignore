@@ -28,3 +28,7 @@ public/robots.txt
 # them on disk cannot put 89 MB back into the object database.
 /assets/blender/modsnation_7416_assets_assembled_final.blend
 /assets/blender/modsnation_7416_assets_assembled_final.glb
+
+# Lighthouse budget
+/lighthouse-report.json
+/.lighthouseci/

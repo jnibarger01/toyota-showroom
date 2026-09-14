@@ -58,9 +58,11 @@ npm run dev -- -p 3004
 Open `http://127.0.0.1:3004/`.
 
 ```bash
-npm test        # 88 unit tests (vitest)
+npm test        # unit tests (vitest)
 npm run typecheck
 npm run build
+npm run test:e2e   # Playwright against dist/client under /toyota-showroom/
+npm run test:perf  # Lighthouse + entry gzip budget on builder route
 ```
 
 ## Persistence: Worker/D1 (production) vs Pages (demo / offline)
@@ -88,6 +90,40 @@ they are missing, the job **skips successfully** (notice only) so PRs are not re
 reason. See `docs/DEPLOYMENT_RUNBOOK.md` §3 for how to add secrets and the checklist to restore
 required staging later.
 
+
+
+## Lighthouse budget (builder route)
+
+CI (`.github/workflows/e2e.yml`) runs one desktop Lighthouse performance pass against the
+**production preview** at `http://127.0.0.1:4173/toyota-showroom/4runner/` (same
+`scripts/preview-server.mjs` base path as GitHub Pages), plus a gzip size check on the
+initial (modulepreload / non-lazy) JS and CSS referenced by that route's HTML.
+A huge unused **sync** script in the initial set fails the entry JS gzip budget with a
+readable PASS/FAIL table; a multi-second main-thread block in the shell fails TBT.
+Lazy 3D (`VehicleCanvas` / `.glb` / draco) is blocked during the Lighthouse run so metrics
+reflect the builder shell — full WebGPU under headless CI is not a stable signal — and is
+also excluded from the entry JS gzip sum. Chunk-level gzip gates remain in
+`npm run bundle:budget` (#43).
+
+```bash
+npm run build
+npx playwright install chromium   # once — Lighthouse reuses Playwright Chromium
+npm run test:perf
+```
+
+Budgets live in `lighthouse-budget.json` (edit there if a genuine, documented regression
+needs more headroom):
+
+| Check | Budget | Notes |
+| ----- | ------ | ----- |
+| Entry JS gzip | ≤ 450 KB | Sum of builder `modulepreload` (+ sync) JS; **no** lazy `VehicleCanvas` |
+| Entry CSS gzip | ≤ 40 KB | Initial stylesheets |
+| LCP | ≤ 5000 ms | Desktop preset; builder shell (3D/GLB blocked in the Lighthouse run) |
+| TBT | ≤ 800 ms | Fails multi-second shell main-thread blocks; headroom for CI noise |
+
+`test:perf` starts `scripts/preview-server.mjs` if nothing is already listening on 4173,
+writes `lighthouse-report.json` (gitignored), and prints PASS/FAIL rows. Override the
+browser with `CHROME_PATH` if you do not have Playwright Chromium.
 
 ## Final packaged assets
 
