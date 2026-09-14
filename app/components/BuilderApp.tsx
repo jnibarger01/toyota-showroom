@@ -48,6 +48,10 @@ import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
 import type { QualityPreference } from "../../lib/three/qualityPreference";
 import { describeGradeChange, describeSelectionChange } from "../../lib/showroom/selectionAnnouncement";
 import { describeTourScene } from "../../lib/showroom/tourAnnouncement";
+import {
+  BUILDER_SHORTCUT_SHEET,
+  resolveBuilderShortcut,
+} from "../../lib/showroom/builderShortcuts";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -151,6 +155,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [termMonths, setTermMonths] = useState(60);
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
   const [tourOpen, setTourOpen] = useState(false);
+  /** `?` keyboard shortcut cheat sheet (#74). */
+  const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   /** Cinematic camera tour (hero → wheels → interior), distinct from the onboarding tour card. */
   const [cinematicTourStatus, setCinematicTourStatus] = useState<TourStatus>("idle");
   const [cinematicTourAction, setCinematicTourAction] = useState<TourAction | null>(null);
@@ -618,26 +624,6 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     URL.revokeObjectURL(url);
   }, [bootstrap, catalog, configuration]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const editing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
-      if (event.key === "/" && !editing) {
-        event.preventDefault();
-        searchRef.current?.focus();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        void restoreHistory(event.shiftKey ? "redo" : "undo");
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
-        event.preventDefault();
-        void restoreHistory("redo");
-      } else if (event.key === "Escape") {
-        setMobilePanelOpen(false);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [restoreHistory]);
-
   const reset = async () => {
     if (!bootstrap) return;
     const fresh = await configurationsApi.createConfiguration({
@@ -659,7 +645,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     setHistoryAvailability({ canUndo: false, canRedo: false });
   };
 
-  const saveToGarage = async () => {
+  const saveToGarage = useCallback(async () => {
     await configurationStore.flush();
     const current = configurationStore.getSnapshot().configuration;
     if (current) {
@@ -670,9 +656,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         ? "Build pinned to garage (this browser only — demo / offline)"
         : "Build saved to your garage",
     );
-  };
+  }, [isLocalPersistence]);
 
-  const share = async () => {
+  const share = useCallback(async () => {
     if (!configuration) return;
     // Encode selections + camera into `?c=…` so the link restores without a D1/localStorage id.
     const url = createBuildDeepLinkUrl(window.location.origin, window.location.pathname, {
@@ -702,7 +688,60 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         /* ignore non-interactive prompt failures */
       }
     }
-  };
+  }, [configuration, isLocalPersistence]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = resolveBuilderShortcut(event, { cheatSheetOpen });
+      if (!action) {
+        if (event.key === "Escape") setMobilePanelOpen(false);
+        return;
+      }
+      event.preventDefault();
+      switch (action) {
+        case "toggle-cheatsheet":
+          setCheatSheetOpen((open) => !open);
+          break;
+        case "close-cheatsheet":
+          setCheatSheetOpen(false);
+          break;
+        case "focus-search":
+          searchRef.current?.focus();
+          break;
+        case "share":
+          void share();
+          break;
+        case "save":
+          void saveToGarage();
+          break;
+        case "tour-toggle":
+          toggleCinematicTour();
+          break;
+        case "reset-camera":
+          if (cinematicTourStatus !== "idle") dispatchCinematicTour("cancel");
+          setResetViewSignal((value) => value + 1);
+          break;
+        case "undo":
+          void restoreHistory("undo");
+          break;
+        case "redo":
+          void restoreHistory("redo");
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    cheatSheetOpen,
+    cinematicTourStatus,
+    dispatchCinematicTour,
+    restoreHistory,
+    saveToGarage,
+    share,
+    toggleCinematicTour,
+  ]);
 
   const toggleFullscreen = async () => {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -750,7 +789,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <RotateCcw size={16} /> Reset
           </button>
           <SaveIndicator status={status} local={isLocalPersistence} />
-          <button className="primary" onClick={() => void share()}>
+          <button className="primary" title="Share (Ctrl/⌘ Shift L)" onClick={() => void share()}>
             <Share2 size={16} /> Share
           </button>
         </div>
@@ -799,7 +838,35 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </div>
       ) : null}
 
-      {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your 4Runner</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo.</p></div> : null}
+      {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your 4Runner</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
+
+      {cheatSheetOpen ? (
+        <div
+          className="shortcut-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+          data-testid="keyboard-shortcut-sheet"
+        >
+          <button
+            type="button"
+            className="tour-close"
+            aria-label="Close keyboard shortcuts"
+            onClick={() => setCheatSheetOpen(false)}
+          >
+            <X size={15} />
+          </button>
+          <strong>Keyboard shortcuts</strong>
+          <ul className="shortcut-sheet-list">
+            {BUILDER_SHORTCUT_SHEET.map((row) => (
+              <li key={row.id}>
+                <span>{row.label}</span>
+                <kbd>{row.keys}</kbd>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="config-error" role="alert">
@@ -859,7 +926,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Accessories</button>
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
-          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button onClick={() => void saveToGarage()}>Save build</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
@@ -899,7 +966,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 className={cinematicTourStatus !== "idle" ? "selected" : ""}
                 aria-pressed={cinematicTourStatus === "playing"}
                 aria-label={cinematicTourToggleLabel}
-                title={cinematicTourToggleLabel}
+                title={`${cinematicTourToggleLabel} (T)`}
                 onClick={toggleCinematicTour}
               >
                 {cinematicTourStatus === "playing" ? <Pause size={14} aria-hidden /> : <Play size={14} aria-hidden />}
@@ -910,7 +977,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <button
                 type="button"
                 data-testid="recenter-view"
-                title="Recenter view"
+                title="Recenter view (Home)"
                 aria-label="Recenter view"
                 onClick={() => {
                   // Cancel a running tour first: it drives the camera from a GSAP timeline, so a

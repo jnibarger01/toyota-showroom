@@ -420,4 +420,18 @@ describe("BuilderApp", () => {
     await waitFor(() => expect(toggle).toHaveTextContent(/Tour/i));
     expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("hero");
   });
+
+  it("opens the keyboard shortcut cheat sheet on ? and closes it on Esc", async () => {
+    await renderBuilderReady();
+
+    expect(screen.queryByTestId("keyboard-shortcut-sheet")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "?", code: "Slash", shiftKey: true });
+    expect(await screen.findByTestId("keyboard-shortcut-sheet")).toBeInTheDocument();
+    expect(screen.getByTestId("keyboard-shortcut-sheet")).toHaveTextContent(/Share build link/i);
+    expect(screen.getByTestId("keyboard-shortcut-sheet")).toHaveTextContent(/Tour play/i);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("keyboard-shortcut-sheet")).toBeNull());
+  });
 });
