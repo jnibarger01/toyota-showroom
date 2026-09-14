@@ -41,6 +41,8 @@ jobs:
       - name: Verify static export
         run: |
           test -f dist/client/index.html
+          test -f dist/client/sitemap.xml
+          test -f dist/client/robots.txt
           touch dist/client/.nojekyll
 
       - name: Upload GitHub Pages artifact

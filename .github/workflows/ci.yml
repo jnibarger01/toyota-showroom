@@ -36,3 +36,5 @@ jobs:
       # Must follow the build: it measures `dist/client/assets`. A chunk over budget, or a new chunk
       # with no budget at all, fails here rather than being absorbed silently (#43).
       - run: npm run bundle:budget
+      # Pages crawler files are written into public/ at prebuild and copied into dist/client (#78).
+      - run: VERIFY_DIST=1 npx vitest run tests/sitemapRobots.test.ts
