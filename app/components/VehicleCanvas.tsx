@@ -994,6 +994,12 @@ function renameMaterials(root: THREE.Object3D, name: string): void {
  */
 export function prepareVehicleRoot(root: THREE.Object3D, threeDConfig: Vehicle3DConfig): void {
   root.name = "VEHICLE_ROOT";
+  if (threeDConfig.scale) root.scale.set(...threeDConfig.scale);
+  root.rotation.set(
+    threeDConfig.rotation?.[0] ?? 0,
+    Math.PI + (threeDConfig.rotation?.[1] ?? 0),
+    threeDConfig.rotation?.[2] ?? 0,
+  );
 
   for (const name of threeDConfig.hiddenNodeNames ?? []) {
     const node = root.getObjectByName(name);
@@ -1014,7 +1020,31 @@ export function prepareVehicleRoot(root: THREE.Object3D, threeDConfig: Vehicle3D
     root.position.sub(center);
     root.position.y += size.y / 2;
   }
-  root.rotation.y = Math.PI;
+  if (threeDConfig.texturePolicy === "factors-only") stripMaterialTextures(root);
+}
+
+/**
+ * Some authored GLBs contain texture/sampler combinations that produce invalid WebGL draw calls
+ * on fallback backends. Keep the authored materials, names, and PBR scalar factors, but remove
+ * only optional texture bindings when the catalog explicitly opts into the compatibility policy.
+ */
+function stripMaterialTextures(root: THREE.Object3D): void {
+  const textureSlots = [
+    "map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap", "alphaMap",
+    "bumpMap", "displacementMap", "clearcoatMap", "clearcoatNormalMap", "clearcoatRoughnessMap",
+    "sheenColorMap", "sheenRoughnessMap", "specularIntensityMap", "specularColorMap",
+  ];
+  root.traverse((object) => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      const slots = material as unknown as Record<string, unknown>;
+      for (const slot of textureSlots) {
+        if (slot in slots) slots[slot] = null;
+      }
+      material.needsUpdate = true;
+    }
+  });
 }
 
 function boundsOf(root: THREE.Object3D, nodeNames?: string[]): THREE.Box3 | null {

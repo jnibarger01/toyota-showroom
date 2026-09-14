@@ -55,6 +55,7 @@ export interface GarageBuildSummary {
 export const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Exterior",
   wheels: "Wheels & Tires",
+  lighting: "Lighting",
   hood: "Hood",
   panel: "Performance",
   decal: "Accessories",

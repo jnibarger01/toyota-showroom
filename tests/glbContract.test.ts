@@ -120,6 +120,7 @@ describe("shipped GLB payload budget", () => {
     // ~0.48 MiB today; scripts/optimize-models.mjs repackaged the vendor's decoded .gltf+.bin pair
     // (docs/RAV4_PROVENANCE.md §3) into this single binary .glb, same Draco compression.
     "/models/rav4-2024/rav4_2024_limited_decoded.glb": 1.5 * 1024 * 1024,
+    "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
   };
 
   for (const vehicle of VEHICLES) {
