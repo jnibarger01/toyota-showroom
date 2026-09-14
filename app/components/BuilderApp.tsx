@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlertTriangle,
   Armchair,
@@ -9,6 +9,8 @@ import {
   Check,
   ClipboardCheck,
   Download,
+  FileDown,
+  FileUp,
   CloudSun,
   CircleGauge,
   Cog,
@@ -86,6 +88,11 @@ import {
   readBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
+import {
+  exportConfigurationJson,
+  formatConfigurationJsonError,
+  validateConfigurationJson,
+} from "../../lib/showroom/configJson";
 import { createShareCardUrl } from "../../lib/showroom/openGraph";
 import { pinConfigurationToGarage } from "../../lib/showroom/garage";
 import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/paintStudio";
@@ -204,6 +211,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   // reloading the model or re-running `verifyNodeContract`.
   const fullApplicableRef = useRef<CustomizationOption[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
+  const configJsonFileRef = useRef<HTMLInputElement>(null);
   const undoStack = useRef<SelectionMap[]>([]);
   const redoStack = useRef<SelectionMap[]>([]);
   /** Paint Studio undo/redo (#73) — distinct from selection-map stacks above. */
@@ -649,6 +657,83 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     URL.revokeObjectURL(url);
   }, [bootstrap, catalog, configuration]);
 
+  /** Portable JSON backup / support handoff — complements deep links (#45). */
+  const exportConfigJson = useCallback(() => {
+    if (!configuration || !bootstrap) return;
+    try {
+      const json = exportConfigurationJson({
+        vehicleId: configuration.vehicleId,
+        modelYear: configuration.modelYear,
+        model: configuration.model,
+        gradeId: configuration.gradeId,
+        selections: configuration.selections,
+        cameraState: configuration.cameraState,
+        paintStudio: configuration.paintStudio,
+      });
+      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `toyota-${bootstrap.vehicle.slug}-build.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setGarageMessage("Configuration JSON exported");
+    } catch (error) {
+      setGarageMessage(formatConfigurationJsonError(error));
+    }
+  }, [bootstrap, configuration]);
+
+  const importConfigJsonText = useCallback(
+    async (raw: string) => {
+      if (!bootstrap || !controllerRef.current) return;
+      try {
+        const imported = validateConfigurationJson(raw, {
+          expectedVehicleId: bootstrap.vehicle.slug,
+          expectedModelYear: bootstrap.vehicle.year,
+        });
+        const forGrade = fullApplicableRef.current.filter((option) =>
+          isOptionAvailableForGrade(option, imported.gradeId),
+        );
+        const fresh = await configurationsApi.createConfiguration({
+          vehicleId: imported.vehicleId,
+          modelYear: imported.modelYear,
+          gradeId: imported.gradeId,
+          selections: imported.selections,
+          cameraState: imported.cameraState,
+          paintStudio: imported.paintStudio,
+        });
+        rememberConfigurationId(vehicleSlug, fresh.configurationId);
+        setBootstrap({ ...bootstrap, configuration: fresh });
+        await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+        setPreset(presetForConfiguration(bootstrap.vehicle, fresh));
+        undoStack.current = [];
+        redoStack.current = [];
+        paintHistoryRef.current.clear();
+        historyOwnerRef.current = "builder";
+        setHistoryAvailability({ canUndo: false, canRedo: false });
+        setGarageMessage("Build restored from configuration JSON");
+      } catch (error) {
+        setGarageMessage(formatConfigurationJsonError(error));
+      }
+    },
+    [bootstrap, vehicleSlug],
+  );
+
+  const onConfigJsonFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      // Allow re-selecting the same file after a failed import.
+      event.target.value = "";
+      if (!file) return;
+      try {
+        const raw = await file.text();
+        await importConfigJsonText(raw);
+      } catch (error) {
+        setGarageMessage(formatConfigurationJsonError(error));
+      }
+    },
+    [importConfigJsonText],
+  );
+
   const reset = async () => {
     if (!bootstrap) return;
     const fresh = await configurationsApi.createConfiguration({
@@ -986,7 +1071,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
           <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
-          <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
+          <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={exportConfigJson}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
             <span>Next.js</span><span>React</span><span>Three.js</span>
