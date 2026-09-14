@@ -303,10 +303,22 @@ re-run a prior successful "Deploy Toyota Showroom" workflow run from the Actions
 
 ## 8. Secrets
 
-None of this app's current routes need a Worker secret (`wrangler secret put <key>`) — D1 and the
-rate limiter are both bindings, not credentials read at runtime. This section exists as a pointer
-for when one is needed: `npx wrangler secret put <NAME> --name toyota-showroom` prompts for the
-value and stores it encrypted, available in the Worker as `env.<NAME>`. Never commit a secret value
-to `wrangler.jsonc` — bindings (D1 ids, rate-limiter namespace ids) are not secrets and are fine to
-commit (`docs/INTEGRATION_GUIDE.md`'s own note on this); anything that actually authenticates to a
-third party would not be.
+D1 and the rate limiter are bindings, not credentials. Optional CRM lead handoff (#23) reads Worker
+secrets at runtime:
+
+- `CRM_WEBHOOK_URL` — HTTPS endpoint that receives the agnostic `lead.created` JSON payload
+  (vehicle, selections, share URL, owner-token metadata). When unset, CRM delivery is skipped and
+  local lead persistence alone decides success.
+- `CRM_WEBHOOK_SECRET` — optional bearer token sent as `Authorization: Bearer …`. Never embedded in
+  the webhook JSON body and never available to the browser bundle.
+
+```bash
+npx wrangler secret put CRM_WEBHOOK_URL --name toyota-showroom
+npx wrangler secret put CRM_WEBHOOK_SECRET --name toyota-showroom
+```
+
+`npx wrangler secret put <NAME> --name toyota-showroom` prompts for the value and stores it
+encrypted, available in the Worker as `env.<NAME>`. Never commit a secret value to `wrangler.jsonc`
+— bindings (D1 ids, rate-limiter namespace ids) are not secrets and are fine to commit
+(`docs/INTEGRATION_GUIDE.md`'s own note on this); anything that authenticates to a third party
+must stay in secrets.
