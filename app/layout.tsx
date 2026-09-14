@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { SITE_URL } from "../lib/site";
 
 export const metadata: Metadata = {
   title: "Toyota Showroom",
-  description: "WebGPU Toyota 4Runner configurator"
+  description: "WebGPU Toyota 4Runner configurator",
+  // Base for absolute OG/canonical URLs under the GitHub Pages project path (#78).
+  metadataBase: new URL(`${SITE_URL}/`),
 };
 
 /**
