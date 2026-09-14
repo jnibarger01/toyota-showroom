@@ -72,6 +72,8 @@ const MODELS = [
   { path: asset("4runner-2024/ModsNation_7416_tire.gltf"), label: "tire" },
   { path: asset("4runner-2024/ModsNation_7416_wheel_a.gltf"), label: "wheel" },
   { path: asset("toyota-ae86-ivofficial.glb"), label: "AE86" },
+  { path: asset("4runner-2024/wheel_trd_pro.glb"), label: "4Runner TRD Pro wheel" },
+  { path: asset("gr-supra-2024/toyota_gr_supra.glb"), label: "GR Supra", stripTextures: true },
   // External-buffer .gltf (docs/RAV4_PROVENANCE.md §3) — writeTargetFor rewrites it to .glb,
   // repackaging the container only; the primitives are already Draco-compressed on read, and the
   // draco() transform below re-applies the same codec on write, not a different one.
@@ -107,6 +109,25 @@ function writeTargetFor(filePath) {
  *
  * Returns the number of targets removed so the caller can report it.
  */
+function stripMaterialTextures(document) {
+  for (const material of document.getRoot().listMaterials()) {
+    material
+      .setBaseColorTexture(null)
+      .setEmissiveTexture(null)
+      .setNormalTexture(null)
+      .setOcclusionTexture(null)
+      .setMetallicRoughnessTexture(null);
+
+    const clearcoat = material.getExtension("KHR_materials_clearcoat");
+    if (clearcoat) {
+      clearcoat
+        .setClearcoatTexture(null)
+        .setClearcoatRoughnessTexture(null)
+        .setClearcoatNormalTexture(null);
+    }
+  }
+}
+
 function dropDeadMorphTargets(document) {
   const root = document.getRoot();
 
@@ -203,7 +224,7 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
 let totalBefore = 0;
 let totalAfter = 0;
 
-for (const { path: sourcePath, label } of MODELS) {
+for (const { path: sourcePath, label, stripTextures = false } of MODELS) {
   if (!existsSync(sourcePath)) {
     console.log(`${label}: ${basename(sourcePath)} not found, skipping.`);
     continue;
@@ -224,6 +245,7 @@ for (const { path: sourcePath, label } of MODELS) {
   const before = summarize(document);
 
   const removedTargets = dropDeadMorphTargets(document);
+  if (stripTextures) stripMaterialTextures(document);
 
   await document.transform(
     // Merges byte-identical meshes into shared references so the Draco pass encodes that geometry
