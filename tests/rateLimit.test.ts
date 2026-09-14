@@ -2,11 +2,16 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getPlatformProxy } from "wrangler";
 import {
+  RATE_LIMIT_BUDGETS,
+  RATE_LIMIT_PERIOD_SECONDS,
   enforceCatalogReadRateLimit,
+  enforceConfigCreateRateLimit,
   enforceConfigWriteRateLimit,
   type RateLimitBinding,
 } from "../lib/server/rateLimit";
 import { ApiError } from "../lib/api/errors";
+import { toErrorBody } from "../lib/api/errors";
+import { errorResponse } from "../lib/server/apiResponse";
 
 function requestFrom(ip: string): Request {
   return new Request("https://example.com/api/v1/configurations", {
@@ -14,6 +19,41 @@ function requestFrom(ip: string): Request {
     headers: { "cf-connecting-ip": ip },
   });
 }
+
+describe("enforceConfigCreateRateLimit (fake binding)", () => {
+  function fakeLimiter(allow: boolean): RateLimitBinding {
+    return { limit: async () => ({ success: allow }) };
+  }
+
+  it("allows creates when the limiter reports success", async () => {
+    await expect(enforceConfigCreateRateLimit(requestFrom("1.2.3.4"), fakeLimiter(true))).resolves.toBeUndefined();
+  });
+
+  it("throws a structured 429 with create scope when over budget", async () => {
+    await expect(enforceConfigCreateRateLimit(requestFrom("1.2.3.4"), fakeLimiter(false))).rejects.toMatchObject({
+      status: 429,
+      code: "rate_limited",
+      details: {
+        scope: "create",
+        limit: RATE_LIMIT_BUDGETS.configCreate,
+        periodSeconds: RATE_LIMIT_PERIOD_SECONDS,
+        retryAfterSeconds: RATE_LIMIT_PERIOD_SECONDS,
+      },
+    });
+  });
+
+  it("keys creates by cf-connecting-ip with an ip: prefix", async () => {
+    const seenKeys: string[] = [];
+    const recordingLimiter: RateLimitBinding = {
+      limit: async ({ key }) => {
+        seenKeys.push(key);
+        return { success: true };
+      },
+    };
+    await enforceConfigCreateRateLimit(requestFrom("9.9.9.9"), recordingLimiter);
+    expect(seenKeys).toEqual(["ip:9.9.9.9"]);
+  });
+});
 
 describe("enforceConfigWriteRateLimit (fake binding)", () => {
   function fakeLimiter(allow: boolean): RateLimitBinding {
@@ -28,6 +68,7 @@ describe("enforceConfigWriteRateLimit (fake binding)", () => {
     await expect(enforceConfigWriteRateLimit(requestFrom("1.2.3.4"), fakeLimiter(false))).rejects.toMatchObject({
       status: 429,
       code: "rate_limited",
+      details: { scope: "ip", limit: RATE_LIMIT_BUDGETS.configWrite },
     });
   });
 
@@ -51,15 +92,50 @@ describe("enforceConfigWriteRateLimit (fake binding)", () => {
     };
 
     await enforceConfigWriteRateLimit(requestFrom("9.9.9.9"), recordingLimiter);
-    expect(seenKeys).toEqual(["9.9.9.9"]);
+    expect(seenKeys).toEqual(["ip:9.9.9.9"]);
+  });
+
+  it("also meters an independent per-owner-token budget when a token is presented", async () => {
+    const seenKeys: string[] = [];
+    const recordingLimiter: RateLimitBinding = {
+      limit: async ({ key }) => {
+        seenKeys.push(key);
+        return { success: true };
+      },
+    };
+
+    await enforceConfigWriteRateLimit(requestFrom("9.9.9.9"), recordingLimiter, "test-owner-token");
+    expect(seenKeys).toHaveLength(2);
+    expect(seenKeys[0]).toBe("ip:9.9.9.9");
+    expect(seenKeys[1]).toMatch(/^owner:/);
+  });
+
+  it("rejects on the owner-token budget even when the IP budget still has room", async () => {
+    let calls = 0;
+    const selective: RateLimitBinding = {
+      limit: async ({ key }) => {
+        calls += 1;
+        // Allow IP, reject owner.
+        return { success: !key.startsWith("owner:") };
+      },
+    };
+
+    await expect(
+      enforceConfigWriteRateLimit(requestFrom("9.9.9.9"), selective, "leaked-token"),
+    ).rejects.toMatchObject({
+      status: 429,
+      code: "rate_limited",
+      details: { scope: "owner_token", limit: RATE_LIMIT_BUDGETS.configWrite },
+    });
+    expect(calls).toBe(2);
   });
 
   it("skips the limiter entirely when the caller cannot be identified", async () => {
     // This used to key on the literal string "unknown", which did not lose rate limiting when the
-    // header went missing — it put *every* unidentifiable caller in one shared 30-per-minute
-    // bucket, so a header problem became an outage for all of them at once. Failing open loses
-    // enforcement only in a configuration that should not occur behind Cloudflare, and it cannot
-    // take legitimate users down with it.
+    // header went missing — it put *every* unidentifiable caller in one shared bucket, so a header
+    // problem became an outage for all of them at once. Failing open loses enforcement only in a
+    // configuration that should not occur behind Cloudflare, and it cannot take legitimate users
+    // down with it.
     const seenKeys: string[] = [];
     const recordingLimiter: RateLimitBinding = {
       limit: async ({ key }) => {
@@ -96,6 +172,36 @@ describe("enforceConfigWriteRateLimit (fake binding)", () => {
   });
 });
 
+describe("structured 429 response body", () => {
+  it("includes details in toErrorBody and Retry-After from details", () => {
+    const err = new ApiError(429, "rate_limited", "Slow down.", {
+      details: {
+        retryAfterSeconds: 60,
+        periodSeconds: 60,
+        scope: "create",
+        limit: RATE_LIMIT_BUDGETS.configCreate,
+      },
+    });
+    expect(toErrorBody(err)).toEqual({
+      error: {
+        code: "rate_limited",
+        status: 429,
+        message: "Slow down.",
+        details: {
+          retryAfterSeconds: 60,
+          periodSeconds: 60,
+          scope: "create",
+          limit: RATE_LIMIT_BUDGETS.configCreate,
+        },
+      },
+    });
+
+    const response = errorResponse(err);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+  });
+});
+
 describe("enforceCatalogReadRateLimit (fake binding)", () => {
   const catalogRequest = (ip: string) =>
     new Request("https://example.com/api/v1/vehicles", { headers: { "cf-connecting-ip": ip } });
@@ -113,6 +219,7 @@ describe("enforceCatalogReadRateLimit (fake binding)", () => {
     await expect(enforceCatalogReadRateLimit(catalogRequest("1.2.3.4"), limiter)).rejects.toMatchObject({
       status: 429,
       code: "rate_limited",
+      details: { scope: "catalog", limit: RATE_LIMIT_BUDGETS.catalogRead },
     });
   });
 
@@ -136,8 +243,8 @@ describe("enforceCatalogReadRateLimit (fake binding)", () => {
     await enforceConfigWriteRateLimit(requestFrom("5.5.5.5"), writeLimiter);
     await enforceCatalogReadRateLimit(catalogRequest("5.5.5.5"), readLimiter);
 
-    expect(writeKeys).toEqual(["5.5.5.5"]);
-    expect(readKeys).toEqual(["5.5.5.5"]);
+    expect(writeKeys).toEqual(["ip:5.5.5.5"]);
+    expect(readKeys).toEqual(["ip:5.5.5.5"]);
   });
 });
 
@@ -167,10 +274,20 @@ describe("enforceCatalogReadRateLimit (fake binding)", () => {
 const MINIFLARE_STATE_DIR = path.resolve(import.meta.dirname, "../.wrangler/state/test-rate-limit");
 
 describe("enforceConfigWriteRateLimit (real local rate limiter)", () => {
-  let proxy: Awaited<ReturnType<typeof getPlatformProxy<{ CONFIG_WRITE_LIMITER: RateLimitBinding }>>>;
+  let proxy: Awaited<
+    ReturnType<
+      typeof getPlatformProxy<{
+        CONFIG_WRITE_LIMITER: RateLimitBinding;
+        CONFIG_CREATE_LIMITER: RateLimitBinding;
+      }>
+    >
+  >;
 
   beforeAll(async () => {
-    proxy = await getPlatformProxy<{ CONFIG_WRITE_LIMITER: RateLimitBinding }>({
+    proxy = await getPlatformProxy<{
+      CONFIG_WRITE_LIMITER: RateLimitBinding;
+      CONFIG_CREATE_LIMITER: RateLimitBinding;
+    }>({
       configPath: path.resolve(import.meta.dirname, "../wrangler.jsonc"),
       persist: { path: MINIFLARE_STATE_DIR },
     });
@@ -180,14 +297,14 @@ describe("enforceConfigWriteRateLimit (real local rate limiter)", () => {
     await proxy?.dispose();
   });
 
-  it("allows requests up to wrangler.jsonc's configured limit, then blocks", async () => {
+  it("allows write requests up to wrangler.jsonc's configured limit, then blocks", async () => {
     // A fresh key per test run avoids interference from a previous run's window (the limiter's
     // state persists in `.wrangler/state/`, same as the D1 test's database file).
     const key = `rate-limit-test-${crypto.randomUUID()}`;
     const request = requestFrom(key);
 
-    // wrangler.jsonc: { "simple": { "limit": 30, "period": 60 } }
-    for (let i = 0; i < 30; i++) {
+    // wrangler.jsonc CONFIG_WRITE_LIMITER: { "simple": { "limit": 20, "period": 60 } }
+    for (let i = 0; i < RATE_LIMIT_BUDGETS.configWrite; i++) {
       await expect(enforceConfigWriteRateLimit(request, proxy.env.CONFIG_WRITE_LIMITER)).resolves.toBeUndefined();
     }
 
@@ -197,11 +314,28 @@ describe("enforceConfigWriteRateLimit (real local rate limiter)", () => {
     });
   });
 
+  it("allows creates up to the tighter create budget, then blocks", async () => {
+    const key = `rate-limit-create-${crypto.randomUUID()}`;
+    const request = requestFrom(key);
+
+    for (let i = 0; i < RATE_LIMIT_BUDGETS.configCreate; i++) {
+      await expect(
+        enforceConfigCreateRateLimit(request, proxy.env.CONFIG_CREATE_LIMITER),
+      ).resolves.toBeUndefined();
+    }
+
+    await expect(enforceConfigCreateRateLimit(request, proxy.env.CONFIG_CREATE_LIMITER)).rejects.toMatchObject({
+      status: 429,
+      code: "rate_limited",
+      details: { scope: "create" },
+    });
+  });
+
   it("tracks distinct client IPs independently", async () => {
     const keyA = `rate-limit-isolation-a-${crypto.randomUUID()}`;
     const keyB = `rate-limit-isolation-b-${crypto.randomUUID()}`;
 
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < RATE_LIMIT_BUDGETS.configWrite; i++) {
       await enforceConfigWriteRateLimit(requestFrom(keyA), proxy.env.CONFIG_WRITE_LIMITER);
     }
     await expect(

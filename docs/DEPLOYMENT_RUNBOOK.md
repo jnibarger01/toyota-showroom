@@ -94,9 +94,10 @@ or rotating to a new database).
 5. **Verify:** `curl https://<your-worker-subdomain>.workers.dev/api/v1/health` should return
    `{"status":"ok", ...}` (`app/api/v1/health/route.ts`).
 
-6. **Rate limiter namespace.** `wrangler.jsonc`'s `ratelimits[0].namespace_id` (`1001`) is a
-   developer-chosen value, not Cloudflare-issued — no extra provisioning step needed, it's created
-   implicitly on first deploy.
+6. **Rate limiter namespaces.** `wrangler.jsonc`'s `ratelimits[].namespace_id` values (`1001`,
+   `1003`, `1005`, `1007` in production) are developer-chosen, not Cloudflare-issued — no extra
+   provisioning step needed; each is created implicitly on first deploy. Budgets and how to
+   raise them are documented in §9.
 
 ---
 
@@ -297,7 +298,7 @@ re-run a prior successful "Deploy Toyota Showroom" workflow run from the Actions
   instead. Redeploy with the explicit flag.
 - **Rate limiter namespace collisions.** `ratelimits[].namespace_id` is account-scoped, not
   Worker-scoped — production (`1001`) and staging (`1002`) must stay on different ids, or every PR's
-  staging traffic would share production's 30-writes/minute budget.
+  staging traffic would share production's write budgets.
 
 ---
 
@@ -322,3 +323,100 @@ encrypted, available in the Worker as `env.<NAME>`. Never commit a secret value 
 — bindings (D1 ids, rate-limiter namespace ids) are not secrets and are fine to commit
 (`docs/INTEGRATION_GUIDE.md`'s own note on this); anything that authenticates to a third party
 must stay in secrets.
+
+
+---
+
+## 9. Abuse controls (rate limits + optional bot friction)
+
+Worker/D1 is the production persistence path. Public write endpoints ship with abuse defaults so a
+scripted burst from one client cannot fill D1 unboundedly. Knobs live in two places that **must
+stay aligned**:
+
+| Knob | Where | Default (prod + staging) | What it meters |
+|---|---|---|---|
+| `CONFIG_CREATE_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.configCreate` | **10 / 60s** | `POST /api/v1/configurations` per `cf-connecting-ip` |
+| `CONFIG_WRITE_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.configWrite` | **20 / 60s** | `PATCH`/`DELETE` per IP **and** independently per owner-token hash |
+| `LEAD_WRITE_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.leadWrite` | **5 / 60s** | `POST /api/v1/leads` per IP |
+| `CATALOG_READ_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.catalogRead` | **300 / 60s** | Catalog `GET`s per IP |
+| Period | `ratelimits[].simple.period` / `RATE_LIMIT_PERIOD_SECONDS` | **60** | Sliding window length (also the `Retry-After` hint) |
+
+Namespace ids (account-scoped, not Worker-scoped):
+
+| Binding | Production `namespace_id` | Staging `namespace_id` |
+|---|---|---|
+| `CONFIG_CREATE_LIMITER` | `1007` | `1008` |
+| `CONFIG_WRITE_LIMITER` | `1001` | `1002` |
+| `LEAD_WRITE_LIMITER` | `1005` | `1006` |
+| `CATALOG_READ_LIMITER` | `1003` | `1004` |
+
+### Raising a limit
+
+1. Edit `wrangler.jsonc` `ratelimits[].simple.limit` (and the matching staging entry).
+2. Edit the matching constant in `lib/server/rateLimit.ts` → `RATE_LIMIT_BUDGETS` (structured 429
+   bodies and unit tests read these constants).
+3. Redeploy the Worker (`npm run deploy` / staging workflow). Rate-limit bindings take effect on
+   the next deploy; no D1 migration is involved.
+4. Update `docs/API_REFERENCE.md` / `docs/openapi.yaml`'s `x-rate-limit-definition` if the public
+   contract number changed.
+
+Do **not** raise create above write without a reason — create is the D1-fill vector. Prefer raising
+`CONFIG_WRITE_LIMITER` when interactive builders on shared NATs are legitimately blocked.
+
+### Structured 429 shape
+
+Every rate-limited response is:
+
+```json
+{
+  "error": {
+    "code": "rate_limited",
+    "status": 429,
+    "message": "…",
+    "details": {
+      "retryAfterSeconds": 60,
+      "periodSeconds": 60,
+      "scope": "create" ,
+      "limit": 10
+    }
+  }
+}
+```
+
+`scope` is one of `create` | `ip` | `owner_token` | `lead` | `catalog`. The `Retry-After` response
+header mirrors `details.retryAfterSeconds`.
+
+### Optional Turnstile bot friction (create only)
+
+Disabled by default. When enabled, `POST /api/v1/configurations` requires a Turnstile token in the
+`cf-turnstile-response` header (`lib/server/botFriction.ts`). Missing token → `422 invalid_body`;
+failed verify → `403 forbidden`.
+
+```bash
+# Required to enable (presence of the secret turns friction on):
+npx wrangler secret put TURNSTILE_SECRET_KEY --name toyota-showroom
+
+# Optional: force off without deleting the secret (value "0" / "false"):
+npx wrangler secret put TURNSTILE_ENABLED --name toyota-showroom
+
+# Optional public site key for a future client widget (safe as a var, not a secret):
+# Add under wrangler.jsonc "vars": { "TURNSTILE_SITE_KEY": "0x…" } then redeploy.
+```
+
+Staging: pass `--env staging` / `--name toyota-showroom-staging` the same way as CRM secrets in §8.
+Create a Turnstile widget in the Cloudflare dashboard (siteverify uses the widget's secret key).
+Until the browser ships a widget, enable this only for API clients that can complete the challenge
+out of band — the server path is real; the client UI is intentionally not required for acceptance.
+
+### Quick verification
+
+```bash
+# Burst creates from one IP should 429 after the create budget (Worker must be deployed):
+for i in $(seq 1 12); do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<worker>/api/v1/configurations \
+    -H "content-type: application/json" \
+    -d '{"vehicleId":"4runner","gradeId":"sr5","modelYear":2024,"selections":{}}'
+done
+# Expect a mix of 201/422 (validation) then 429 with Retry-After: 60.
+```
+
