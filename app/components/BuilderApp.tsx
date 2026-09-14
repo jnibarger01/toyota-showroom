@@ -52,6 +52,7 @@ import {
   resolveBuilderShortcut,
 } from "../../lib/showroom/builderShortcuts";
 import { PersistenceModeBanner } from "./PersistenceModeBanner";
+import { OwnerTokenDialog } from "./OwnerTokenDialog";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -147,6 +148,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>("Daytime");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
+  /** One-time owner-token reveal after first Save build (#80); null when nothing to show. */
+  const [ownerTokenReveal, setOwnerTokenReveal] = useState<{
+    configurationId: string;
+    ownerToken: string;
+  } | null>(null);
   const [optionQuery, setOptionQuery] = useState("");
   const [selectedOnly, setSelectedOnly] = useState(false);
   const [budget, setBudget] = useState(65_000);
@@ -650,6 +656,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     const current = configurationStore.getSnapshot().configuration;
     if (current) {
       pinConfigurationToGarage(current);
+      const token = configurationsApi.takeOwnerTokenForFirstSaveReveal(current.configurationId);
+      if (token) {
+        setOwnerTokenReveal({ configurationId: current.configurationId, ownerToken: token });
+      }
     }
     setGarageMessage(
       isLocalPersistence
@@ -828,6 +838,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       ) : null}
 
       <PersistenceModeBanner mode={persistenceMode} />
+
+      {ownerTokenReveal ? (
+        <OwnerTokenDialog
+          configurationId={ownerTokenReveal.configurationId}
+          ownerToken={ownerTokenReveal.ownerToken}
+          onDismiss={() => {
+            configurationsApi.markOwnerTokenShown(ownerTokenReveal.configurationId);
+            setOwnerTokenReveal(null);
+          }}
+        />
+      ) : null}
 
       {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your 4Runner</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
 
