@@ -14,6 +14,10 @@
  * than assumed, and `lib/pwa/demoServiceWorker.ts` actively unregisters if the mode is ever
  * "worker".
  *
+ * Keep path prefixes / precache URLs in lockstep with `lib/pwa/demoSwPolicy.ts` (asserted by
+ * `tests/demoSwPolicy.test.ts`). This file is a classic script with no bundler pass, so it cannot
+ * import that module.
+ *
  * ## Strategies
  *
  *   - `/assets/*`  — content-hashed and served `immutable`. Cache-first, never revalidated: the
@@ -29,15 +33,24 @@
  *                    deploy wins when online and the demo still works offline.
  *   - everything else, including `/api/*` — not touched at all.
  *
+ * ## Precache
+ *
+ * On install we warm the critical static shell, the active hero vehicle's models, its catalog
+ * snapshots, and the Draco decoder. Hashed `/assets/*` filenames are discovered from `index.html`
+ * at install time so the list cannot drift from what the build emitted.
+ *
  * ## The kill switch
  *
  * `CACHE_VERSION` is the version bump: `activate` deletes every cache that is not the current one,
- * so shipping a new value evicts everything previously stored. A sticky cache on a demo surface is
- * worse than no cache, so this worker also calls `skipWaiting`/`clients.claim` — an update takes
- * effect on the next navigation rather than waiting for every tab to close.
+ * so shipping a new value evicts everything previously stored. `scripts/stamp-demo-sw.mjs` rewrites
+ * this token to the build's git SHA on every Pages (and local) build — see DEPLOYMENT_RUNBOOK —
+ * so deploys are never sticky-cached forever. A sticky cache on a demo surface is worse than no
+ * cache, so this worker also calls `skipWaiting`/`clients.claim` — an update takes effect on the
+ * next navigation rather than waiting for every tab to close.
  */
 
-const CACHE_VERSION = "v1";
+/** Stamped to `v-<git-sha>` by `scripts/stamp-demo-sw.mjs` on build. Do not hand-edit in CI. */
+const CACHE_VERSION = "dev";
 const CACHE_NAME = `toyota-showroom-demo-${CACHE_VERSION}`;
 
 /** Served `immutable`; a hit can never be wrong because the hash is in the name. */
@@ -49,15 +62,81 @@ const REVALIDATE_PATHS = ["/models/", "/draco/", "/renders/", "/images/"];
 /** The static catalog mirror the demo reads instead of the API. */
 const CATALOG_MARKER = "/catalog/v1/";
 
+/**
+ * Scope-relative precache list (keep in sync with `DEMO_SW_PRECACHE_URLS` in
+ * `lib/pwa/demoSwPolicy.ts`). Resolved against `self.registration.scope`.
+ */
+const PRECACHE_URLS = [
+  "./",
+  "./index.html",
+  "./4runner/",
+  "./4runner/index.html",
+  "./models/modsnation_7416_assets_assembled.glb",
+  "./models/4runner-2024/ModsNation_7416_wheel_a.glb",
+  "./models/4runner-2024/ModsNation_7416_tire.glb",
+  "./images/modsnation_7416_final_hero_tweaked.png",
+  "./catalog/v1/vehicles.json",
+  "./catalog/v1/vehicles/4runner.json",
+  "./catalog/v1/vehicles/4runner/options.json",
+  "./catalog/v1/vehicles/4runner/media.json",
+  "./draco/draco_decoder.js",
+  "./draco/draco_decoder.wasm",
+  "./draco/draco_wasm_wrapper.js",
+];
+
 function matchesAny(pathname, prefixes) {
   return prefixes.some((prefix) => pathname.includes(prefix));
 }
 
+/** Put one URL into the cache; never throws — a missing optional asset must not fail install. */
+async function putIfOk(cache, url) {
+  try {
+    const response = await fetch(url, { cache: "reload" });
+    if (response.ok) await cache.put(url, response);
+  } catch {
+    // Precache is best-effort. Offline install or a renamed asset should not brick the worker.
+  }
+}
+
+/**
+ * Warm shell + hero assets, then scrape hashed `/assets/*` URLs out of the builder HTML so the
+ * content-hashed JS/CSS for this deploy is cached without a hand-maintained list.
+ */
+async function precacheCritical(cache) {
+  const scope = self.registration.scope;
+  await Promise.all(PRECACHE_URLS.map((rel) => putIfOk(cache, new URL(rel, scope))));
+
+  try {
+    const indexUrl = new URL("./index.html", scope);
+    const indexResponse = await fetch(indexUrl, { cache: "reload" });
+    if (!indexResponse.ok) return;
+    const html = await indexResponse.text();
+    const assetRefs = html.matchAll(/(?:href|src)="([^"]*\/assets\/[^"]+)"/g);
+    const seen = new Set();
+    const discoveries = [];
+    for (const match of assetRefs) {
+      const raw = match[1];
+      if (!raw || seen.has(raw)) continue;
+      seen.add(raw);
+      const assetUrl = new URL(raw, scope);
+      if (assetUrl.origin !== self.location.origin) continue;
+      if (!assetUrl.pathname.includes("/assets/")) continue;
+      discoveries.push(putIfOk(cache, assetUrl));
+    }
+    await Promise.all(discoveries);
+  } catch {
+    // Shell discovery is additive; the explicit PRECACHE_URLS list is enough for a useful demo.
+  }
+}
+
 self.addEventListener("install", (event) => {
-  // No precache list. The asset filenames are build-hashed and this file is static, so any list
-  // written here would be a guess that goes stale silently. Caching on first use costs one
-  // uncached visit and cannot drift from what the build actually emitted.
-  event.waitUntil(self.skipWaiting());
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE_NAME);
+      await precacheCritical(cache);
+      await self.skipWaiting();
+    })(),
+  );
 });
 
 self.addEventListener("activate", (event) => {

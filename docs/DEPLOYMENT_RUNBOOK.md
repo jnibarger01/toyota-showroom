@@ -173,24 +173,53 @@ Expect health `status: "ok"` and a `201` with a `configurationId`. Same checks a
 ## Demo service worker (Pages only)
 
 `public/sw.js` caches the static shell and the vehicle assets so repeat visits to the Pages demo do
-not re-download the ~1.2 MiB GLB, and so a cached build still opens with the network offline.
+not re-download the ~1.2 MiB GLB, and so a cached build still opens with the network offline. This is
+**explicitly the Pages demo path** — it is not a substitute for the production Cloudflare Worker +
+D1 stack (#49).
 
 **It is gated on runtime proof, not on a build flag.** `lib/pwa/demoServiceWorker.ts` registers it
 only once `getPersistenceMode()` resolves to `"local"` — that is, once the app has confirmed the API
 routes are absent. A service worker installed against the Worker deployment could serve stale
 configuration responses from cache, which is a much worse failure than the download it saves.
 
-Strategies: cache-first for `/assets/*` (content-hashed, `immutable`, so a hit cannot be wrong);
-stale-while-revalidate for `/models/*`, `/draco/*`, `/renders/*`, `/images/*` (large and stable, but
-`public/_headers` serves them `must-revalidate` because the optimisation scripts rewrite them in
-place under unchanged names); network-first for `/catalog/v1/*.json`. `/api/*` is never intercepted.
+### Precache vs runtime strategies
 
-### Kill switch
+On `install` the worker precaches:
 
-Bump `CACHE_VERSION` in `public/sw.js`. `activate` deletes every cache that is not the current
-version, so a bump evicts everything previously stored. The worker also calls
+- the critical static shell (`./`, `./index.html`, `./4runner/`);
+- the active hero vehicle's models and still (default builder slug `4runner` —
+  `modsnation_7416_assets_assembled.glb`, wheel/tire GLBs, hero PNG);
+- that vehicle's catalog snapshots under `/catalog/v1/…`;
+- the vendored Draco decoder trio under `/draco/`;
+- content-hashed `/assets/*` URLs discovered by scraping `index.html` (so the list cannot drift from
+  what the build emitted).
+
+Runtime fetch strategies (canonical policy in `lib/pwa/demoSwPolicy.ts`, mirrored in `public/sw.js`):
+
+- **cache-first** for `/assets/*` (content-hashed, `immutable`, so a hit cannot be wrong);
+- **stale-while-revalidate** for `/models/*`, `/draco/*`, `/renders/*`, `/images/*` (large and stable,
+  but `public/_headers` serves them `must-revalidate` because the optimisation scripts rewrite them
+  in place under unchanged names);
+- **network-first** for `/catalog/v1/*` (configuration / catalog JSON — live deploy wins online,
+  cached copy keeps the demo opening offline);
+- **`/api/*` is never intercepted** (configuration APIs stay network-only).
+
+### Kill switch / version bump on deploy
+
+`CACHE_VERSION` in `public/sw.js` is the kill switch. `activate` deletes every cache that is not the
+current version, so a bump evicts everything previously stored. The worker also calls
 `skipWaiting`/`clients.claim`, so an update takes effect on the next navigation instead of waiting
 for every tab to close — a sticky cache on a demo surface is worse than no cache at all.
+
+**Deploys stamp the version automatically.** `npm run build` ends with
+`node scripts/stamp-demo-sw.mjs`, which rewrites `dist/client/sw.js`'s `CACHE_VERSION` to
+`v-<git-sha>` (from `GITHUB_SHA` in CI, or `git rev-parse --short HEAD` locally). Override with
+`DEMO_SW_CACHE_VERSION` when you need a forced eviction without a new commit. The source file keeps
+`CACHE_VERSION = "dev"` so a forgotten stamp is obvious in review; do not hand-edit the stamped
+value in `dist/`.
+
+`.github/workflows/pages.yml` also runs `npm run sw:stamp` after the static export verify step so a
+Pages deploy cannot ship an unstamped worker even if the build script is ever split.
 
 To remove it entirely for a browser: promoting that origin to the Worker path is enough. On the next
 load the mode resolves to `"worker"` and the registration is torn down automatically, with no

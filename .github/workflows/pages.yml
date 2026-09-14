@@ -43,7 +43,13 @@ jobs:
           test -f dist/client/index.html
           test -f dist/client/sitemap.xml
           test -f dist/client/robots.txt
+          test -f dist/client/sw.js
           touch dist/client/.nojekyll
+
+      # #49 — bump CACHE_VERSION so Pages deploys are never sticky-cached forever.
+      # `npm run build` already stamps; this is a belt-and-braces re-stamp with GITHUB_SHA.
+      - name: Stamp demo service worker cache version
+        run: npm run sw:stamp
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
