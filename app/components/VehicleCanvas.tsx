@@ -35,6 +35,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { CanvasModelStatus, type CanvasModelStatusKind } from "./CanvasModelStatus";
 import gsap from "gsap";
 import * as THREE from "three";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
@@ -174,6 +175,13 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
+  /**
+   * Asset-path empty/error notice (#75). Distinct from CanvasErrorBoundary: this covers GLB
+   * fetch/decode failure (and vehicles with no detailed model), not React render crashes.
+   */
+  const [modelStatus, setModelStatus] = useState<CanvasModelStatusKind | null>(null);
+  /** Bumped by Retry so the setup effect remounts and re-fetches the GLB. */
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const environmentControllerRef = useRef<EnvironmentController | null>(null);
   const renderControllerRef = useRef<RenderController | null>(null);
 
@@ -221,6 +229,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     void (async () => {
       const host = hostRef.current;
       if (!host) return;
+
+      // Fresh attempt: clear any prior empty/error notice before the next load outcome lands.
+      setModelStatus(null);
 
       const scene = new THREE.Scene();
       scene.background = new THREE.Color("#0b0f14");
@@ -615,6 +626,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
       if (!wantsDetailedModel) {
         progressive = reduceProgressiveLoad(progressive, { type: "no-model" });
+        // Informational empty state — not a failure; chrome stays fully usable.
+        setModelStatus("empty");
         const root = createProceduralVehicle();
         if (cancelled) {
           disposeSubtree(root);
@@ -650,6 +663,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           progressive = reduceProgressiveLoad(progressive, { type: "glb-decoded" });
         } catch (error) {
           console.error("High-detail glTF failed to load; using procedural fallback.", error);
+          // Labeled on-canvas error + Retry (#75). Procedural fallback still mounts so chrome
+          // (options, pricing, share) keeps working — this is not CanvasErrorBoundary territory.
+          setModelStatus("error");
           onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");
           progressive = reduceProgressiveLoad(progressive, { type: "load-failed" });
         }
@@ -681,6 +697,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           }
           scene.remove(placeholder);
           disposeSubtree(placeholder);
+          setModelStatus(null);
           mountSettledRoot(detailed);
           progressive = reduceProgressiveLoad(progressive, { type: "settled" });
         } else {
@@ -748,8 +765,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       xrControllerRef.current = null;
       cleanup?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time setup; see latest-value refs above.
-  }, [threeDConfig]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setup once per model/retry; see latest-value refs above.
+  }, [threeDConfig, loadAttempt]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -830,22 +847,37 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 
   return (
-    <div
-      ref={hostRef}
-      className="vehicle-canvas"
-      // `tabIndex` is what puts the 3D stage in the tab order at all; before this the entire
-      // viewport was pointer-only. `group` rather than `application`: the element is a composite
-      // widget the user steps into, and `application` would suppress the screen reader's own
-      // navigation keys everywhere inside it in exchange for nothing this needs.
-      tabIndex={0}
-      role="group"
-      aria-label={
-        "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
-        "and Home to return to the selected camera angle. Use the right and left bracket keys " +
-        "to cycle through selectable vehicle parts, Enter to select the highlighted part, and " +
-        "Escape to clear the selection. Click or tap a part directly to select it."
-      }
-    />
+    <>
+      <div
+        ref={hostRef}
+        className="vehicle-canvas"
+        // `tabIndex` is what puts the 3D stage in the tab order at all; before this the entire
+        // viewport was pointer-only. `group` rather than `application`: the element is a composite
+        // widget the user steps into, and `application` would suppress the screen reader's own
+        // navigation keys everywhere inside it in exchange for nothing this needs.
+        tabIndex={0}
+        role="group"
+        aria-label={
+          "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
+          "and Home to return to the selected camera angle. Use the right and left bracket keys " +
+          "to cycle through selectable vehicle parts, Enter to select the highlighted part, and " +
+          "Escape to clear the selection. Click or tap a part directly to select it."
+        }
+      />
+      {modelStatus ? (
+        <CanvasModelStatus
+          kind={modelStatus}
+          onRetry={
+            modelStatus === "error"
+              ? () => {
+                  setModelStatus(null);
+                  setLoadAttempt((attempt) => attempt + 1);
+                }
+              : undefined
+          }
+        />
+      ) : null}
+    </>
   );
 }
 
