@@ -9,7 +9,6 @@ import {
   Check,
   ClipboardCheck,
   Download,
-  CloudOff,
   CloudSun,
   CircleGauge,
   Cog,
@@ -52,6 +51,7 @@ import {
   BUILDER_SHORTCUT_SHEET,
   resolveBuilderShortcut,
 } from "../../lib/showroom/builderShortcuts";
+import { PersistenceModeBanner } from "./PersistenceModeBanner";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -827,16 +827,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </div>
       ) : null}
 
-      {isLocalPersistence ? (
-        <div className="persistence-banner" role="status" data-testid="persistence-mode-banner">
-          <CloudOff size={15} aria-hidden />
-          <span>
-            <strong>Demo / offline saves</strong> — builds stay in this browser.
-            Share uses a deep link so others can open your build without Worker/D1.
-            Production persistence is Cloudflare Worker + D1; see the deployment runbook to promote.
-          </span>
-        </div>
-      ) : null}
+      <PersistenceModeBanner mode={persistenceMode} />
 
       {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your 4Runner</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
 
