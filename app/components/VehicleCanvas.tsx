@@ -42,6 +42,7 @@ import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
 import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
+import { resolveAssetUrl } from "../../lib/three/assetUrl";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { getSceneMapForVehicle } from "../../lib/data/sceneMap";
 import { pointerToNdc } from "../../lib/three/picking";
@@ -934,7 +935,7 @@ async function loadVehicleRoot(
   onProgress?: (fraction: number) => void,
 ): Promise<THREE.Object3D> {
   if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
-  const gltf = await getGltfLoader().loadAsync(threeDConfig.modelUrl, (event) => {
+  const gltf = await getGltfLoader().loadAsync(resolveAssetUrl(threeDConfig.modelUrl), (event) => {
     // `lengthComputable` is false whenever the response has no usable `Content-Length` — common for
     // a gzipped GLB. Reporting `loaded / 0` would emit Infinity, and guessing a denominator would
     // show a progress bar that lies; skipping the callback lets the UI fall back to the

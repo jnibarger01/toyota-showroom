@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { clone as cloneSkinnedScene } from "three/examples/jsm/utils/SkeletonUtils.js";
+import { resolveAssetUrl } from "./assetUrl";
 
 /**
  * Optional-asset loading and mesh replacement.
@@ -69,19 +70,20 @@ function registerCacheOwned(root: THREE.Object3D): void {
 }
 
 export function loadAsset(url: string): Promise<THREE.Group> {
-  const cached = assetCache.get(url);
+  const resolvedUrl = resolveAssetUrl(url);
+  const cached = assetCache.get(resolvedUrl);
   if (cached) return cached;
 
   const pending = getGltfLoader()
-    .loadAsync(url)
+    .loadAsync(resolvedUrl)
     .then((gltf) => {
       registerCacheOwned(gltf.scene);
       return gltf.scene;
     });
 
   // Do not cache failures: a transient network error should not permanently disable the option.
-  pending.catch(() => assetCache.delete(url));
-  assetCache.set(url, pending);
+  pending.catch(() => assetCache.delete(resolvedUrl));
+  assetCache.set(resolvedUrl, pending);
   return pending;
 }
 
