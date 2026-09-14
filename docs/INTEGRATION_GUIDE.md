@@ -916,7 +916,7 @@ Every non-2xx body matches `ApiErrorBody` (`lib/api/errors.ts`):
 | 404 | `not_found` | Unknown vehicle or configuration |
 | 409 | `revision_conflict` | Stale `expectedRevision` |
 | 422 | `invalid_body` | Unknown option, wrong category, bad grade/year, cardinality violation |
-| 429 | `rate_limited` | More than 30 writes/minute from one client IP (POST/PATCH/DELETE only; `Retry-After: 60` header set) |
+| 429 | `rate_limited` | Create >10/min or write >20/min from one client IP (or per owner-token on PATCH/DELETE); body includes `details.{retryAfterSeconds,periodSeconds,scope,limit}`; `Retry-After: 60` header set |
 
 ### What validation enforces
 
@@ -1433,10 +1433,11 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   written into `VehicleConfiguration`. Intentional as far as the schema goes (`lib/types/
   customization.ts` has no field for it) — recorded here because a visitor reloading a shared link
   would reasonably expect a chosen ride height to come back with everything else.
-- **Rate limiting is keyed on IP, not on identity.** `enforceConfigWriteRateLimit`
-  (`lib/server/rateLimit.ts`) throttles POST/PATCH/DELETE at 30 writes/minute per `cf-connecting-ip`,
-  which is the best available key given Task 10's anonymous, no-accounts ownership model — a NAT'd
-  office or a mobile carrier's shared egress IP shares one budget. Revisit if user accounts land.
+- **Rate limiting is keyed on IP, with an additional per-owner-token budget on PATCH/DELETE.**
+  `enforceConfigCreateRateLimit` / `enforceConfigWriteRateLimit` (`lib/server/rateLimit.ts`)
+  throttle creates at 10/min and writes at 20/min per `cf-connecting-ip`, and writes again per
+  hashed owner token — see `docs/DEPLOYMENT_RUNBOOK.md` §9. A NAT'd office still shares one IP
+  budget; revisit if user accounts land.
 - **`BuilderApp.tsx`'s garage/share/terrain controls (merged in from a parallel work stream) have
   no dedicated tests.** `tests/components/BuilderApp.test.tsx` (§4, "Component tests") covers
   bootstrap, the grade selector, and reset — not `saveToGarage`, `share`, or the terrain/lighting

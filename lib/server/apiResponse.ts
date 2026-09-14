@@ -12,7 +12,15 @@ import { recordRequest } from "./telemetry";
  * would otherwise have needed repeating). Also attaches a `Retry-After` hint on 429s.
  */
 export function errorResponse(err: ApiError): NextResponse {
-  const headers = withSecurityHeaders(err.status === 429 ? { "Retry-After": String(RATE_LIMIT_RETRY_AFTER_SECONDS) } : {});
+  const retryAfter =
+    err.status === 429
+      ? String(
+          (typeof err.details?.retryAfterSeconds === "number"
+            ? err.details.retryAfterSeconds
+            : RATE_LIMIT_RETRY_AFTER_SECONDS),
+        )
+      : undefined;
+  const headers = withSecurityHeaders(retryAfter ? { "Retry-After": retryAfter } : {});
   return NextResponse.json(toErrorBody(err), { status: err.status, headers });
 }
 

@@ -25,15 +25,17 @@ servers:
 security: []
 
 x-rate-limit-definition: &rateLimit
-  limit: 30
+  createLimit: 10
+  writeLimit: 20
   periodSeconds: 60
   keyedBy: cf-connecting-ip
+  writeAlsoKeyedBy: owner-token-hash
   description: |
-    lib/server/rateLimit.ts. Keyed on client IP via Cloudflare's edge-verified cf-connecting-ip
-    header — there is no user-account system to key on instead (the ownership model is anonymous,
-    per-configuration capability tokens). A no-op everywhere the CONFIG_WRITE_LIMITER binding isn't
-    present (local dev, tests, a Worker deployed before wrangler.jsonc's ratelimits entry exists),
-    not a hard dependency.
+    lib/server/rateLimit.ts. Creates (POST) use CONFIG_CREATE_LIMITER at 10/min per
+    cf-connecting-ip; PATCH/DELETE use CONFIG_WRITE_LIMITER at 20/min per IP and independently per
+    hashed X-Owner-Token. Optional Turnstile bot friction on create when TURNSTILE_SECRET_KEY is
+    set (docs/DEPLOYMENT_RUNBOOK.md §9). A no-op everywhere the bindings aren't present (local
+    dev, tests), not a hard dependency.
 
 paths:
   /health:
@@ -237,7 +239,8 @@ paths:
       summary: Create a configuration
       description: |
         `force-dynamic` — only reachable where a real backend is deployed (docs/DEPLOYMENT_RUNBOOK.md).
-        Rate-limited (see `x-rate-limit` below). The response's `ownerToken` is the *only* time the
+        Rate-limited at the create budget (see `x-rate-limit` below); optional Turnstile friction when
+        enabled (DEPLOYMENT_RUNBOOK §9). The response's `ownerToken` is the *only* time the
         plaintext capability token is ever sent — the server stores only its hash
         (`lib/shared/ownerToken.ts`); the caller must hold onto it and present it via `X-Owner-Token`
         on every future `PATCH`/`DELETE` to this configuration. It is not required for `GET`, which
@@ -425,9 +428,16 @@ components:
           properties:
             code:
               type: string
-              enum: [not_found, invalid_query, invalid_body, revision_conflict, forbidden, rate_limited]
+              enum: [not_found, invalid_query, invalid_body, revision_conflict, forbidden, rate_limited, payload_too_large]
             status: { type: integer }
             message: { type: string }
+            details:
+              type: object
+              description: |
+                Present on `rate_limited` responses. Carries retry/budget knobs
+                (`retryAfterSeconds`, `periodSeconds`, `scope`, `limit`) so clients and operators
+                share one contract — see docs/DEPLOYMENT_RUNBOOK.md §9.
+              additionalProperties: true
 
     VehicleSummary:
       type: object
