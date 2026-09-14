@@ -5,6 +5,7 @@ import { getOptionsForVehicle } from "../lib/data/options";
 import { VEHICLE_SCHEMA_VERSION, toVehicleSummary } from "../lib/types/vehicle";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../lib/types/customization";
 import { renderRobotsTxt, renderSitemapXml } from "../lib/site";
+import { DEALER_INVENTORY_CSV_FIXTURE } from "../lib/dealerInventory/csvFixture";
 
 /**
  * `vinext build` (this project's `output: "export"` static export) does not pre-render
@@ -68,6 +69,10 @@ async function main() {
     vehicleCount: VEHICLES.length,
     timestamp: new Date().toISOString(),
   });
+
+  // Dealer inventory CSV fixture (#20) — same bytes the CsvDealerInventoryAdapter parses in tests
+  // and the Explore client fetches from /catalog/v1/dealer-inventory.csv.
+  await writeFile(path.join(outDir, "dealer-inventory.csv"), DEALER_INVENTORY_CSV_FIXTURE);
 
   // vinext static export does not emit app/sitemap.ts / app/robots.ts into dist/client
   // (confirmed on build). Write them into public/ so Pages gets explore + vehicle slugs (#78).
