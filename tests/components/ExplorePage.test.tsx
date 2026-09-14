@@ -57,6 +57,24 @@ vi.mock("../../lib/api/client", () => ({
   MAX_COMPARE: 4,
 }));
 
+/**
+ * Inventory feed is intentionally slow / hangable so the "does not block catalog" assertion can
+ * prove cards render before badges resolve. Individual tests override via mockResolvedValue.
+ * `vi.hoisted` keeps the mock fn available inside the hoisted `vi.mock` factory.
+ */
+const { inventoryBadgesMock } = vi.hoisted(() => ({
+  inventoryBadgesMock: vi.fn(
+    () =>
+      new Promise<Map<string, ("near_me" | "buildable")[]>>(() => {
+        /* never resolves by default */
+      }),
+  ),
+}));
+
+vi.mock("../../lib/api/dealerInventory", () => ({
+  loadExploreInventoryBadges: inventoryBadgesMock,
+}));
+
 const { default: ExplorePage } = await import("../../app/explore/page");
 
 describe("ExplorePage pagination", () => {
@@ -132,3 +150,46 @@ describe("ExplorePage faceted search", () => {
     expect(screen.getByText("truck-0", { selector: "h2" })).toBeInTheDocument();
   });
 });
+
+describe("ExplorePage inventory badges", () => {
+  it("renders the catalog while inventory is still pending (non-blocking)", async () => {
+    inventoryBadgesMock.mockImplementation(
+      () =>
+        new Promise<Map<string, ("near_me" | "buildable")[]>>(() => {
+          /* hang forever */
+        }),
+    );
+
+    render(<ExplorePage />);
+
+    await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(DEFAULT_PAGE_SIZE));
+    expect(screen.queryByText(/^Near me$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Buildable$/i)).not.toBeInTheDocument();
+  });
+
+  it("surfaces Near me / Buildable badges after the feed resolves", async () => {
+    inventoryBadgesMock.mockResolvedValue(
+      new Map([
+        ["suv-0", ["near_me"]],
+        ["truck-0", ["buildable"]],
+      ]),
+    );
+
+    render(<ExplorePage />);
+    await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(DEFAULT_PAGE_SIZE));
+
+    await waitFor(() => expect(screen.getByText(/^Near me$/i)).toBeInTheDocument());
+    expect(screen.getByText(/^Buildable$/i)).toBeInTheDocument();
+  });
+
+  it("keeps the lineup visible when the inventory feed rejects", async () => {
+    inventoryBadgesMock.mockRejectedValue(new Error("feed down"));
+
+    render(<ExplorePage />);
+    await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(DEFAULT_PAGE_SIZE));
+    // Rejection is swallowed — no inventory error banner, no badges.
+    expect(screen.queryByText(/feed down/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Near me$/i)).not.toBeInTheDocument();
+  });
+});
+

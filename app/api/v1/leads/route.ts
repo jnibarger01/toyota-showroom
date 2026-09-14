@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { invalidBody, payloadTooLarge } from "../../../../lib/api/errors";
+import { deliverLeadToCrm } from "../../../../lib/server/crmWebhook";
 import { getLeadRepository } from "../../../../lib/server/leadRepository";
 import { enforceLeadWriteRateLimit } from "../../../../lib/server/rateLimit";
 import { withRouteTelemetry } from "../../../../lib/server/apiResponse";
@@ -9,11 +10,11 @@ import { validateCreateLead } from "../../../../lib/validation/lead";
 export const dynamic = "force-dynamic";
 
 /**
- * Enough for the validated maximum fields plus JSON overhead, while keeping public PII intake
- * bounded well below a general-purpose upload endpoint. This limit is enforced on bytes, not JS
- * string length, before JSON parsing.
+ * Enough for the validated maximum fields plus a compact build snapshot (selections + share URL)
+ * and JSON overhead, while keeping public PII intake bounded well below a general-purpose upload
+ * endpoint. This limit is enforced on bytes, not JS string length, before JSON parsing.
  */
-const MAX_LEAD_BODY_BYTES = 16 * 1024;
+const MAX_LEAD_BODY_BYTES = 24 * 1024;
 
 async function readBoundedJson(request: NextRequest): Promise<unknown> {
   const contentLength = request.headers.get("content-length");
@@ -58,9 +59,10 @@ async function readBoundedJson(request: NextRequest): Promise<unknown> {
  * POST /api/v1/leads
  *
  * Success is authoritative: this handler returns 2xx only after the configured repository returns
- * a stored lead. D1 failures and other unexpected persistence faults are deliberately re-thrown by
- * `withRouteTelemetry`, allowing the platform to surface a real 5xx instead of manufacturing a
- * customer-facing success response.
+ * a stored lead *and* any configured CRM webhook handoff succeeds (or is skipped when unset).
+ * D1 failures, CRM handoff failures, and other unexpected faults are deliberately re-thrown by
+ * `withRouteTelemetry` / surfaced as `ApiError`, allowing the platform to surface a real error
+ * instead of manufacturing a customer-facing success response.
  */
 export const POST = withRouteTelemetry(
   "/api/v1/leads",
@@ -69,6 +71,9 @@ export const POST = withRouteTelemetry(
     await enforceLeadWriteRateLimit(request);
     const input = validateCreateLead(await readBoundedJson(request));
     const { lead, created } = await getLeadRepository().create(input);
+
+    // CRM secrets stay in Worker env; the client only ever sent the public build snapshot.
+    await deliverLeadToCrm(lead, input.build);
 
     return NextResponse.json(
       { data: lead },

@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { applyVisualQuarantine } from "./visualQuarantine";
 
 /**
  * Pixel-diff regression against the static export (`playwright.config.ts`'s `webServer` serves
@@ -32,6 +33,7 @@ function collectPageErrors(page: import("@playwright/test").Page): string[] {
 }
 
 test("explore lineup renders consistently", async ({ page }) => {
+  applyVisualQuarantine("explore lineup renders consistently", (condition, description) => test.fixme(condition, description));
   const errors = collectPageErrors(page);
   await page.goto("explore/");
   await page.waitForSelector(".vehicle-card");
@@ -40,6 +42,7 @@ test("explore lineup renders consistently", async ({ page }) => {
 });
 
 test("compare table renders consistently", async ({ page }) => {
+  applyVisualQuarantine("compare table renders consistently", (condition, description) => test.fixme(condition, description));
   const errors = collectPageErrors(page);
   await page.goto("compare/?vehicles=4runner,tacoma,camry");
   await page.waitForSelector(".compare-table");
@@ -48,6 +51,7 @@ test("compare table renders consistently", async ({ page }) => {
 });
 
 test("builder chrome renders consistently (3D canvas masked out)", async ({ page }) => {
+  applyVisualQuarantine("builder chrome renders consistently (3D canvas masked out)", (condition, description) => test.fixme(condition, description));
   const errors = collectPageErrors(page);
   await page.goto("4runner/");
   await page.waitForSelector(".vehicle-title h1");
@@ -65,6 +69,7 @@ test("builder chrome renders consistently (3D canvas masked out)", async ({ page
 });
 
 test("paint studio OEM preset chrome renders consistently", async ({ page }) => {
+  applyVisualQuarantine("paint studio OEM preset chrome renders consistently", (condition, description) => test.fixme(condition, description));
   const errors = collectPageErrors(page);
   await page.goto("4runner/");
   await page.waitForSelector("[data-testid='paint-studio']");

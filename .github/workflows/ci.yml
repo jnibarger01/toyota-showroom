@@ -33,6 +33,8 @@ jobs:
       - run: npm run assets:report
       - run: npm test -- --run
       - run: npm run build
-      # Must follow the build: it measures `dist/client/assets`. A chunk over budget, or a new chunk
-      # with no budget at all, fails here rather than being absorbed silently (#43).
+      # Must follow the build: route entry JS for `/`, `/explore`, `/4runner` plus every client
+      # chunk. Over budget or missing budget entry fails with a readable report (#43).
       - run: npm run bundle:budget
+      # Pages crawler files are written into public/ at prebuild and copied into dist/client (#78).
+      - run: VERIFY_DIST=1 npx vitest run tests/sitemapRobots.test.ts

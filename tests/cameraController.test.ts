@@ -2,7 +2,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import gsap from "gsap";
 import * as THREE from "three";
-import { CameraController, DEFAULT_CAMERA_LIMITS } from "../lib/three/cameraController";
+import {
+  CameraController,
+  DEFAULT_CAMERA_LIMITS,
+  DESKTOP_DAMPING_FACTOR,
+  DESKTOP_ROTATE_SPEED,
+  DESKTOP_ZOOM_SPEED,
+  MOBILE_DAMPING_FACTOR,
+  MOBILE_ROTATE_SPEED,
+  MOBILE_ZOOM_SPEED,
+} from "../lib/three/cameraController";
 import type { CameraPresetConfig } from "../lib/types/vehicle";
 
 const hero: CameraPresetConfig = {
@@ -39,11 +48,15 @@ function expectVec3CloseTo(actual: readonly number[], expected: readonly number[
   actual.forEach((value, index) => expect(value).toBeCloseTo(expected[index]!, 9));
 }
 
-function stubMatchMedia(reduced: boolean): void {
+function stubMatchMedia(reduced: boolean, coarse = false): void {
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => ({
-      matches: query.includes("prefers-reduced-motion: reduce") ? reduced : false,
+      matches: query.includes("prefers-reduced-motion: reduce")
+        ? reduced
+        : query.includes("pointer: coarse")
+          ? coarse
+          : false,
       media: query,
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
@@ -121,6 +134,47 @@ describe("CameraController", () => {
       const controller = makeController();
       expect(controller.tourStatus).toBe("idle");
       expect(controller.isTourActive).toBe(false);
+      controller.dispose();
+    });
+  });
+
+  describe("touch mapping and mobile damping (#44)", () => {
+    it("wires one-finger orbit and two-finger pinch-dolly explicitly on OrbitControls", () => {
+      const controller = makeController();
+      expect(controller.controls.touches.ONE).toBe(THREE.TOUCH.ROTATE);
+      expect(controller.controls.touches.TWO).toBe(THREE.TOUCH.DOLLY_PAN);
+      controller.dispose();
+    });
+
+    it("applies desktop inertia and gesture speeds when the primary pointer is fine", () => {
+      stubMatchMedia(false, false);
+      const controller = makeController();
+      expect(controller.controls.enableDamping).toBe(true);
+      expect(controller.controls.dampingFactor).toBe(DESKTOP_DAMPING_FACTOR);
+      expect(controller.controls.rotateSpeed).toBe(DESKTOP_ROTATE_SPEED);
+      expect(controller.controls.zoomSpeed).toBe(DESKTOP_ZOOM_SPEED);
+      controller.dispose();
+    });
+
+    it("tunes inertia and gesture speeds for coarse (touch) pointers", () => {
+      stubMatchMedia(false, true);
+      const controller = makeController();
+      expect(controller.controls.enableDamping).toBe(true);
+      expect(controller.controls.dampingFactor).toBe(MOBILE_DAMPING_FACTOR);
+      expect(controller.controls.rotateSpeed).toBe(MOBILE_ROTATE_SPEED);
+      expect(controller.controls.zoomSpeed).toBe(MOBILE_ZOOM_SPEED);
+      // Touch mapping must stay the product gesture regardless of pointer class.
+      expect(controller.controls.touches.ONE).toBe(THREE.TOUCH.ROTATE);
+      expect(controller.controls.touches.TWO).toBe(THREE.TOUCH.DOLLY_PAN);
+      controller.dispose();
+    });
+
+    it("still disables damping under reduced motion on a coarse pointer", () => {
+      stubMatchMedia(true, true);
+      const controller = makeController();
+      expect(controller.controls.enableDamping).toBe(false);
+      // Factor remains the mobile value so a mid-session preference flip resumes correctly.
+      expect(controller.controls.dampingFactor).toBe(MOBILE_DAMPING_FACTOR);
       controller.dispose();
     });
   });

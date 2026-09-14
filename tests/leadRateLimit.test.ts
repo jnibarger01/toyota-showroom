@@ -19,7 +19,7 @@ describe("enforceLeadWriteRateLimit", () => {
     await expect(
       enforceLeadWriteRateLimit(request({ "cf-connecting-ip": "203.0.113.8" }), limiter),
     ).resolves.toBeUndefined();
-    expect(seen).toEqual(["203.0.113.8"]);
+    expect(seen).toEqual(["ip:203.0.113.8"]);
   });
 
   it("rejects an over-limit caller with the shared 429 ApiError", async () => {

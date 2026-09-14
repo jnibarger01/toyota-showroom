@@ -70,7 +70,9 @@ export const PATCH = withRouteTelemetry(
   "/api/v1/configurations/:id",
   "PATCH",
   async (request: NextRequest, { params }: { params: Promise<{ configurationId: string }> }) => {
-      await enforceConfigWriteRateLimit(request);
+      const ownerToken = ownerTokenFrom(request);
+      // IP + per-owner-token budgets before any repository work (issue #47).
+      await enforceConfigWriteRateLimit(request, undefined, ownerToken);
       const { configurationId } = await params;
       const existing = await requireConfiguration(configurationId);
       // Authorize before validating. Validation first would do work on an unauthorized caller's
@@ -79,7 +81,6 @@ export const PATCH = withRouteTelemetry(
       // checked ownership first. `update` still re-checks; this is an additional gate, not a
       // replacement for it.
       const repository = getConfigurationRepository();
-      const ownerToken = ownerTokenFrom(request);
       await repository.requireOwner(configurationId, ownerToken);
 
       const patch = validatePatchConfiguration(await readJson(request), { vehicleId: existing.vehicleId, gradeId: existing.gradeId, selections: existing.selections });
@@ -92,9 +93,10 @@ export const DELETE = withRouteTelemetry(
   "/api/v1/configurations/:id",
   "DELETE",
   async (request: NextRequest, { params }: { params: Promise<{ configurationId: string }> }) => {
-      await enforceConfigWriteRateLimit(request);
+      const ownerToken = ownerTokenFrom(request);
+      await enforceConfigWriteRateLimit(request, undefined, ownerToken);
       const { configurationId } = await params;
-      const deleted = await getConfigurationRepository().delete(configurationId, ownerTokenFrom(request));
+      const deleted = await getConfigurationRepository().delete(configurationId, ownerToken);
       if (!deleted) throw notFound(`No configuration found with id "${configurationId}".`);
       return new NextResponse(null, { status: 204, headers: withSecurityHeaders({ "Cache-Control": "no-store" }) });
   },

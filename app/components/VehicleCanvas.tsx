@@ -35,6 +35,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { CanvasModelStatus, type CanvasModelStatusKind } from "./CanvasModelStatus";
 import gsap from "gsap";
 import * as THREE from "three";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
@@ -133,6 +134,12 @@ type Props = {
    */
   enterXrSignal?: number;
   /**
+   * Bumped by the chrome's "Exit AR" control. Same counter pattern as `enterXrSignal` — ending from
+   * the builder must work even when the headset's own exit control is not in reach (phone browsers
+   * often leave the page chrome visible while presenting).
+   */
+  exitXrSignal?: number;
+  /**
    * Viewer's quality choice. `"auto"` hands the tier back to `QualityGovernor`; anything else pins
    * it, suspending automatic adaptation — see `lib/three/qualityPreference.ts` for why a pinned
    * tier turns the governor off rather than merely seeding it.
@@ -141,11 +148,16 @@ type Props = {
   /** Reports the stored preference once the renderer exists, so the chrome can show the real value
    * rather than assuming a default the viewer may have changed on a previous visit. */
   onQualityPreferenceLoaded?: (preference: QualityPreference) => void;
-  /** Reports whether this device can offer AR at all, so the chrome can omit the control entirely
-   * rather than show one that fails on tap. */
+  /** Reports whether this device can offer AR at all, so the chrome can show a disabled control
+   * with unsupported-device messaging rather than one that fails on tap. */
   onXrSupported?: (supported: boolean) => void;
-  /** Reports session start/end so the chrome can swap the control and hide overlapping UI. */
+  /** Reports session start/end so the chrome can swap enter ↔ exit on the same control. */
   onXrPresentingChange?: (presenting: boolean) => void;
+  /**
+   * XR-only failures (unsupported hardware after a tap, declined camera permission). Kept distinct
+   * from `onError` so a refused AR prompt cannot look like a broken vehicle load.
+   */
+  onXrError?: (message: string) => void;
   onTourStatusChange?: (status: TourStatus) => void;
   /** Fired as each catalog preset becomes the tour's current shot (toolbar highlight + cameraState). */
   onTourStep?: (preset: CameraPreset) => void;
@@ -160,7 +172,7 @@ type Props = {
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, onXrSupported, onXrPresentingChange, qualityPreference, onQualityPreferenceLoaded, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -174,6 +186,13 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
+  /**
+   * Asset-path empty/error notice (#75). Distinct from CanvasErrorBoundary: this covers GLB
+   * fetch/decode failure (and vehicles with no detailed model), not React render crashes.
+   */
+  const [modelStatus, setModelStatus] = useState<CanvasModelStatusKind | null>(null);
+  /** Bumped by Retry so the setup effect remounts and re-fetches the GLB. */
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const environmentControllerRef = useRef<EnvironmentController | null>(null);
   const renderControllerRef = useRef<RenderController | null>(null);
 
@@ -195,6 +214,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const cameraPresetRef = useRef(cameraPreset);
   const onXrSupportedRef = useRef(onXrSupported);
   const onXrPresentingChangeRef = useRef(onXrPresentingChange);
+  const onXrErrorRef = useRef(onXrError);
   const onQualityPreferenceLoadedRef = useRef(onQualityPreferenceLoaded);
   const xrControllerRef = useRef<XrSessionController | null>(null);
   useEffect(() => {
@@ -209,8 +229,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onPartSelectRef.current = onPartSelect;
     onXrSupportedRef.current = onXrSupported;
     onXrPresentingChangeRef.current = onXrPresentingChange;
+    onXrErrorRef.current = onXrError;
     onQualityPreferenceLoadedRef.current = onQualityPreferenceLoaded;
-  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onQualityPreferenceLoaded]);
+  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -221,6 +242,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     void (async () => {
       const host = hostRef.current;
       if (!host) return;
+
+      // Fresh attempt: clear any prior empty/error notice before the next load outcome lands.
+      setModelStatus(null);
 
       const scene = new THREE.Scene();
       scene.background = new THREE.Color("#0b0f14");
@@ -615,6 +639,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
       if (!wantsDetailedModel) {
         progressive = reduceProgressiveLoad(progressive, { type: "no-model" });
+        // Informational empty state — not a failure; chrome stays fully usable.
+        setModelStatus("empty");
         const root = createProceduralVehicle();
         if (cancelled) {
           disposeSubtree(root);
@@ -650,6 +676,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           progressive = reduceProgressiveLoad(progressive, { type: "glb-decoded" });
         } catch (error) {
           console.error("High-detail glTF failed to load; using procedural fallback.", error);
+          // Labeled on-canvas error + Retry (#75). Procedural fallback still mounts so chrome
+          // (options, pricing, share) keeps working — this is not CanvasErrorBoundary territory.
+          setModelStatus("error");
           onErrorRef.current("The detailed model could not be loaded. Showing a simplified vehicle.");
           progressive = reduceProgressiveLoad(progressive, { type: "load-failed" });
         }
@@ -681,6 +710,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           }
           scene.remove(placeholder);
           disposeSubtree(placeholder);
+          setModelStatus(null);
           mountSettledRoot(detailed);
           progressive = reduceProgressiveLoad(progressive, { type: "settled" });
         } else {
@@ -717,7 +747,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           cameraController.setControlsEnabled(!presenting);
           onXrPresentingChangeRef.current?.(presenting);
         },
-        onError: (message) => onErrorRef.current(message),
+        onError: (message) => {
+          // Prefer the XR-specific channel so a declined permission is not painted as a GLB failure.
+          if (onXrErrorRef.current) onXrErrorRef.current(message);
+          else onErrorRef.current(message);
+        },
       });
       xrControllerRef.current = xrController;
       void xrController.isSupported().then((supported) => {
@@ -748,8 +782,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       xrControllerRef.current = null;
       cleanup?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-time setup; see latest-value refs above.
-  }, [threeDConfig]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setup once per model/retry; see latest-value refs above.
+  }, [threeDConfig, loadAttempt]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -799,6 +833,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     void xrControllerRef.current?.enter();
   }, [enterXrSignal]);
 
+  useEffect(() => {
+    if (exitXrSignal === undefined) return;
+    void xrControllerRef.current?.exit();
+  }, [exitXrSignal]);
+
   // Builder chrome play/pause/cancel — seq bumps so repeated identical actions still fire.
   useEffect(() => {
     if (!tourAction) return;
@@ -830,22 +869,37 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 
   return (
-    <div
-      ref={hostRef}
-      className="vehicle-canvas"
-      // `tabIndex` is what puts the 3D stage in the tab order at all; before this the entire
-      // viewport was pointer-only. `group` rather than `application`: the element is a composite
-      // widget the user steps into, and `application` would suppress the screen reader's own
-      // navigation keys everywhere inside it in exchange for nothing this needs.
-      tabIndex={0}
-      role="group"
-      aria-label={
-        "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
-        "and Home to return to the selected camera angle. Use the right and left bracket keys " +
-        "to cycle through selectable vehicle parts, Enter to select the highlighted part, and " +
-        "Escape to clear the selection. Click or tap a part directly to select it."
-      }
-    />
+    <>
+      <div
+        ref={hostRef}
+        className="vehicle-canvas"
+        // `tabIndex` is what puts the 3D stage in the tab order at all; before this the entire
+        // viewport was pointer-only. `group` rather than `application`: the element is a composite
+        // widget the user steps into, and `application` would suppress the screen reader's own
+        // navigation keys everywhere inside it in exchange for nothing this needs.
+        tabIndex={0}
+        role="group"
+        aria-label={
+          "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
+          "and Home to return to the selected camera angle. Use the right and left bracket keys " +
+          "to cycle through selectable vehicle parts, Enter to select the highlighted part, and " +
+          "Escape to clear the selection. Click or tap a part directly to select it."
+        }
+      />
+      {modelStatus ? (
+        <CanvasModelStatus
+          kind={modelStatus}
+          onRetry={
+            modelStatus === "error"
+              ? () => {
+                  setModelStatus(null);
+                  setLoadAttempt((attempt) => attempt + 1);
+                }
+              : undefined
+          }
+        />
+      ) : null}
+    </>
   );
 }
 

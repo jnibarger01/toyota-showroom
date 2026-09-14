@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlertTriangle,
   Armchair,
@@ -9,7 +9,8 @@ import {
   Check,
   ClipboardCheck,
   Download,
-  CloudOff,
+  FileDown,
+  FileUp,
   CloudSun,
   CircleGauge,
   Cog,
@@ -48,6 +49,18 @@ import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
 import type { QualityPreference } from "../../lib/three/qualityPreference";
 import { describeGradeChange, describeSelectionChange } from "../../lib/showroom/selectionAnnouncement";
 import { describeTourScene } from "../../lib/showroom/tourAnnouncement";
+import {
+  BUILDER_SHORTCUT_SHEET,
+  resolveBuilderShortcut,
+} from "../../lib/showroom/builderShortcuts";
+import {
+  describeXrCapability,
+  xrControlEnabled,
+  xrControlLabel,
+  type XrCapability,
+} from "../../lib/three/xrCapability";
+import { PersistenceModeBanner } from "./PersistenceModeBanner";
+import { OwnerTokenDialog } from "./OwnerTokenDialog";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -75,7 +88,13 @@ import {
   readBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
+import { createShareCardUrl } from "../../lib/showroom/openGraph";
 import { pinConfigurationToGarage } from "../../lib/showroom/garage";
+import {
+  trackBuildStarted,
+  trackDeepLinkRestored,
+  trackShareCopied,
+} from "../../lib/observability/funnelTelemetry";
 import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/paintStudio";
 import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/showroom/paintStudioHistory";
 
@@ -144,6 +163,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>("Daytime");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
+  /** One-time owner-token reveal after first Save build (#80); null when nothing to show. */
+  const [ownerTokenReveal, setOwnerTokenReveal] = useState<{
+    configurationId: string;
+    ownerToken: string;
+  } | null>(null);
   const [optionQuery, setOptionQuery] = useState("");
   const [selectedOnly, setSelectedOnly] = useState(false);
   const [budget, setBudget] = useState(65_000);
@@ -152,6 +176,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [termMonths, setTermMonths] = useState(60);
   const [historyAvailability, setHistoryAvailability] = useState({ canUndo: false, canRedo: false });
   const [tourOpen, setTourOpen] = useState(false);
+  /** `?` keyboard shortcut cheat sheet (#74). */
+  const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
   /** Cinematic camera tour (hero → wheels → interior), distinct from the onboarding tour card. */
   const [cinematicTourStatus, setCinematicTourStatus] = useState<TourStatus>("idle");
   const [cinematicTourAction, setCinematicTourAction] = useState<TourAction | null>(null);
@@ -159,9 +185,16 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [resetViewSignal, setResetViewSignal] = useState(0);
   /** Bumped to request an immersive-AR session. See `VehicleCanvas.enterXrSignal`. */
   const [enterXrSignal, setEnterXrSignal] = useState(0);
-  /** Stays false on every device without AR, so the control is absent rather than present-and-broken. */
-  const [xrSupported, setXrSupported] = useState(false);
+  /** Bumped to end the session from the builder chrome. See `VehicleCanvas.exitXrSignal`. */
+  const [exitXrSignal, setExitXrSignal] = useState(0);
+  /**
+   * Starts `pending` so we do not flash "unsupported" before the canvas has asked `navigator.xr`.
+   * `supported` / `unsupported` arrive from `VehicleCanvas.onXrSupported` once the vehicle settles.
+   */
+  const [xrCapability, setXrCapability] = useState<XrCapability>("pending");
   const [xrPresenting, setXrPresenting] = useState(false);
+  /** XR permission / start failures — kept off `loadError` so a declined camera prompt is dismissible noise, not a broken build. */
+  const [xrError, setXrError] = useState<string | null>(null);
   /** Mirrors the renderer's stored preference; `VehicleCanvas` reports the real value on mount. */
   const [qualityPreference, setQualityPreference] = useState<QualityPreference>("auto");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -179,6 +212,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   // reloading the model or re-running `verifyNodeContract`.
   const fullApplicableRef = useRef<CustomizationOption[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
+  const configJsonFileRef = useRef<HTMLInputElement>(null);
   const undoStack = useRef<SelectionMap[]>([]);
   const redoStack = useRef<SelectionMap[]>([]);
   /** Paint Studio undo/redo (#73) — distinct from selection-map stacks above. */
@@ -296,10 +330,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         // `VehicleCanvas` for node-contract verification, so the scene controller it builds knows
         // about every option this GLB can satisfy across every grade — required for `changeGrade`
         // below to switch grades without reloading the model.
-        const [options, configuration] = await Promise.all([
+        const [options, resumed] = await Promise.all([
           configurationsApi.listVehicleOptions(vehicleSlug),
           resumeOrCreateConfiguration(vehicle, gradeId),
         ]);
+        const { configuration, source } = resumed;
 
         if (cancelled) return;
 
@@ -309,6 +344,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         // and narrow to mesh-verified options.
         const forGrade = options.filter((option) => isOptionAvailableForGrade(option, configuration.gradeId));
         configurationStore.hydrate(configuration, forGrade);
+        trackBuildStarted({ source });
 
         setBootstrap({ vehicle, catalog: options, configuration });
         setPreset(presetForConfiguration(vehicle, configuration));
@@ -371,6 +407,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       : cinematicTourStatus === "paused"
         ? "Resume cinematic tour"
         : "Play cinematic tour";
+
+  const xrEnabled = xrControlEnabled(xrCapability);
+  const xrLabel = xrControlLabel(xrPresenting);
+  const xrCapabilityMessage = describeXrCapability(xrCapability);
+  const xrTitle = xrCapabilityMessage ?? xrLabel;
 
   const handleTourStep = useCallback((next: CameraPreset) => {
     setPreset(next);
@@ -619,25 +660,85 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     URL.revokeObjectURL(url);
   }, [bootstrap, catalog, configuration]);
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const editing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement;
-      if (event.key === "/" && !editing) {
-        event.preventDefault();
-        searchRef.current?.focus();
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        void restoreHistory(event.shiftKey ? "redo" : "undo");
-      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "y") {
-        event.preventDefault();
-        void restoreHistory("redo");
-      } else if (event.key === "Escape") {
-        setMobilePanelOpen(false);
+  /** Portable JSON backup / support handoff — complements deep links (#45).
+   * Loaded on click so validators stay out of the BuilderApp chunk budget. */
+  const exportConfigJson = useCallback(async () => {
+    if (!configuration || !bootstrap) return;
+    try {
+      const { exportConfigurationJson } = await import("../../lib/showroom/configJson");
+      const json = exportConfigurationJson({
+        vehicleId: configuration.vehicleId,
+        modelYear: configuration.modelYear,
+        model: configuration.model,
+        gradeId: configuration.gradeId,
+        selections: configuration.selections,
+        cameraState: configuration.cameraState,
+        paintStudio: configuration.paintStudio,
+      });
+      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `toyota-${bootstrap.vehicle.slug}-build.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setGarageMessage("Configuration JSON exported");
+    } catch (error) {
+      setGarageMessage(error instanceof Error ? error.message : "Could not export configuration JSON.");
+    }
+  }, [bootstrap, configuration]);
+
+  const importConfigJsonText = useCallback(
+    async (raw: string) => {
+      if (!bootstrap || !controllerRef.current) return;
+      try {
+        const { validateConfigurationJson } = await import("../../lib/showroom/configJson");
+        const imported = validateConfigurationJson(raw, {
+          expectedVehicleId: bootstrap.vehicle.slug,
+          expectedModelYear: bootstrap.vehicle.year,
+        });
+        const forGrade = fullApplicableRef.current.filter((option) =>
+          isOptionAvailableForGrade(option, imported.gradeId),
+        );
+        const fresh = await configurationsApi.createConfiguration({
+          vehicleId: imported.vehicleId,
+          modelYear: imported.modelYear,
+          gradeId: imported.gradeId,
+          selections: imported.selections,
+          cameraState: imported.cameraState,
+          paintStudio: imported.paintStudio,
+        });
+        rememberConfigurationId(vehicleSlug, fresh.configurationId);
+        setBootstrap({ ...bootstrap, configuration: fresh });
+        await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+        setPreset(presetForConfiguration(bootstrap.vehicle, fresh));
+        undoStack.current = [];
+        redoStack.current = [];
+        paintHistoryRef.current.clear();
+        historyOwnerRef.current = "builder";
+        setHistoryAvailability({ canUndo: false, canRedo: false });
+        setGarageMessage("Build restored from configuration JSON");
+      } catch (error) {
+        setGarageMessage(error instanceof Error ? error.message : "Could not import configuration JSON.");
       }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [restoreHistory]);
+    },
+    [bootstrap, vehicleSlug],
+  );
+
+  const onConfigJsonFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      // Allow re-selecting the same file after a failed import.
+      event.target.value = "";
+      if (!file) return;
+      try {
+        const raw = await file.text();
+        await importConfigJsonText(raw);
+      } catch (error) {
+        setGarageMessage(error instanceof Error ? error.message : "Could not import configuration JSON.");
+      }
+    },
+    [importConfigJsonText],
+  );
 
   const reset = async () => {
     if (!bootstrap) return;
@@ -660,34 +761,45 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     setHistoryAvailability({ canUndo: false, canRedo: false });
   };
 
-  const saveToGarage = async () => {
+  const saveToGarage = useCallback(async () => {
     await configurationStore.flush();
     const current = configurationStore.getSnapshot().configuration;
     if (current) {
       pinConfigurationToGarage(current);
+      const token = configurationsApi.takeOwnerTokenForFirstSaveReveal(current.configurationId);
+      if (token) {
+        setOwnerTokenReveal({ configurationId: current.configurationId, ownerToken: token });
+      }
     }
     setGarageMessage(
       isLocalPersistence
         ? "Build pinned to garage (this browser only — demo / offline)"
         : "Build saved to your garage",
     );
-  };
+  }, [isLocalPersistence]);
 
-  const share = async () => {
+  const share = useCallback(async () => {
     if (!configuration) return;
-    // Encode selections + camera into `?c=…` so the link restores without a D1/localStorage id.
-    const url = createBuildDeepLinkUrl(window.location.origin, window.location.pathname, {
+    const deepLinkInput = {
       gradeId: configuration.gradeId,
       selections: configuration.selections,
       cameraState: configuration.cameraState,
       paintStudio: configuration.paintStudio,
-    });
+    };
+    // Worker: share-card URL so Slack/iMessage/Twitter unfurl grade + paint + wheels (#41).
+    // Pages / local: plain `?c=…` deep link — static vehicle OG is already on `/[slug]/`.
+    const linkKind = persistenceMode === "worker" ? "share_card" : "deep_link";
+    const url =
+      linkKind === "share_card"
+        ? createShareCardUrl(window.location.origin, import.meta.env.BASE_URL, vehicleSlug, deepLinkInput)
+        : createBuildDeepLinkUrl(window.location.origin, window.location.pathname, deepLinkInput);
     try {
       await navigator.clipboard.writeText(url);
+      trackShareCopied({ link_kind: linkKind, method: "clipboard" });
       setGarageMessage(
         isLocalPersistence
           ? "Share link copied — deep link restores this build without cloud save"
-          : "Share link copied to clipboard",
+          : "Share link copied — preview shows this build's options",
       );
     } catch {
       // Set feedback before prompt: headless / permission-denied environments can hang on
@@ -699,11 +811,65 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       );
       try {
         window.prompt("Copy this build link", url);
+        trackShareCopied({ link_kind: linkKind, method: "prompt" });
       } catch {
         /* ignore non-interactive prompt failures */
       }
     }
-  };
+  }, [configuration, isLocalPersistence, persistenceMode, vehicleSlug]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = resolveBuilderShortcut(event, { cheatSheetOpen });
+      if (!action) {
+        if (event.key === "Escape") setMobilePanelOpen(false);
+        return;
+      }
+      event.preventDefault();
+      switch (action) {
+        case "toggle-cheatsheet":
+          setCheatSheetOpen((open) => !open);
+          break;
+        case "close-cheatsheet":
+          setCheatSheetOpen(false);
+          break;
+        case "focus-search":
+          searchRef.current?.focus();
+          break;
+        case "share":
+          void share();
+          break;
+        case "save":
+          void saveToGarage();
+          break;
+        case "tour-toggle":
+          toggleCinematicTour();
+          break;
+        case "reset-camera":
+          if (cinematicTourStatus !== "idle") dispatchCinematicTour("cancel");
+          setResetViewSignal((value) => value + 1);
+          break;
+        case "undo":
+          void restoreHistory("undo");
+          break;
+        case "redo":
+          void restoreHistory("redo");
+          break;
+        default:
+          break;
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    cheatSheetOpen,
+    cinematicTourStatus,
+    dispatchCinematicTour,
+    restoreHistory,
+    saveToGarage,
+    share,
+    toggleCinematicTour,
+  ]);
 
   const toggleFullscreen = async () => {
     if (document.fullscreenElement) await document.exitFullscreen();
@@ -751,7 +917,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <RotateCcw size={16} /> Reset
           </button>
           <SaveIndicator status={status} local={isLocalPersistence} />
-          <button className="primary" onClick={() => void share()}>
+          <button className="primary" title="Share (Ctrl/⌘ Shift L)" onClick={() => void share()}>
             <Share2 size={16} /> Share
           </button>
         </div>
@@ -789,18 +955,71 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </div>
       ) : null}
 
-      {isLocalPersistence ? (
-        <div className="persistence-banner" role="status" data-testid="persistence-mode-banner">
-          <CloudOff size={15} aria-hidden />
-          <span>
-            <strong>Demo / offline saves</strong> — builds stay in this browser.
-            Share uses a deep link so others can open your build without Worker/D1.
-            Production persistence is Cloudflare Worker + D1; see the deployment runbook to promote.
-          </span>
+      {xrError ? (
+        <div className="config-error" role="status" data-testid="xr-error">
+          <AlertTriangle size={15} aria-hidden />
+          <span>{xrError}</span>
+          <button type="button" onClick={() => setXrError(null)}>Dismiss</button>
         </div>
       ) : null}
 
-      {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your {bootstrap?.vehicle.model ?? "Toyota"}</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo.</p></div> : null}
+{/*
+        Visible only when AR is unavailable: the control stays in the toolbar (disabled) so shoppers
+        can find it, and this status explains why a tap does nothing. Hidden while pending/supported
+        so desktop WebGPU/WebGL viewers are not nagged by a permanent banner.
+      */}
+      {xrCapability === "unsupported" ? (
+        <p className="xr-capability-status" id="xr-capability-status" role="status" data-testid="xr-unsupported-message">
+          {xrCapabilityMessage}
+        </p>
+      ) : (
+        <span className="sr-only" id="xr-capability-status">
+          {xrCapabilityMessage ?? ""}
+        </span>
+      )}
+
+      <PersistenceModeBanner mode={persistenceMode} />
+
+      {ownerTokenReveal ? (
+        <OwnerTokenDialog
+          configurationId={ownerTokenReveal.configurationId}
+          ownerToken={ownerTokenReveal.ownerToken}
+          onDismiss={() => {
+            configurationsApi.markOwnerTokenShown(ownerTokenReveal.configurationId);
+            setOwnerTokenReveal(null);
+          }}
+        />
+      ) : null}
+
+      {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your {bootstrap?.vehicle.model ?? "Toyota"}</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
+
+      {cheatSheetOpen ? (
+        <div
+          className="shortcut-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+          data-testid="keyboard-shortcut-sheet"
+        >
+          <button
+            type="button"
+            className="tour-close"
+            aria-label="Close keyboard shortcuts"
+            onClick={() => setCheatSheetOpen(false)}
+          >
+            <X size={15} />
+          </button>
+          <strong>Keyboard shortcuts</strong>
+          <ul className="shortcut-sheet-list">
+            {BUILDER_SHORTCUT_SHEET.map((row) => (
+              <li key={row.id}>
+                <span>{row.label}</span>
+                <kbd>{row.keys}</kbd>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="config-error" role="alert">
@@ -860,8 +1079,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Accessories</button>
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
-          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button onClick={() => void saveToGarage()}>Save build</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
-          <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
+          <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={() => void exportConfigJson()}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
             <span>Next.js</span><span>React</span><span>Three.js</span>
@@ -900,7 +1119,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 className={cinematicTourStatus !== "idle" ? "selected" : ""}
                 aria-pressed={cinematicTourStatus === "playing"}
                 aria-label={cinematicTourToggleLabel}
-                title={cinematicTourToggleLabel}
+                title={`${cinematicTourToggleLabel} (T)`}
                 onClick={toggleCinematicTour}
               >
                 {cinematicTourStatus === "playing" ? <Pause size={14} aria-hidden /> : <Play size={14} aria-hidden />}
@@ -911,7 +1130,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <button
                 type="button"
                 data-testid="recenter-view"
-                title="Recenter view"
+                title="Recenter view (Home)"
                 aria-label="Recenter view"
                 onClick={() => {
                   // Cancel a running tour first: it drives the camera from a GSAP timeline, so a
@@ -922,18 +1141,23 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               >
                 <RotateCcw size={17} />
               </button>
-              {xrSupported ? (
-                <button
-                  type="button"
-                  data-testid="enter-xr"
-                  title="View in AR"
-                  aria-label="View in AR"
-                  disabled={xrPresenting}
-                  onClick={() => setEnterXrSignal((value) => value + 1)}
-                >
-                  <Move3d size={17} />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                data-testid="xr-walkaround"
+                title={xrTitle}
+                aria-label={xrLabel}
+                aria-describedby={xrCapabilityMessage ? "xr-capability-status" : undefined}
+                aria-pressed={xrPresenting}
+                disabled={!xrEnabled}
+                onClick={() => {
+                  if (!xrEnabled) return;
+                  setXrError(null);
+                  if (xrPresenting) setExitXrSignal((value) => value + 1);
+                  else setEnterXrSignal((value) => value + 1);
+                }}
+              >
+                <Move3d size={17} aria-hidden />
+              </button>
               <button title="Zoom"><ZoomIn size={17} /></button>
               {/*
                 * A native <select> rather than an icon button opening a popover. It is keyboard
@@ -993,8 +1217,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               hdriPresetId={configuration?.paintStudio?.hdriPresetId}
               resetViewSignal={resetViewSignal}
               enterXrSignal={enterXrSignal}
-              onXrSupported={setXrSupported}
+              exitXrSignal={exitXrSignal}
+              onXrSupported={(supported) => setXrCapability(supported ? "supported" : "unsupported")}
               onXrPresentingChange={setXrPresenting}
+              onXrError={setXrError}
               qualityPreference={qualityPreference}
               onQualityPreferenceLoaded={setQualityPreference}
               onReady={handleSceneReady}
@@ -1237,7 +1463,10 @@ function rememberConfigurationId(vehicleSlug: string, configurationId: string): 
  * than leaving the builder stuck on an error. The vehicle-id check also guards against a corrupted
  * or hand-edited storage value pointing at the wrong vehicle.
  */
-async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): Promise<VehicleConfiguration> {
+async function resumeOrCreateConfiguration(
+  vehicle: Vehicle,
+  gradeId: string,
+): Promise<{ configuration: VehicleConfiguration; source: "fresh" | "resume" | "deep_link" }> {
   // Deep-link `?c=…` wins over hash/localStorage: it carries selections + camera inline so Pages
   // and local static exports can restore a build without a durable configuration id.
   const deepLink = tryRestoreFromDeepLink(vehicle);
@@ -1251,7 +1480,8 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
       paintStudio: deepLink.paintStudio,
     });
     rememberConfigurationId(vehicle.slug, created.configurationId);
-    return created;
+    trackDeepLinkRestored();
+    return { configuration: created, source: "deep_link" };
   }
 
   const storedId = safeReadStoredId(vehicle.slug);
@@ -1259,7 +1489,7 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
   if (storedId) {
     try {
       const existing = await configurationsApi.getConfiguration(storedId);
-      if (existing.vehicleId === vehicle.slug) return existing;
+      if (existing.vehicleId === vehicle.slug) return { configuration: existing, source: "resume" };
     } catch {
       // Fall through to creating a new configuration.
     }
@@ -1271,7 +1501,7 @@ async function resumeOrCreateConfiguration(vehicle: Vehicle, gradeId: string): P
     gradeId,
   });
   rememberConfigurationId(vehicle.slug, created.configurationId);
-  return created;
+  return { configuration: created, source: "fresh" };
 }
 
 /**
