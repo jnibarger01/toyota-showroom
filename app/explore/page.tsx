@@ -288,6 +288,7 @@ export default function ExplorePage() {
               <div className="vehicle-card-media">
                 <img src={summary.thumbnail.url} alt={summary.thumbnail.alt} loading="lazy" />
                 <div className="vehicle-card-badges">
+                  {summary.hasModel ? <span className="vehicle-card-badge">3D available</span> : null}
                   {summary.availability !== "in_production" ? (
                     <span className="vehicle-card-badge">{AVAILABILITY_LABELS[summary.availability]}</span>
                   ) : null}
@@ -309,6 +310,7 @@ export default function ExplorePage() {
                   {summary.maxTowingLbs > 0 ? <span>{summary.maxTowingLbs.toLocaleString()} lb tow</span> : null}
                 </div>
                 <p className="vehicle-card-price">Starting at ${summary.startingMsrp.toLocaleString()}</p>
+                <span className="vehicle-card-action">{summary.hasModel ? "Configure 3D build" : "View details"}</span>
                 <label
                   className="vehicle-card-compare"
                   // The card itself is the link; this control must not trigger that navigation.

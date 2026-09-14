@@ -121,6 +121,7 @@ type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Paint",
   wheels: "Wheels",
+  lighting: "Lighting",
   hood: "Hood",
   panel: "Body panels",
   decal: "Decals & graphics",
@@ -962,7 +963,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </div>
       ) : null}
 
-      {/*
+{/*
         Visible only when AR is unavailable: the control stays in the toolbar (disabled) so shoppers
         can find it, and this status explains why a tap does nothing. Hidden while pending/supported
         so desktop WebGPU/WebGL viewers are not nagged by a permanent banner.
@@ -990,7 +991,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         />
       ) : null}
 
-      {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your 4Runner</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
+      {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your {bootstrap?.vehicle.model ?? "Toyota"}</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
 
       {cheatSheetOpen ? (
         <div
@@ -1262,7 +1263,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
           <div className="gpu-status">
             <span><i /> WebGPU preferred</span>
-            <small>Assembled 4Runner asset · WebGL fallback ready</small>
+            <small>{bootstrap?.vehicle.model ?? "Vehicle"} asset · WebGL fallback ready</small>
           </div>
         </section>
 

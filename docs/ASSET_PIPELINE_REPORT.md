@@ -40,3 +40,12 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Compression: draco
 - Largest textures: T_glass.light_B (512×512, 5.7 KiB), T_metal.chrome_B (512×512, 4.9 KiB), T_metal.chrome_M-T_metal.chrome_R (512×512, 4.8 KiB)
 - Semantic contract: 10 satisfied, 17 unsatisfied
+
+## GR Supra body (`gr-supra`)
+
+- Source: `/models/gr-supra-2024/toyota_gr_supra.glb` — 16398.6 KiB
+- Meshes: 94   Triangles: 193,141   Materials: 28   Textures: 34
+- Compression: none
+- Largest textures: (unnamed) (512×512, 246.1 KiB), (unnamed) (512×512, 164.5 KiB), (unnamed) (512×512, 128.2 KiB)
+- Semantic contract: 23 satisfied, 0 unsatisfied
+- Warnings: no geometry compression extension detected — this asset is shipping uncompressed.

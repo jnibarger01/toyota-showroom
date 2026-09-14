@@ -4,6 +4,8 @@ import { tacomaOptions } from "./tacoma";
 import { camryOptions } from "./camry";
 import { ae86Options } from "./ae86";
 import { rav4Options } from "./rav4";
+import { grSupraOptions } from "./gr-supra";
+import { getGlobalWheelOptions } from "../wheels";
 
 /**
  * Server-side source of truth for customization options. The browser receives these records from
@@ -11,11 +13,12 @@ import { rav4Options } from "./rav4";
  * material names, or asset paths back — only option ids, which are resolved here.
  */
 const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
-  "4runner": fourRunnerOptions,
+  "4runner": [...fourRunnerOptions.filter((option) => option.id !== "wheels-trd-pro-global"), ...getGlobalWheelOptions("4runner")],
   tacoma: tacomaOptions,
   camry: camryOptions,
   ae86: ae86Options,
   rav4: rav4Options,
+  "gr-supra": grSupraOptions,
 };
 
 export const ALL_OPTIONS: readonly CustomizationOption[] = Object.values(OPTIONS_BY_VEHICLE).flat();
