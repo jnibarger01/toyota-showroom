@@ -49,6 +49,16 @@ const REVALIDATE_PATHS = ["/models/", "/draco/", "/renders/", "/images/"];
 /** The static catalog mirror the demo reads instead of the API. */
 const CATALOG_MARKER = "/catalog/v1/";
 
+/**
+ * Cache key the offline document fallback is stored under.
+ *
+ * A navigation to `/4runner/` and one to `/explore/` are different requests, so caching each
+ * navigation under its own URL would only make *previously visited* routes work offline. This app is
+ * a prerendered static export where every route ships the same client shell, so one stored document
+ * is enough to boot any of them — the router takes over once the JS (already cache-first) loads.
+ */
+const OFFLINE_DOCUMENT_KEY = "__offline_document__";
+
 function matchesAny(pathname, prefixes) {
   return prefixes.some((prefix) => pathname.includes(prefix));
 }
@@ -74,15 +84,31 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+/**
+ * Writes to the cache without letting a cache failure affect the response.
+ *
+ * `cache.put` rejects when the origin quota is full or storage is unavailable. Awaiting it in a
+ * handler's success path meant a rejection rejected the whole `respondWith`, so an installed
+ * optimisation turned a perfectly good network response into a failed request — breaking hashed JS
+ * chunks, catalog JSON and vehicle assets for *online* users. A cache write is best-effort by
+ * definition: the response is already in hand.
+ */
+async function putSafely(request, response) {
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(request, response);
+  } catch {
+    // Quota, storage disabled, or an opaque response. Nothing to recover — the caller already has
+    // its response and the next visit will simply try again.
+  }
+}
+
 /** Cache-first. Used where a cached response cannot be wrong. */
 async function cacheFirst(request) {
   const cached = await caches.match(request);
   if (cached) return cached;
   const response = await fetch(request);
-  if (response.ok) {
-    const cache = await caches.open(CACHE_NAME);
-    await cache.put(request, response.clone());
-  }
+  if (response.ok) await putSafely(request, response.clone());
   return response;
 }
 
@@ -96,10 +122,7 @@ async function staleWhileRevalidate(request, event) {
   const cached = await caches.match(request);
   const network = fetch(request)
     .then(async (response) => {
-      if (response.ok) {
-        const cache = await caches.open(CACHE_NAME);
-        await cache.put(request, response.clone());
-      }
+      if (response.ok) await putSafely(request, response.clone());
       return response;
     })
     .catch(() => null);
@@ -114,14 +137,32 @@ async function staleWhileRevalidate(request, event) {
   throw new Error("offline and uncached");
 }
 
+/**
+ * Navigations: network-first, falling back to the last document this worker saw.
+ *
+ * Without this, navigation requests fell through to the network untouched, so with the network
+ * offline the browser never obtained an HTML document and never got the chance to load the cached
+ * assets behind it. The runbook's claim that a cached build still opens offline was false as
+ * written — everything *except* the entry point was cached.
+ */
+async function navigationFirst(request) {
+  try {
+    const response = await fetch(request);
+    // Stored under a single shared key rather than the request URL: see OFFLINE_DOCUMENT_KEY.
+    if (response.ok) await putSafely(new Request(OFFLINE_DOCUMENT_KEY), response.clone());
+    return response;
+  } catch (error) {
+    const cached = await caches.match(new Request(OFFLINE_DOCUMENT_KEY));
+    if (cached) return cached;
+    throw error;
+  }
+}
+
 /** Live deploy wins when online; the demo still opens offline. */
 async function networkFirst(request) {
   try {
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(CACHE_NAME);
-      await cache.put(request, response.clone());
-    }
+    if (response.ok) await putSafely(request, response.clone());
     return response;
   } catch (error) {
     const cached = await caches.match(request);
@@ -141,6 +182,12 @@ self.addEventListener("fetch", (event) => {
   // caching them is exactly the failure mode this worker is gated to avoid.
   if (url.pathname.includes("/api/")) return;
 
+  // `request.mode === "navigate"` covers address-bar loads, reloads and link navigations — the
+  // entry point that has to work for anything else in the cache to be reachable.
+  if (request.mode === "navigate") {
+    event.respondWith(navigationFirst(request));
+    return;
+  }
   if (url.pathname.includes(CATALOG_MARKER)) {
     event.respondWith(networkFirst(request));
     return;
@@ -153,5 +200,5 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(staleWhileRevalidate(request, event));
     return;
   }
-  // Navigations and everything else fall through to the network untouched.
+  // Everything else falls through to the network untouched.
 });

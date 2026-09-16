@@ -179,10 +179,22 @@ only once `getPersistenceMode()` resolves to `"local"` — that is, once the app
 routes are absent. A service worker installed against the Worker deployment could serve stale
 configuration responses from cache, which is a much worse failure than the download it saves.
 
-Strategies: cache-first for `/assets/*` (content-hashed, `immutable`, so a hit cannot be wrong);
-stale-while-revalidate for `/models/*`, `/draco/*`, `/renders/*`, `/images/*` (large and stable, but
-`public/_headers` serves them `must-revalidate` because the optimisation scripts rewrite them in
-place under unchanged names); network-first for `/catalog/v1/*.json`. `/api/*` is never intercepted.
+Strategies: **network-first with a cached-document fallback for navigations** (without this the
+browser never obtains an HTML document offline and never reaches anything else in the cache — the
+offline claim above was false as written); cache-first for `/assets/*` (content-hashed, `immutable`,
+so a hit cannot be wrong); stale-while-revalidate for `/models/*`, `/draco/*`, `/renders/*`,
+`/images/*` (large and stable, but `public/_headers` serves them `must-revalidate` because the
+optimisation scripts rewrite them in place under unchanged names); network-first for
+`/catalog/v1/*.json`. `/api/*` is never intercepted.
+
+The document is stored under one shared key rather than per-URL: every route of this prerendered
+export ships the same client shell, so one cached document boots any of them and the router takes
+over once the (cache-first) JS loads. Caching per-navigation would only make already-visited routes
+work offline.
+
+Cache writes are best-effort. `cache.put` rejects on a full quota or disabled storage, and awaiting
+it in a handler's success path meant such a rejection failed the whole request — an optimisation
+breaking live requests for online users.
 
 ### Kill switch
 
