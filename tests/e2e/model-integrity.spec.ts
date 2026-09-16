@@ -92,6 +92,24 @@ test("a configuration mutation applies to the decoded model", async ({ page }) =
   }
 });
 
+test("the Camry decodes in the browser and settles without procedural fallback", async ({ page }) => {
+  const messages: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning" || message.type() === "error") messages.push(message.text());
+  });
+  const responses: number[] = [];
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname.endsWith("/models/camry/camry.glb")) responses.push(response.status());
+  });
+
+  await page.goto("camry/");
+  await expect(page.getByRole("button", { name: "Super White" })).toBeVisible({ timeout: 45_000 });
+  await expect.poll(async () => page.locator("canvas").getAttribute("data-load-phase"), { timeout: 45_000 }).toBe("ready");
+  expect(messages.filter((message) => message.includes("High-detail glTF failed to load"))).toEqual([]);
+  expect(messages.filter((message) => message.includes("is unavailable for this asset"))).toEqual([]);
+  expect(responses).toContain(200);
+});
+
 test("the GR Supra decodes in the browser and settles without procedural fallback", async ({ page }) => {
   const messages: string[] = [];
   page.on("console", (message) => {

@@ -1,104 +1,80 @@
-import type { CustomizationOption } from "../../types/customization";
-
-/**
- * Camry customization catalog.
- *
- * Same rationale as `lib/data/options/tacoma.ts`: `hasModel` is `false`
- * (`lib/data/vehicles/camry.ts`), so `VehicleCanvas` renders the procedural fallback vehicle
- * (`lib/three/proceduralParts.ts`), which is deliberately named to match the real 4Runner GLB's
- * node/material contract. These options are genuinely functional against that fallback today.
- *
- * Unlike Tacoma, this catalog omits the off-road accessories (roof rack, light bar, rock sliders)
- * and raised-white-letter tire lettering — all are truck/off-road-coded and would misrepresent what
- * a Camry buyer is actually choosing between, even though the underlying procedural nodes exist and
- * would technically resolve. Catalog scope is a per-vehicle product decision, not just "everything
- * the fallback happens to support."
- */
+import type { CustomizationOption, MaterialConfig } from "../../types/customization";
 
 const VEHICLE = ["camry"];
-
-const PAINT_NODES = ["BODY"];
-const PAINT_MATERIALS = ["body.carmain"];
+const PAINT_NODES = [
+  "CAMRY_EX_CARBODY_MESH_CarPaint_0",
+  "CAMRY_EX_CARBODY_DECAL_MESH_CarPaint_0",
+  "CAMRY_EX_FL_DOOR_MESH_CarPaint_0",
+  "CAMRY_EX_FR_DOOR_MESH_CarPaint_0",
+  "CAMRY_EX_RL_DOOR_MESH_CarPaint_0",
+  "CAMRY_EX_RR_DOOR_MESH_CarPaint_0",
+  "CAMRY_EX_BOOT_DOOR_MESH_CarPaint_0",
+];
 const WHEEL_NODES = [
-  "PLACED_WEISU_front_left",
-  "PLACED_WEISU_front_right",
-  "PLACED_WEISU_rear_left",
-  "PLACED_WEISU_rear_right",
+  "polySurface6103_Wheel_Alloy_0",
+  "polySurface5883_Wheel_Alloy_0",
+  "polySurface5881_Wheel_Alloy_0",
+  "polySurface5650_Wheel_Alloy_0",
+  "polySurface5643_Wheel_Alloy_0",
 ];
-// The procedural fallback uses one shared rim material for all four wheels.
-const WHEEL_MATERIALS = ["wheel.metal"];
-const TIRE_NODES = [
-  "PLACED_KO3_front_left",
-  "PLACED_KO3_front_right",
-  "PLACED_KO3_rear_left",
-  "PLACED_KO3_rear_right",
+const CALIPER_NODES = [
+  "polySurface6103_Caliper_0",
+  "polySurface5872_Caliper_0",
+  "polySurface5871_Caliper_0",
+  "polySurface5640_Caliper_0",
+  "polySurface5639_Caliper_0",
 ];
+function option(
+  id: string,
+  category: CustomizationOption["category"],
+  label: string,
+  targetNodes: string[],
+  targetMaterials: string[],
+  materialConfig: MaterialConfig,
+  priceDelta = 0,
+): CustomizationOption {
+  return {
+    id, category, label, operation: "material-update", targetNodes, targetMaterials,
+    materialConfig, priceDelta, compatibleVehicleIds: VEHICLE,
+  };
+}
 
 function paint(id: string, label: string, color: string, gradeIds?: string[]): CustomizationOption {
   return {
-    id,
-    category: "paint",
-    label,
-    operation: "material-update",
-    targetNodes: PAINT_NODES,
-    targetMaterials: PAINT_MATERIALS,
-    materialConfig: { color, metalness: 0.7, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.05 },
+    ...option(id, "paint", label, PAINT_NODES, ["CarPaint"], {
+      color, metalness: 0.68, roughness: 0.24, clearcoat: 1, clearcoatRoughness: 0.06,
+    }),
     ...(gradeIds ? { compatibleGradeIds: gradeIds } : {}),
-    compatibleVehicleIds: VEHICLE,
   };
 }
 
 export const camryOptions: CustomizationOption[] = [
-  // Matches lib/data/vehicles/camry.ts's exteriorColors exactly: code, name, hex, and grade gating.
   paint("paint-040-super-white", "Super White", "#f2f2ef", ["le", "xle"]),
   paint("paint-1g3-underground", "Underground", "#4f545a"),
   paint("paint-070-midnight-black", "Midnight Black Metallic", "#101215"),
   paint("paint-3u5-barcelona-red", "Barcelona Red Metallic", "#9d1d20", ["xle", "xse"]),
-
+  option("wheels-sport-machined", "wheels", "Sport Machined", WHEEL_NODES, ["Wheel_Alloy"], {
+    color: "#a7acb3", metalness: 0.92, roughness: 0.18,
+  }),
+  option("wheels-gloss-black", "wheels", "Gloss Black", WHEEL_NODES, ["Wheel_Alloy"], {
+    color: "#0e0f11", metalness: 0.68, roughness: 0.16,
+  }, 350),
+  option("wheels-bronze", "wheels", "Bronze", WHEEL_NODES, ["Wheel_Alloy"], {
+    color: "#8a623d", metalness: 0.84, roughness: 0.28,
+  }, 650),
   {
-    id: "wheels-sport-machined",
-    category: "wheels",
-    label: "Sport Machined",
-    operation: "material-update",
-    targetNodes: WHEEL_NODES,
-    targetMaterials: WHEEL_MATERIALS,
-    materialConfig: { color: "#a7acb3", metalness: 0.9, roughness: 0.18 },
-    compatibleVehicleIds: VEHICLE,
+    ...option("trim-lighting-oem", "trim", "OEM Lighting", [
+      "CAMRY_EX_HEADLIGHT_MESH_Glass_Light_0", "CAMRY_EX_TAILLIGHT_MESH_Glass_Light_0",
+    ], ["Glass_Light"], { color: "#f4f7ff", roughness: 0.12 }),
+    selectionGroup: "trim-lighting",
   },
-  {
-    id: "wheels-gloss-black",
-    category: "wheels",
-    label: "Gloss Black",
-    operation: "material-update",
-    targetNodes: WHEEL_NODES,
-    targetMaterials: WHEEL_MATERIALS,
-    materialConfig: { color: "#0e0f11", metalness: 0.6, roughness: 0.15 },
-    priceDelta: 350,
-    compatibleVehicleIds: VEHICLE,
-    compatibleGradeIds: ["xle", "xse"],
-  },
-
-  {
-    id: "trim-tire-letters-blackwall",
-    category: "trim",
-    selectionGroup: "trim-tire-letters",
-    label: "Blackwall",
-    operation: "material-update",
-    targetNodes: TIRE_NODES,
-    targetMaterials: ["tire.sidewall"],
-    materialConfig: { color: "#141414", roughness: 0.94 },
-    compatibleVehicleIds: VEHICLE,
-  },
-  {
-    id: "trim-tire-letters-raised-white",
-    category: "trim",
-    selectionGroup: "trim-tire-letters",
-    label: "Raised White Letters",
-    operation: "material-update",
-    targetNodes: TIRE_NODES,
-    targetMaterials: ["tire.sidewall"],
-    materialConfig: { color: "#6f6f6c", roughness: 0.85 },
-    priceDelta: 180,
-    compatibleVehicleIds: VEHICLE,
-  },
+  option("accessory-calipers-red", "accessory", "Red Brake Calipers", CALIPER_NODES, ["Caliper"], {
+    color: "#b71f2a", metalness: 0.55, roughness: 0.25,
+  }, 700),
+  option("interior-black", "interior", "Black Interior", ["CAMRY_IN_SEAT_MESH_Seat_Letaher_Color_0"], ["Seat_Letaher_Color"], {
+    color: "#171717", metalness: 0.04, roughness: 0.62,
+  }),
+  option("interior-macadamia", "interior", "Macadamia Interior", ["CAMRY_IN_SEAT_MESH_Seat_Letaher_Color_0"], ["Seat_Letaher_Color"], {
+    color: "#a9885f", metalness: 0.03, roughness: 0.58,
+  }, 900),
 ];
