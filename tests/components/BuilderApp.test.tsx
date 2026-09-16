@@ -2,7 +2,9 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { fourRunner } from "../../lib/data/vehicles/4runner";
-import { fourRunnerOptions } from "../../lib/data/options/4runner";
+import { getOptionsForVehicle } from "../../lib/data/options";
+
+const fourRunnerOptions = getOptionsForVehicle("4runner");
 import type { CreateConfigurationInput, UpdateConfigurationInput } from "../../lib/api/configurations";
 import type { VehicleConfiguration } from "../../lib/types/customization";
 import { encodeBuildDeepLink } from "../../lib/showroom/deepLink";
@@ -247,6 +249,20 @@ describe("BuilderApp", () => {
     // The right panel only shows one category at a time; each rail label now maps to its typed category.
     fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
     expect(screen.getByRole("button", { name: /overland roof rack/i })).toBeInTheDocument();
+  });
+
+  it("exposes runtime performance systems and their generated options", async () => {
+    await renderBuilderReady();
+
+    fireEvent.click(screen.getByRole("button", { name: /^brakes$/i }));
+    expect(screen.getByRole("button", { name: /big brake kit — red/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^aero$/i }));
+    expect(screen.getByRole("button", { name: /ducktail spoiler/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /front splitter/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^exhaust$/i }));
+    expect(screen.getByRole("button", { name: /titanium dual exhaust/i })).toBeInTheDocument();
   });
 
   it("opens the mobile configurator as a labelled modal, traps focus, and returns focus on Escape", async () => {
