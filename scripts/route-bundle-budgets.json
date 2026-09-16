@@ -4,17 +4,17 @@
     "/": {
       "html": "index.html",
       "label": "home",
-      "entryJsGzipBytes": 319488
+      "entryJsGzipBytes": 327680
     },
     "/explore": {
       "html": "explore/index.html",
       "label": "explore",
-      "entryJsGzipBytes": 106496
+      "entryJsGzipBytes": 110592
     },
     "/4runner": {
       "html": "4runner/index.html",
       "label": "builder",
-      "entryJsGzipBytes": 319488
+      "entryJsGzipBytes": 327680
     }
   }
 }
