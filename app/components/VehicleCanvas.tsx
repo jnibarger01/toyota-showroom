@@ -41,7 +41,7 @@ import * as THREE from "three";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
-import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
+import { getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { resolveAssetUrl } from "../../lib/three/assetUrl";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { getSceneMapForVehicle } from "../../lib/data/sceneMap";
@@ -1004,7 +1004,10 @@ async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Veh
     renameMaterials(wheel, index < 2 ? "wheel.metal" : "wheel.metal.001");
 
     assembly.add(tire, wheel);
-    attachToMount(mounts[index]!, assembly, "authored-wheel-and-tire");
+    // This authored wheel+tire pair is baseline vehicle geometry, not an option attachment.
+    // Keeping it unmarked means a wheel-only replacement can hide the stock rim without
+    // detaching the sibling tire, then restore the rim when the replacement is cleared.
+    mounts[index]!.add(assembly);
     assembly.scale.setScalar(config.scale ?? 1);
   }
 }

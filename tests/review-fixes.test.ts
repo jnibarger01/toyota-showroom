@@ -9,6 +9,7 @@ import { validateSelections } from "../lib/validation/configuration";
 import { withOptionSelected, type CustomizationOption } from "../lib/types/customization";
 import { ApiError } from "../lib/api/errors";
 import { resolveAssetUrl } from "../lib/three/assetUrl";
+import { markAttached } from "../lib/three/assets";
 
 /**
  * Regression coverage for the issues raised in review of PR #2. Each block names the behaviour it
@@ -106,6 +107,23 @@ describe("reversing operations", () => {
 
     await controller.removeOption(option);
 
+    expect(fixture.root.getObjectByName("PLACED_WEISU_front_left")!.visible).toBe(true);
+  });
+
+  it("clears a single-select wheel replacement before applying a normal wheel finish", async () => {
+    const fixture = createVehicleFixture();
+    const replacement = replacementOption();
+    const stockFinish = getOptionById("4runner", "wheels-weisu-machined")!;
+    const controller = new VehicleSceneController(fixture.root, [replacement, stockFinish]);
+    const mount = fixture.root.getObjectByName("MOUNT_WHEEL_FRONT_LEFT")!;
+    const mountedReplacement = new THREE.Group();
+    markAttached(mountedReplacement, replacement.id);
+    mount.add(mountedReplacement);
+    fixture.root.getObjectByName("PLACED_WEISU_front_left")!.visible = false;
+
+    await controller.applyConfiguration({ wheels: [stockFinish.id] });
+
+    expect(mount.children).not.toContain(mountedReplacement);
     expect(fixture.root.getObjectByName("PLACED_WEISU_front_left")!.visible).toBe(true);
   });
 

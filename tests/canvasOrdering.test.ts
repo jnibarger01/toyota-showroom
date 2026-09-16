@@ -65,6 +65,17 @@ describe("VehicleCanvas lifecycle ordering", () => {
         "critical path.",
     ).toBeGreaterThan(bodyAwait);
   });
+
+  it("keeps authored tires mounted when an option replaces only the wheel", () => {
+    const start = CANVAS_SOURCE.indexOf("async function installWheelAndTireAssets(");
+    const end = CANVAS_SOURCE.indexOf("\nfunction removeNode(", start);
+    const installer = CANVAS_SOURCE.slice(start, end);
+
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    expect(installer).not.toContain("attachToMount(");
+    expect(installer).toContain("mounts[index]!.add(assembly)");
+  });
 });
 
 describe("optimized runtime model assets", () => {
