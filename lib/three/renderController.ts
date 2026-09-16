@@ -465,7 +465,7 @@ function applyRendererQuality(renderer: RendererLike, quality: QualitySettings):
 async function createRenderer(antialias: boolean): Promise<{ renderer: RendererLike; mode: RendererMode }> {
   if (navigator.gpu) {
     try {
-      const renderer = new THREE_WEBGPU.WebGPURenderer({ antialias });
+      const renderer = new THREE_WEBGPU.WebGPURenderer({ antialias, alpha: true });
       await renderer.init();
       return { renderer: renderer as unknown as RendererLike, mode: "webgpu" };
     } catch (error) {
@@ -473,7 +473,16 @@ async function createRenderer(antialias: boolean): Promise<{ renderer: RendererL
     }
   }
 
-  const renderer = new THREE.WebGLRenderer({ antialias, alpha: false });
+  // `alpha: true` so an immersive-AR session can composite over the camera feed.
+  //
+  // This is a construction-time argument — the same class of constraint as `antialias`, see
+  // `CONSTRUCTION_TIME_QUALITY_KEYS` — so it cannot be turned on when a session starts. With
+  // `alpha: false` the framebuffer has no transparency to reveal passthrough through, and AR shows
+  // the virtual showroom instead of the vehicle in the viewer's room.
+  //
+  // It costs nothing outside XR: `EnvironmentController` still paints an opaque `scene.background`,
+  // so every non-XR frame is byte-identical (the visual snapshots are the check on that claim).
+  const renderer = new THREE.WebGLRenderer({ antialias, alpha: true });
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   return { renderer: renderer as unknown as RendererLike, mode: "webgl2" };
 }

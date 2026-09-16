@@ -16,7 +16,7 @@ function make(overrides: Partial<Parameters<typeof createPrefetchScheduler>[0]> 
   const scheduler = createPrefetchScheduler({
     load,
     ids: ["a", "b", "c"],
-    tier: "high",
+    tier: () => "high",
     scheduleIdle: immediateIdle,
     ...overrides,
   });
@@ -47,7 +47,7 @@ describe("createPrefetchScheduler", () => {
       inFlight -= 1;
       return true;
     });
-    const scheduler = createPrefetchScheduler({ load, ids: ["a", "b", "c"], tier: "high", scheduleIdle: immediateIdle });
+    const scheduler = createPrefetchScheduler({ load, ids: ["a", "b", "c"], tier: () => "high", scheduleIdle: immediateIdle });
 
     scheduler.start();
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3));
@@ -55,7 +55,7 @@ describe("createPrefetchScheduler", () => {
   });
 
   it("is disabled on the low tier", async () => {
-    const { scheduler, load } = make({ tier: "low" });
+    const { scheduler, load } = make({ tier: () => "low" });
     scheduler.start();
     await Promise.resolve();
     expect(load).not.toHaveBeenCalled();
@@ -82,12 +82,52 @@ describe("createPrefetchScheduler", () => {
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3));
   });
 
+  it("stops fetching when the tier drops after construction", async () => {
+    let tier: "high" | "low" = "high";
+    const load = vi.fn(async () => true);
+    const scheduler = createPrefetchScheduler({
+      load,
+      ids: ["a", "b", "c"],
+      tier: () => tier,
+      scheduleIdle: (callback) => {
+        // Defer so the tier can change between scheduling and running — the window a snapshotted
+        // tier ignored entirely.
+        const timer = setTimeout(callback, 0);
+        return () => clearTimeout(timer);
+      },
+    });
+
+    scheduler.start();
+    tier = "low";
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // Nothing was fetched: the governor downgraded before the idle callback ran.
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it("stops mid-queue when the tier drops between items", async () => {
+    let tier: "high" | "low" = "high";
+    const load = vi.fn(async () => {
+      tier = "low";
+      return true;
+    });
+    const scheduler = createPrefetchScheduler({ load, ids: ["a", "b", "c"], tier: () => tier, scheduleIdle: immediateIdle });
+
+    scheduler.start();
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // The first fetch triggered the downgrade; the remaining two must not run.
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(scheduler.completed()).toEqual(["a"]);
+  });
+
   it("never retries an id, including one that failed", async () => {
     const load = vi.fn(async (id: string) => {
       if (id === "a") throw new Error("network down");
       return true;
     });
-    const scheduler = createPrefetchScheduler({ load, ids: ["a", "b"], tier: "high", scheduleIdle: immediateIdle });
+    const scheduler = createPrefetchScheduler({ load, ids: ["a", "b"], tier: () => "high", scheduleIdle: immediateIdle });
 
     scheduler.start();
     await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2));
@@ -116,7 +156,7 @@ describe("createPrefetchScheduler", () => {
   it("stops scheduling after dispose and discards an in-flight result", async () => {
     let release!: (value: boolean) => void;
     const load = vi.fn(() => new Promise<boolean>((resolve) => (release = resolve)));
-    const scheduler = createPrefetchScheduler({ load, ids: ["a", "b"], tier: "high", scheduleIdle: immediateIdle });
+    const scheduler = createPrefetchScheduler({ load, ids: ["a", "b"], tier: () => "high", scheduleIdle: immediateIdle });
 
     scheduler.start();
     expect(load).toHaveBeenCalledTimes(1);

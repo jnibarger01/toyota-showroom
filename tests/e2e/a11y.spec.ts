@@ -38,7 +38,16 @@ function formatViolations(violations: Awaited<ReturnType<AxeBuilder["analyze"]>>
 const BLOCKING_IMPACTS = new Set(["serious", "critical"]);
 
 type A11yAllowlistEntry = {
-  /** CSS selector excluded from the axe tree (preferred for region-scoped noise). */
+  /**
+   * CSS selector excluded from the axe tree (preferred for region-scoped noise).
+   *
+   * Scope this as tightly as the noise actually requires: an axe exclusion removes the matched node
+   * *and its subtree*. `.vehicle-canvas` is not the WebGL surface — it is the focusable
+   * `role="group"` carrying the stage's `aria-label` and keyboard affordances, with the renderer's
+   * `<canvas>` appended inside it — so excluding the host meant a serious ARIA regression on the
+   * primary 3D interaction would leave this gate green. `.vehicle-canvas > canvas` excludes only the
+   * pixels axe genuinely cannot read.
+   */
   exclude?: string;
   /** axe rule ids disabled for the whole page (use sparingly; prefer exclude). */
   disableRules?: string[];
@@ -53,7 +62,7 @@ type A11yAllowlistEntry = {
  */
 const A11Y_ALLOWLIST: readonly A11yAllowlistEntry[] = [
   {
-    exclude: ".vehicle-canvas",
+    exclude: ".vehicle-canvas > canvas",
     rationale:
       "axe cannot inspect rendered 3D pixels, and including the canvas yields a colour-contrast " +
       "finding against a GLB frame that is neither actionable nor meaningful. Keyboard affordances " +

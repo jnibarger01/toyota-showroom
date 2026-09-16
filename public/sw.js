@@ -153,15 +153,31 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+/**
+ * Writes to the cache without letting a cache failure affect the response.
+ *
+ * `cache.put` rejects when the origin quota is full or storage is unavailable. Awaiting it in a
+ * handler's success path meant such a rejection rejected the whole `respondWith`, turning a
+ * perfectly good network response into a failed request — so an installed optimisation could break
+ * hashed JS chunks, catalog JSON and vehicle assets for *online* users. A cache write is
+ * best-effort by definition: the response is already in hand.
+ */
+async function putSafely(request, response) {
+  try {
+    const cache = await caches.open(CACHE_NAME);
+    await cache.put(request, response);
+  } catch {
+    // Quota, storage disabled, or an opaque response. Nothing to recover — the caller has its
+    // response and the next visit simply tries again.
+  }
+}
+
 /** Cache-first. Used where a cached response cannot be wrong. */
 async function cacheFirst(request) {
   const cached = await caches.match(request);
   if (cached) return cached;
   const response = await fetch(request);
-  if (response.ok) {
-    const cache = await caches.open(CACHE_NAME);
-    await cache.put(request, response.clone());
-  }
+  if (response.ok) await putSafely(request, response.clone());
   return response;
 }
 
@@ -175,10 +191,7 @@ async function staleWhileRevalidate(request, event) {
   const cached = await caches.match(request);
   const network = fetch(request)
     .then(async (response) => {
-      if (response.ok) {
-        const cache = await caches.open(CACHE_NAME);
-        await cache.put(request, response.clone());
-      }
+      if (response.ok) await putSafely(request, response.clone());
       return response;
     })
     .catch(() => null);
@@ -197,14 +210,38 @@ async function staleWhileRevalidate(request, event) {
 async function networkFirst(request) {
   try {
     const response = await fetch(request);
-    if (response.ok) {
-      const cache = await caches.open(CACHE_NAME);
-      await cache.put(request, response.clone());
-    }
+    if (response.ok) await putSafely(request, response.clone());
     return response;
   } catch (error) {
     const cached = await caches.match(request);
     if (cached) return cached;
+    throw error;
+  }
+}
+
+/**
+ * Navigations: network-first, then the cached document for this URL, then the precached shell.
+ *
+ * Without this, navigation requests fell through to the network untouched — so with the network
+ * offline the browser never obtained an HTML document and never reached anything cached behind it.
+ * `precacheCritical` already stores `./`, `./index.html` and the builder route, but nothing ever
+ * consulted the cache for a navigation, so those entries could not actually be served. Everything
+ * except the entry point was cached, which made the runbook's offline claim false as written.
+ *
+ * The `./index.html` fallback covers a route that was never precached or visited: this is a
+ * prerendered export where every route ships the same client shell, so that document boots any of
+ * them and the router takes over once the (cache-first) JS loads.
+ */
+async function navigationFirst(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) await putSafely(request, response.clone());
+    return response;
+  } catch (error) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    const shell = await caches.match(new URL("./index.html", self.registration.scope));
+    if (shell) return shell;
     throw error;
   }
 }
@@ -220,6 +257,11 @@ self.addEventListener("fetch", (event) => {
   // caching them is exactly the failure mode this worker is gated to avoid.
   if (url.pathname.includes("/api/")) return;
 
+  // The entry point: nothing else in the cache is reachable without a document.
+  if (request.mode === "navigate") {
+    event.respondWith(navigationFirst(request));
+    return;
+  }
   if (url.pathname.includes(CATALOG_MARKER)) {
     event.respondWith(networkFirst(request));
     return;
@@ -232,5 +274,5 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(staleWhileRevalidate(request, event));
     return;
   }
-  // Navigations and everything else fall through to the network untouched.
+  // Everything else falls through to the network untouched.
 });

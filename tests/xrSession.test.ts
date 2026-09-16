@@ -123,6 +123,38 @@ describe("XrSessionController", () => {
     });
   });
 
+  describe("session hygiene on failure", () => {
+    it("ends the acquired session when the renderer refuses it", async () => {
+      const controller = make(makeXrSystem(session));
+      renderer.xr.setSession.mockRejectedValue(new Error("device lost"));
+
+      await expect(controller.enter()).resolves.toBe(false);
+
+      // The session was granted and holds the camera. Clearing local state without ending it left
+      // the camera live while the UI reported failure, and a later device `end` was ignored because
+      // the null-session guard returned early.
+      expect(session.end).toHaveBeenCalled();
+      expect(session.listenerCount("end")).toBe(0);
+      expect(controller.isPresenting).toBe(false);
+      expect(renderer.xr.enabled).toBe(false);
+      expect(onPresentingChange).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalled();
+    });
+  });
+
+  describe("session features", () => {
+    it("does not require local-floor, which would reject on devices that pass the support check", async () => {
+      const xrSystem = makeXrSystem(session);
+      await make(xrSystem).enter();
+
+      const init = (xrSystem.requestSession as unknown as ReturnType<typeof vi.fn>).mock.calls[0]![1] as XRSessionInit;
+      // `isSessionSupported("immersive-ar")` does not account for reference-space features, so a
+      // required `local-floor` turns the entry control into one that fails on tap.
+      expect(init.requiredFeatures ?? []).not.toContain("local-floor");
+      expect(init.optionalFeatures ?? []).toContain("local-floor");
+    });
+  });
+
   describe("exiting", () => {
     it("announces the end and disables the renderer when the device ends the session", async () => {
       const controller = make(makeXrSystem(session));
