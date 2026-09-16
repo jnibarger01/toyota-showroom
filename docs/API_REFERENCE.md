@@ -41,6 +41,8 @@ export has no server to run request-time code against. `lib/api/configurations.t
 absence once and falls back to `localConfigurationTransport` (browser `localStorage`), running the
 same validators the server does, so the app still works end-to-end with no Worker deployed.
 
-`POST`/`PATCH`/`DELETE` on `/configurations` are rate-limited: 30 requests/minute, keyed by client
-IP (`lib/server/rateLimit.ts`) — see `docs/openapi.yaml`'s `x-rate-limit-definition` and each
-operation's `429` response for the exact shape.
+`POST` on `/configurations` is rate-limited at **10 creates/minute** per client IP;
+`PATCH`/`DELETE` at **20 writes/minute** per IP **and** per owner-token hash
+(`lib/server/rateLimit.ts`). Optional Turnstile bot friction on create is documented in
+`docs/DEPLOYMENT_RUNBOOK.md` §9. See `docs/openapi.yaml`'s `x-rate-limit-definition` and each
+operation's `429` response for the exact shape (includes structured `details`).

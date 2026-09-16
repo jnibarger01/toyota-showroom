@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { fourRunner } from "../../lib/data/vehicles/4runner";
 import { fourRunnerOptions } from "../../lib/data/options/4runner";
 import type { CreateConfigurationInput, UpdateConfigurationInput } from "../../lib/api/configurations";
@@ -16,7 +16,7 @@ import { estimateBuildTotal, estimateMonthlyPayment, resolveGradeMsrp } from "..
  * what BuilderApp itself is responsible for: bootstrapping, the grade selector (Task 6), and wiring
  * the catalog to CustomizationButton.
  */
-const { fakeController } = vi.hoisted(() => ({
+const { fakeController, canvasXr } = vi.hoisted(() => ({
   fakeController: {
     applyOption: async () => true,
     removeOption: async () => true,
@@ -30,6 +30,8 @@ const { fakeController } = vi.hoisted(() => ({
     selectedPartId: undefined as string | undefined,
     getPart: (id: string) => ({ id, type: "wheel", label: "Front-left wheel", capabilities: ["selectable"] }),
   },
+  /** Stub WebXR capability for builder chrome tests (#16). jsdom has no navigator.xr. */
+  canvasXr: { supported: false as boolean },
 }));
 
 vi.mock("../../app/components/VehicleCanvas", () => ({
@@ -40,9 +42,15 @@ vi.mock("../../app/components/VehicleCanvas", () => ({
     onTourStatusChange?: (status: "idle" | "playing" | "paused") => void;
     onTourStep?: (preset: { id: string; label: string; position: [number, number, number]; target: [number, number, number] }) => void;
     onPartSelect?: (part: { id: string; type: string; label: string; capabilities: string[] } | undefined) => void;
+    enterXrSignal?: number;
+    exitXrSignal?: number;
+    onXrSupported?: (supported: boolean) => void;
+    onXrPresentingChange?: (presenting: boolean) => void;
+    onXrError?: (message: string) => void;
   }) => {
     useEffect(() => {
       props.onReady(fakeController, props.catalog);
+      props.onXrSupported?.(canvasXr.supported);
       // Deliberately once: BuilderApp's own contract is that the base model is not reloaded for
       // option/lift/camera changes (see docs/INTEGRATION_GUIDE.md's acceptance criteria table,
       // #9) — re-firing onReady on every prop change would silently mask a regression there.
@@ -66,6 +74,16 @@ vi.mock("../../app/components/VehicleCanvas", () => ({
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps -- stub mirrors tourAction only
     }, [props.tourAction]);
+    useEffect(() => {
+      if (props.enterXrSignal === undefined || props.enterXrSignal === 0) return;
+      props.onXrPresentingChange?.(true);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- stub mirrors enterXrSignal only
+    }, [props.enterXrSignal]);
+    useEffect(() => {
+      if (props.exitXrSignal === undefined || props.exitXrSignal === 0) return;
+      props.onXrPresentingChange?.(false);
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- stub mirrors exitXrSignal only
+    }, [props.exitXrSignal]);
     return (
       <div data-testid="vehicle-canvas">
         {/* Stands in for a real pointer/keyboard click in VehicleCanvas: sets both halves a real
@@ -147,6 +165,9 @@ vi.mock("../../lib/api/configurations", () => ({
   resetTransportDetection() {},
 }));
 
+const { submitLeadMock } = vi.hoisted(() => ({ submitLeadMock: vi.fn() }));
+vi.mock("../../lib/api/leads", () => ({ submitLead: submitLeadMock }));
+
 const { BuilderApp } = await import("../../app/components/BuilderApp");
 const { configurationStore } = await import("../../lib/state/configurationStore");
 
@@ -155,6 +176,7 @@ beforeEach(() => {
   window.localStorage.clear();
   configurationStore.reset();
   fakeController.selectedPartId = undefined; // fakeController is hoisted/shared across tests
+  canvasXr.supported = false;
 });
 
 afterEach(() => {
@@ -182,6 +204,33 @@ describe("BuilderApp", () => {
     expect(screen.getByText(/loading 4runner/i)).toBeInTheDocument();
   });
 
+  it("opens the test-drive form with the current build context", async () => {
+    submitLeadMock.mockResolvedValue(undefined);
+    await renderBuilderReady();
+
+    fireEvent.click(screen.getByRole("button", { name: /request a test drive/i }));
+    expect(screen.getByRole("dialog", { name: /request a test drive/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "Jamie Customer" } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "jamie@example.com" } });
+    fireEvent.change(screen.getByLabelText(/how can we help/i), { target: { value: "Test drive, please." } });
+    fireEvent.click(screen.getByRole("button", { name: /send request/i }));
+
+    await waitFor(() => expect(screen.getByText(/thanks — your request was sent/i)).toBeInTheDocument());
+    expect(submitLeadMock).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "model",
+      vehicleId: "4runner",
+      build: expect.objectContaining({
+        vehicleId: "4runner",
+        gradeId: "trd-pro",
+        selections: {},
+        configurationId: "cfg-2",
+        shareUrl: expect.stringContaining("?c="),
+        ownerToken: { present: true, configurationId: "cfg-2" },
+      }),
+    }));
+    expect(JSON.stringify(submitLeadMock.mock.calls[0][0])).not.toMatch(/ownerToken[^:]*:[^,{]*[A-Za-z0-9]/);
+  });
+
   it("renders the vehicle, its default grade, and the option catalog once bootstrapped", async () => {
     await renderBuilderReady();
     expect(screen.getByTestId("vehicle-canvas")).toBeInTheDocument();
@@ -195,11 +244,33 @@ describe("BuilderApp", () => {
     // CustomizationButton instances.
     expect(screen.getByRole("button", { name: /blueprint/i })).toBeInTheDocument();
 
-    // The right panel only shows one category at a time (main's single-category redesign,
-    // §12 in docs/INTEGRATION_GUIDE.md's known gaps notes the rail labels don't all match the
-    // category they switch to — "Lighting" is the rail item that actually opens "accessory").
-    fireEvent.click(screen.getByRole("button", { name: /lighting/i }));
+    // The right panel only shows one category at a time; each rail label now maps to its typed category.
+    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
     expect(screen.getByRole("button", { name: /overland roof rack/i })).toBeInTheDocument();
+  });
+
+  it("opens the mobile configurator as a labelled modal, traps focus, and returns focus on Escape", async () => {
+    await renderBuilderReady();
+
+    const trigger = screen.getByRole("button", { name: /customize/i });
+    fireEvent.click(trigger);
+
+    const panel = screen.getByRole("dialog", { name: /paint/i });
+    expect(panel).toHaveAttribute("aria-modal", "true");
+    await waitFor(() => expect(screen.getByPlaceholderText(/search options/i)).toHaveFocus());
+
+    const search = screen.getByPlaceholderText(/search options/i);
+    const focusable = panel.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    );
+    const last = focusable[focusable.length - 1];
+    last.focus();
+    fireEvent.keyDown(panel, { key: "Tab" });
+    expect(within(panel).getByRole("button", { name: /close configuration panel/i })).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: /paint/i })).not.toBeInTheDocument();
   });
 
   it("switching grades creates a new configuration and updates the active grade button", async () => {
@@ -317,7 +388,7 @@ describe("BuilderApp", () => {
     });
 
     // Deep-link restore creates a config; catalog may still be grade-filtered in the store.
-    fireEvent.click(screen.getByRole("button", { name: /lighting/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true"));
 
     const expected = estimateBuildTotal(
@@ -335,16 +406,34 @@ describe("BuilderApp", () => {
 
     const toggle = await screen.findByTestId("cinematic-tour-toggle");
     expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveAccessibleName(/play cinematic tour/i);
     expect(toggle).toHaveTextContent(/Tour/i);
 
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "true"));
+    expect(toggle).toHaveAccessibleName(/pause cinematic tour/i);
     expect(toggle).toHaveTextContent(/Pause/i);
     expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("wheels");
 
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).toHaveTextContent(/Resume/i));
     expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(toggle).toHaveAccessibleName(/resume cinematic tour/i);
+  });
+
+  it("announces cinematic tour scene names in a live region distinct from selection announcements", async () => {
+    await renderBuilderReady();
+
+    const tourRegion = screen.getByTestId("tour-scene-announcement");
+    const selectionRegion = screen.getByTestId("selection-announcement");
+    expect(tourRegion).toHaveAttribute("aria-live", "polite");
+    expect(tourRegion).toHaveTextContent("");
+    expect(selectionRegion).toHaveTextContent("");
+
+    fireEvent.click(await screen.findByTestId("cinematic-tour-toggle"));
+    await waitFor(() => expect(tourRegion).toHaveTextContent("Tour scene: Wheels."));
+    // Selection region must stay untouched — #71 and #51 are separate channels.
+    expect(selectionRegion).toHaveTextContent("");
   });
 
   it("announces a selection change in the polite live region", async () => {
@@ -401,5 +490,48 @@ describe("BuilderApp", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Hero$/i }));
     await waitFor(() => expect(toggle).toHaveTextContent(/Tour/i));
     expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("hero");
+  });
+
+  it("opens the keyboard shortcut cheat sheet on ? and closes it on Esc", async () => {
+    await renderBuilderReady();
+
+    expect(screen.queryByTestId("keyboard-shortcut-sheet")).toBeNull();
+
+    fireEvent.keyDown(window, { key: "?", code: "Slash", shiftKey: true });
+    expect(await screen.findByTestId("keyboard-shortcut-sheet")).toBeInTheDocument();
+    expect(screen.getByTestId("keyboard-shortcut-sheet")).toHaveTextContent(/Share build link/i);
+    expect(screen.getByTestId("keyboard-shortcut-sheet")).toHaveTextContent(/Tour play/i);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("keyboard-shortcut-sheet")).toBeNull());
+  });
+
+  it("shows graceful unsupported-device messaging when WebXR immersive-ar is unavailable", async () => {
+    canvasXr.supported = false;
+    await renderBuilderReady();
+
+    const control = await screen.findByTestId("xr-walkaround");
+    expect(control).toBeDisabled();
+    expect(control).toHaveAccessibleName(/view in ar/i);
+    expect(await screen.findByTestId("xr-unsupported-message")).toHaveTextContent(
+      /not available on this device or browser/i,
+    );
+  });
+
+  it("enters and exits XR from the builder when the device reports support", async () => {
+    canvasXr.supported = true;
+    await renderBuilderReady();
+
+    const control = await screen.findByTestId("xr-walkaround");
+    await waitFor(() => expect(control).not.toBeDisabled());
+    expect(screen.queryByTestId("xr-unsupported-message")).toBeNull();
+
+    fireEvent.click(control);
+    await waitFor(() => expect(control).toHaveAttribute("aria-pressed", "true"));
+    expect(control).toHaveAccessibleName(/exit ar/i);
+
+    fireEvent.click(control);
+    await waitFor(() => expect(control).toHaveAttribute("aria-pressed", "false"));
+    expect(control).toHaveAccessibleName(/view in ar/i);
   });
 });

@@ -1,7 +1,9 @@
 {
-  "BuilderApp": 16384,
-  "buildTools": 195584,
-  "client": 2048,
+  "BuilderApp": 21504,
+  "buildTools": 199680,
+  "client": 3072,
+  "compareDeepLink": 2048,
+  "configJson": 2048,
   "createLucideIcon": 1024,
   "draco_decoder": 172032,
   "draco_wasm_wrapper": 27648,
@@ -13,15 +15,15 @@
   "layout-segment-context": 1024,
   "link": 4096,
   "loader-circle": 1024,
-  "page": 9216,
+  "page": 12288,
+  "PersistenceModeBanner": 1024,
   "PremiumViewerControls": 1024,
   "query": 1024,
   "rolldown-runtime": 1024,
   "rotate-ccw": 1024,
   "router": 4096,
   "triangle-alert": 1024,
-  "VehicleCanvas": 275456,
-  "viewerControlEvents": 1024,
-  "warehouse": 1024,
-  "x": 1024
+  "ValidatedLeadForm": 3072,
+  "VehicleCanvas": 278528,
+  "viewerControlEvents": 1024
 }

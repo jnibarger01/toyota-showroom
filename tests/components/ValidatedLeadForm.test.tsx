@@ -127,3 +127,63 @@ describe("ValidatedLeadForm", () => {
     expect(screen.queryByText(/thanks — your request was sent/i)).not.toBeInTheDocument();
   });
 });
+
+describe("ValidatedLeadForm CRM build snapshot", () => {
+  const buildSnapshot = {
+    vehicleId: "4runner",
+    gradeId: "trd-pro",
+    selections: { paint: ["paint-218-blueprint"] as string[] },
+    shareUrl: "https://example.test/4runner/?c=abc",
+    configurationId: "cfg_1",
+    ownerTokenPresent: true,
+  };
+
+  it("forwards vehicle, selections, share URL, and owner-token metadata to the lead API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(acceptedLeadResponse());
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ValidatedLeadForm buildSnapshot={buildSnapshot} />);
+    fillValidLeadForm();
+    fireEvent.click(screen.getByRole("button", { name: /send request/i }));
+
+    await screen.findByText(/thanks — your request was sent/i);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.kind).toBe("model");
+    expect(body.vehicleId).toBe("4runner");
+    expect(body.build).toMatchObject({
+      vehicleId: "4runner",
+      gradeId: "trd-pro",
+      selections: { paint: ["paint-218-blueprint"] },
+      shareUrl: "https://example.test/4runner/?c=abc",
+      configurationId: "cfg_1",
+      ownerToken: { present: true, configurationId: "cfg_1" },
+    });
+    expect(JSON.stringify(body)).not.toMatch(/CRM_WEBHOOK/);
+    expect(body).not.toHaveProperty("ownerToken");
+  });
+
+  it("keeps failure UX honest when the lead/CRM API rejects the handoff", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: { code: "crm_handoff_failed", status: 502, message: "CRM down" },
+          }),
+          { status: 502, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+
+    render(<ValidatedLeadForm buildSnapshot={buildSnapshot} />);
+    fillValidLeadForm();
+    fireEvent.click(screen.getByRole("button", { name: /send request/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/was not sent|try again/i);
+    expect(alert).not.toHaveTextContent(/CRM down/i);
+    expect(screen.queryByText(/thanks — your request was sent/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/name/i)).toHaveValue("Jamie Customer");
+  });
+});

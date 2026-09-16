@@ -5,7 +5,8 @@ import { expect, test, type Page } from "@playwright/test";
  * Automated accessibility regression gate for the routes a shopper actually uses (#42).
  *
  * Runs against the real static export, the same target as `visual.spec.ts` — production CSS and
- * bundling, not a dev build whose focus outlines and contrast can differ.
+ * bundling, not a dev build whose focus outlines and contrast can differ. Wired into
+ * `.github/workflows/e2e.yml` via `npm run test:e2e` (and `npm run test:a11y` for this file alone).
  *
  * ## What this can and cannot claim
  *
@@ -21,17 +22,6 @@ import { expect, test, type Page } from "@playwright/test";
  * team can reasonably disagree with. A gate that fails on those gets disabled within a month, which
  * is worse than no gate. `serious` and `critical` are the tiers that map to a user being genuinely
  * blocked, so those fail the build and the rest are reported for information.
- *
- * ## Why only the `<canvas>` element is excluded
- *
- * axe cannot inspect rendered pixels, so scanning the WebGL surface produces a colour-contrast
- * finding against a 3D render — not actionable and not meaningful.
- *
- * The exclusion is `.vehicle-canvas > canvas`, **not** `.vehicle-canvas`. The host is itself the
- * focusable `role="group"` carrying the stage's `aria-label` and keyboard affordances, and an axe
- * exclusion removes the matched node *and its subtree* — so excluding the host meant a serious ARIA
- * regression on the primary 3D interaction would leave this gate green. The original comment claimed
- * the host was scanned while the selector ensured it was not.
  */
 
 /** Rendering everything axe found, not just the first failure — one line per violation is the
@@ -47,11 +37,56 @@ function formatViolations(violations: Awaited<ReturnType<AxeBuilder["analyze"]>>
 
 const BLOCKING_IMPACTS = new Set(["serious", "critical"]);
 
+type A11yAllowlistEntry = {
+  /**
+   * CSS selector excluded from the axe tree (preferred for region-scoped noise).
+   *
+   * Scope this as tightly as the noise actually requires: an axe exclusion removes the matched node
+   * *and its subtree*. `.vehicle-canvas` is not the WebGL surface — it is the focusable
+   * `role="group"` carrying the stage's `aria-label` and keyboard affordances, with the renderer's
+   * `<canvas>` appended inside it — so excluding the host meant a serious ARIA regression on the
+   * primary 3D interaction would leave this gate green. `.vehicle-canvas > canvas` excludes only the
+   * pixels axe genuinely cannot read.
+   */
+  exclude?: string;
+  /** axe rule ids disabled for the whole page (use sparingly; prefer exclude). */
+  disableRules?: string[];
+  /** Why this exception is acceptable and what would make it obsolete. */
+  rationale: string;
+};
+
+/**
+ * Known exceptions — every entry must carry a rationale. Prefer fixing the DOM over extending this
+ * list. Do not use this as a dumping ground for "we will fix later": a gate that absorbs every new
+ * finding stops catching regressions.
+ */
+const A11Y_ALLOWLIST: readonly A11yAllowlistEntry[] = [
+  {
+    exclude: ".vehicle-canvas > canvas",
+    rationale:
+      "axe cannot inspect rendered 3D pixels, and including the canvas yields a colour-contrast " +
+      "finding against a GLB frame that is neither actionable nor meaningful. Keyboard affordances " +
+      "live on the host element and surrounding toolbar, which remain in the scan.",
+  },
+];
+
 async function scan(page: Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .exclude(".vehicle-canvas > canvas")
-    .analyze();
+  let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]);
+
+  const disabledRules = new Set<string>();
+  for (const entry of A11Y_ALLOWLIST) {
+    if (entry.exclude) {
+      builder = builder.exclude(entry.exclude);
+    }
+    for (const rule of entry.disableRules ?? []) {
+      disabledRules.add(rule);
+    }
+  }
+  if (disabledRules.size > 0) {
+    builder = builder.disableRules([...disabledRules]);
+  }
+
+  const results = await builder.analyze();
 
   const blocking = results.violations.filter((violation) => BLOCKING_IMPACTS.has(violation.impact ?? ""));
   const advisory = results.violations.filter((violation) => !BLOCKING_IMPACTS.has(violation.impact ?? ""));
@@ -81,5 +116,12 @@ test("builder chrome has no serious accessibility violations", async ({ page }) 
   // so scanning earlier would audit a skeleton rather than the interface a shopper operates.
   await page.waitForSelector(".vehicle-title h1");
   await page.waitForSelector("[data-testid='paint-studio']");
+  await scan(page);
+});
+
+test("garage has no serious accessibility violations", async ({ page }) => {
+  await page.goto("garage/");
+  // Empty or populated — either is a settled chrome state (not the loading spinner).
+  await page.waitForSelector("[data-testid='garage-empty'], [data-testid='garage-groups']");
   await scan(page);
 });

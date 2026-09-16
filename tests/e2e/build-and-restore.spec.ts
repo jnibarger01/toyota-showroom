@@ -42,10 +42,8 @@ test("a paint selection survives a full page reload", async ({ page }) => {
 test("an accessory selection survives a reload; lift height, which isn't part of the persisted configuration, resets", async ({ page }) => {
   await page.goto("4runner/");
 
-  // "Lighting" is the rail item that actually opens the `accessory` category — a real,
-  // pre-existing label/category mismatch documented in docs/INTEGRATION_GUIDE.md §4
-  // ("Component tests") and in tests/components/BuilderApp.test.tsx.
-  await page.getByRole("button", { name: /lighting/i }).click();
+  // Accessories is a dedicated typed category, separate from Lighting and Decals.
+  await page.getByRole("button", { name: /^accessories$/i }).click();
 
   const roofRack = page.getByRole("button", { name: /overland roof rack/i });
   await expect(roofRack).toBeVisible();
@@ -61,7 +59,7 @@ test("an accessory selection survives a reload; lift height, which isn't part of
   await expect(page.getByRole("button", { name: /saving/i })).toHaveCount(0, { timeout: 10_000 });
 
   await page.reload();
-  await page.getByRole("button", { name: /lighting/i }).click();
+  await page.getByRole("button", { name: /^accessories$/i }).click();
 
   await expect(page.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: '0"' })).toHaveClass(/active/);

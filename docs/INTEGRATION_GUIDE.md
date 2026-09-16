@@ -651,6 +651,30 @@ Reading a configuration by id has never required the owner token (§5's "Ownersh
 visitor view and then freely re-customize the build in their own session, but never overwrites the
 original unless they also hold its owner token.
 
+### Open Graph + social preview (`lib/showroom/openGraph.ts`, #41)
+
+Shareable `?c=…` deep links (#15) restore a build, but crawlers (Slack, iMessage, Twitter/X) only
+see whatever Open Graph / Twitter meta tags the **first HTML response** carries — they do not run
+the WebGPU builder.
+
+**Pages (static export).** Each `/[slug]/` page bakes vehicle-level OG tags at build time via
+`generateMetadata` → `buildSharePreview(vehicle)`: title like `2024 4Runner | Toyota Showroom`, a
+short configure blurb, and `og:image` pointing at the catalog hero still
+(`absoluteAssetUrl(vehicle.media.hero.url)` under the Pages base). Home and Explore use the
+fallback card (`buildFallbackSharePreview`). Query-string `?c=` cannot change those static tags —
+GitHub Pages has no request-time HTML rewriter — so a Pages deep link unfurls as the **vehicle**
+card (not a blank generic tab), not the per-build grade/paint/wheels line.
+
+**Worker (production).** `GET /api/v1/share-card?slug=&c=` (`force-dynamic`) validates the deep
+link with the same catalog rules as saved configs, then:
+
+- Social crawler UA → `200` HTML with `og:title` / `og:description` / `og:image` from
+  `buildSharePreview({ vehicle, deepLink })` (grade + paint + wheels labels from the catalog).
+- Browser UA → `302` to `/[slug]/?c=…` so the visitor lands in the live builder.
+
+`BuilderApp.share()` copies the share-card URL when `persistenceMode === "worker"`, and the plain
+deep link otherwise. Unit coverage: `tests/openGraph.test.ts`.
+
 ### Component tests (`tests/components/*.test.tsx`)
 
 Every prior test in this project imports plain library modules under Node — none render a
@@ -729,9 +753,12 @@ runs `npx playwright install --with-deps chromium` for a browser matching its ow
 that CI browser renders meaningfully differently from the sandbox's older one, the very first CI
 run of this workflow may fail on a difference that reflects the browser build, not a real
 regression. The fix, if that happens, is exactly what it would be for any future legitimate visual
-change: `npm run test:e2e:update` (after `npm run build`) and commit the regenerated PNGs under
-`tests/e2e/visual.spec.ts-snapshots/` — ideally run once, in CI itself or an environment with real
-Playwright browser access, rather than assumed away.
+change: regenerate Linux Chromium baselines with the one-command flow in CONTRIBUTING.md
+(`npm run build && npm run test:e2e:update-visual`), or label the PR
+`update-snapshots` so `.github/workflows/update-visual-snapshots.yml` refreshes them on
+`ubuntu-latest` and pushes to the branch — ideally not from macOS/Windows, where font hinting
+alone produces diffs. Known visual flakes are tracked in `tests/e2e/visual-quarantine.json`
+(owner issue required; exit after `stablePassThreshold` consecutive green e2e runs on `main`).
 
 ### Build-and-restore E2E test (`tests/e2e/build-and-restore.spec.ts`)
 
@@ -892,7 +919,7 @@ Every non-2xx body matches `ApiErrorBody` (`lib/api/errors.ts`):
 | 404 | `not_found` | Unknown vehicle or configuration |
 | 409 | `revision_conflict` | Stale `expectedRevision` |
 | 422 | `invalid_body` | Unknown option, wrong category, bad grade/year, cardinality violation |
-| 429 | `rate_limited` | More than 30 writes/minute from one client IP (POST/PATCH/DELETE only; `Retry-After: 60` header set) |
+| 429 | `rate_limited` | Create >10/min or write >20/min from one client IP (or per owner-token on PATCH/DELETE); body includes `details.{retryAfterSeconds,periodSeconds,scope,limit}`; `Retry-After: 60` header set |
 
 ### What validation enforces
 
@@ -1409,10 +1436,11 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   written into `VehicleConfiguration`. Intentional as far as the schema goes (`lib/types/
   customization.ts` has no field for it) — recorded here because a visitor reloading a shared link
   would reasonably expect a chosen ride height to come back with everything else.
-- **Rate limiting is keyed on IP, not on identity.** `enforceConfigWriteRateLimit`
-  (`lib/server/rateLimit.ts`) throttles POST/PATCH/DELETE at 30 writes/minute per `cf-connecting-ip`,
-  which is the best available key given Task 10's anonymous, no-accounts ownership model — a NAT'd
-  office or a mobile carrier's shared egress IP shares one budget. Revisit if user accounts land.
+- **Rate limiting is keyed on IP, with an additional per-owner-token budget on PATCH/DELETE.**
+  `enforceConfigCreateRateLimit` / `enforceConfigWriteRateLimit` (`lib/server/rateLimit.ts`)
+  throttle creates at 10/min and writes at 20/min per `cf-connecting-ip`, and writes again per
+  hashed owner token — see `docs/DEPLOYMENT_RUNBOOK.md` §9. A NAT'd office still shares one IP
+  budget; revisit if user accounts land.
 - **`BuilderApp.tsx`'s garage/share/terrain controls (merged in from a parallel work stream) have
   no dedicated tests.** `tests/components/BuilderApp.test.tsx` (§4, "Component tests") covers
   bootstrap, the grade selector, and reset — not `saveToGarage`, `share`, or the terrain/lighting
@@ -1860,3 +1888,40 @@ reaching into component internals — both worse than the documented seam (`scen
 already returns the world-space bounding info a future camera controller would need).
 
 Budgets and acceptance notes: `docs/PERF_BUDGETS.md`.
+
+
+## 20. Mobile Touch Camera + Pinch-Zoom (#44)
+
+The configurator’s primary 3D gesture on phones and tablets is **one-finger orbit, two-finger
+pinch zoom**, with inertia that settles quickly enough to feel deliberate rather than laggy.
+Desktop mouse drag / wheel remain unchanged.
+
+### Runtime wiring
+
+| Concern | Where | Behaviour |
+| --- | --- | --- |
+| Touch → OrbitControls | `lib/three/cameraController.ts` | `touches.ONE = ROTATE`, `touches.TWO = DOLLY_PAN` (pinch zoom + two-finger pan; **not** `DOLLY_ROTATE`, which would twist the camera around the view axis and read as a bug on a vehicle sitting on a floor plane) |
+| Inertia / speeds | same | Fine pointer: `dampingFactor` 0.05, rotate/zoom speed 1.0. Coarse pointer (`(pointer: coarse)`): `dampingFactor` 0.1, rotate 0.85, zoom 0.9. `prefers-reduced-motion` still disables damping entirely. |
+| Page-scroll lock | `app/globals.css` | `.vehicle-canvas > canvas { touch-action: none }` so the browser does not claim one-finger drags for scrolling before OrbitControls sees `pointermove`. `overscroll-behavior: contain` blocks pull-to-refresh mid-orbit; `user-select: none` blocks text-selection fights. |
+| Reset affordance | Viewport “Recenter view” (`data-testid="recenter-view"`) + premium dock “Reset camera” | Pointer equivalent of the Home key. Cancels an in-flight cinematic tour first so GSAP cannot overwrite the snap. Named **Recenter**, not Reset, to avoid colliding with the build Reset control. |
+
+Picking / selection already ignores multi-touch and orbit drags (`VehicleCanvas` single-
+`activePointerId` + 6px drag threshold) so a pinch never selects a part.
+
+### Manual checklist (iOS Safari + Android Chrome)
+
+Run against a production or `npm run build` preview, not only desktop DevTools device mode:
+
+1. **One-finger orbit** — drag on the vehicle; the camera orbits; the page does **not** scroll / bounce.
+2. **Two-finger pinch** — pinch in/out zooms within the configured min/max distance; a two-finger twist does **not** roll the camera.
+3. **Inertia** — lift after a flick; the orbit coasts briefly then settles (snappier than desktop’s longer coast). With OS “Reduce Motion” on, coasting is off.
+4. **Overscroll** — orbit near the polar / distance limits without triggering pull-to-refresh.
+5. **Recenter** — orbit away, tap Recenter (or the dock Reset camera); camera snaps to the active preset; a running Tour cancels first.
+6. **Selection still works** — tap (not drag) a body panel still selects; a drag or pinch does not.
+
+### Automated coverage
+
+- `tests/cameraController.test.ts` — “touch mapping and mobile damping (#44)” asserts `touches` wiring and coarse vs fine damping/speeds.
+- `tests/mobileCameraTouch.test.ts` — CSS contract for `touch-action` / overscroll / user-select.
+- `tests/components/BuilderApp.test.tsx` — Recenter cancels tour and is not named “Reset”.
+- `tests/viewerControlBridge.test.ts` — dock “reset-camera” reaches `CameraController.resetToPreset`.

@@ -2,12 +2,20 @@
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** Optional structured extras (e.g. rate-limit budgets). Additive — older clients ignore it. */
+  readonly details?: Record<string, unknown>;
 
-  constructor(status: number, code: string, message: string, options?: { cause?: unknown }) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    options?: { cause?: unknown; details?: Record<string, unknown> },
+  ) {
     super(message, options);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.details = options?.details;
   }
 }
 
@@ -16,11 +24,19 @@ export interface ApiErrorBody {
     code: string;
     status: number;
     message: string;
+    details?: Record<string, unknown>;
   };
 }
 
 export function toErrorBody(err: ApiError): ApiErrorBody {
-  return { error: { code: err.code, status: err.status, message: err.message } };
+  return {
+    error: {
+      code: err.code,
+      status: err.status,
+      message: err.message,
+      ...(err.details ? { details: err.details } : {}),
+    },
+  };
 }
 
 export function notFound(message: string): ApiError {
@@ -51,7 +67,18 @@ export function forbidden(message: string): ApiError {
   return new ApiError(403, "forbidden", message);
 }
 
-/** The caller exceeded an API rate limit (lib/server/rateLimit.ts). */
-export function tooManyRequests(message: string): ApiError {
-  return new ApiError(429, "rate_limited", message);
+/**
+ * The caller exceeded an API rate limit (`lib/server/rateLimit.ts`).
+ * `details` carries retry/budget knobs so clients and runbooks share one source of truth.
+ */
+export function tooManyRequests(
+  message: string,
+  details?: {
+    retryAfterSeconds: number;
+    periodSeconds: number;
+    scope: string;
+    limit: number;
+  },
+): ApiError {
+  return new ApiError(429, "rate_limited", message, details ? { details } : undefined);
 }

@@ -173,6 +173,21 @@ describe("update", () => {
     expect(history[1].updatedAt).toBe(updated.updatedAt);
   });
 
+  it("returns the original durable result for an identical retried PATCH without appending history", async () => {
+    const { configuration: saved, ownerToken } = await repo.create(baseInput());
+    const patch = validatePatchConfiguration(
+      { selections: { paint: ["paint-1j9-ice-cap"] }, expectedRevision: 1 },
+      { vehicleId: saved.vehicleId, gradeId: saved.gradeId },
+    );
+
+    const first = await repo.update(saved.configurationId, patch, ownerToken);
+    const replay = await repo.update(saved.configurationId, patch, ownerToken);
+
+    expect(replay).toEqual(first);
+    expect(replay.revision).toBe(2);
+    expect((await repo.listRevisions(saved.configurationId)).map((entry) => entry.revision)).toEqual([1, 2]);
+  });
+
   it("rejects a stale expectedRevision with 409, and the row is unchanged", async () => {
     const { configuration: saved, ownerToken } = await repo.create(baseInput());
     await repo.update(saved.configurationId, { selections: { paint: ["paint-1j9-ice-cap"] } }, ownerToken);

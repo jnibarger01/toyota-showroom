@@ -39,8 +39,13 @@ export type CinematicTour = {
   setPresets(presets: readonly CameraPresetConfig[]): void;
 };
 
-/** Seconds per camera move and per rest between shots (collapsed to 0 under reduced motion). */
+/** Seconds per camera move (collapsed to 0 under reduced motion — instant cuts, not long tweens). */
 const STEP_DURATION_SECONDS = 1.6;
+/**
+ * Rest between shots. Kept even under reduced motion so each instant cut is still a distinct beat
+ * a screen reader can announce (#71); collapsing hold with the tween would fire every onStep in
+ * one frame and polite live regions would only speak the last scene.
+ */
 const HOLD_DURATION_SECONDS = 0.55;
 
 /**
@@ -113,8 +118,9 @@ export function createCinematicTour(
     });
 
     presets.forEach((preset, index) => {
+      // Only the camera tween respects reduced motion. The hold is a static beat, not motion.
       const duration = motionDuration(STEP_DURATION_SECONDS);
-      const hold = motionDuration(HOLD_DURATION_SECONDS);
+      const hold = HOLD_DURATION_SECONDS;
 
       tl.call(() => {
         callbacks.onStep?.(preset, index);

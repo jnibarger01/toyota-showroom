@@ -3,7 +3,8 @@ import { invalidBody } from "../../../../lib/api/errors";
 import { getConfigurationRepository } from "../../../../lib/server/configurationRepository";
 import { priceConfiguration, validateCreateConfiguration } from "../../../../lib/validation/configuration";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../../../../lib/types/customization";
-import { enforceConfigWriteRateLimit } from "../../../../lib/server/rateLimit";
+import { enforceCreateBotFriction } from "../../../../lib/server/botFriction";
+import { enforceConfigCreateRateLimit } from "../../../../lib/server/rateLimit";
 import { withRouteTelemetry } from "../../../../lib/server/apiResponse";
 import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 
@@ -28,12 +29,17 @@ async function readJson(request: NextRequest): Promise<unknown> {
  * server stores only its hash (lib/shared/ownerToken.ts). The caller must hold onto it and present
  * it via the `X-Owner-Token` header on every future PATCH/DELETE to this configuration; it is not
  * required for GET, which stays open so a shared configuration link keeps working unauthenticated.
+ *
+ * Abuse controls (issue #47): a dedicated create rate limit (tighter than PATCH/DELETE) so one
+ * client cannot fill D1 unboundedly, plus optional Turnstile bot friction when
+ * `TURNSTILE_SECRET_KEY` is configured (`lib/server/botFriction.ts`).
  */
 export const POST = withRouteTelemetry(
   "/api/v1/configurations",
   "POST",
   async (request: NextRequest) => {
-      await enforceConfigWriteRateLimit(request);
+      await enforceConfigCreateRateLimit(request);
+      await enforceCreateBotFriction(request);
       const input = validateCreateConfiguration(await readJson(request));
       const { configuration, ownerToken } = await getConfigurationRepository().create(input);
 

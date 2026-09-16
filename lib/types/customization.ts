@@ -14,6 +14,7 @@ export const CUSTOMIZATION_SCHEMA_VERSION = "1.0.0";
 export type CustomizationCategory =
   | "paint"
   | "wheels"
+  | "lighting"
   | "hood"
   | "panel"
   | "decal"
@@ -33,6 +34,7 @@ export const CATEGORY_APPLY_ORDER: readonly CustomizationCategory[] = [
   "panel",
   "hood",
   "wheels",
+  "lighting",
   "paint",
   "interior",
   "decal",

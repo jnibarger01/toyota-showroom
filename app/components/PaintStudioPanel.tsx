@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import {
   DEFAULT_CUSTOM_MATERIAL,
@@ -19,6 +20,10 @@ type Props = {
   oemPaintOptions: CustomizationOption[];
   selectedPaintId: string | undefined;
   catalog: CustomizationOption[];
+  /**
+   * Called once before a committed paint-studio change (mode / HDRI / gesture start).
+   * Distinct from builder selection undo — parent pushes the paint history stack.
+   */
   onBeforeChange?: () => void;
 };
 
@@ -44,6 +49,18 @@ export function PaintStudioPanel({
   const hdriPresetId = paintStudio?.hdriPresetId ?? DEFAULT_HDRI_PRESET_ID;
   const material = paintStudio?.material ?? DEFAULT_CUSTOM_MATERIAL;
   const customOption = catalog.find((option) => option.id === PAINT_CUSTOM_OPTION_ID);
+  /** One history push per pointer/key gesture so slider/colour drags do not flood the stack. */
+  const gestureArmed = useRef(false);
+
+  const beginGesture = () => {
+    if (gestureArmed.current) return;
+    gestureArmed.current = true;
+    onBeforeChange?.();
+  };
+
+  const endGesture = () => {
+    gestureArmed.current = false;
+  };
 
   const switchMode = (nextMode: "oem" | "custom") => {
     onBeforeChange?.();
@@ -71,7 +88,6 @@ export function PaintStudioPanel({
   };
 
   const updateMaterial = (patch: Partial<PaintStudioMaterialParams>) => {
-    onBeforeChange?.();
     const nextMaterial = { ...material, ...patch };
     const currentSelections = configurationStore.getSnapshot().configuration?.selections ?? {};
     void configurationStore.setPaintStudio(
@@ -149,6 +165,9 @@ export function PaintStudioPanel({
               id="paint-studio-color"
               type="color"
               value={material.color}
+              onPointerDown={beginGesture}
+              onPointerUp={endGesture}
+              onBlur={endGesture}
               onChange={(event) => updateMaterial({ color: event.target.value })}
             />
           </label>
@@ -170,6 +189,23 @@ export function PaintStudioPanel({
                 max={1}
                 step={0.01}
                 value={material[key]}
+                onPointerDown={beginGesture}
+                onPointerUp={endGesture}
+                onBlur={endGesture}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "ArrowLeft" ||
+                    event.key === "ArrowRight" ||
+                    event.key === "ArrowUp" ||
+                    event.key === "ArrowDown" ||
+                    event.key === "Home" ||
+                    event.key === "End" ||
+                    event.key === "PageUp" ||
+                    event.key === "PageDown"
+                  ) {
+                    beginGesture();
+                  }
+                }}
                 onChange={(event) => updateMaterial({ [key]: Number(event.target.value) })}
               />
             </label>

@@ -1,0 +1,20 @@
+{
+  "$comment": "Initial (modulepreload + sync) gzipped JS per critical route after vinext build. Lazy VehicleCanvas / Draco are not in the HTML preload set and are gated by chunk budgets instead. 15% headroom from baseline; --update rewrites. Issue #43.",
+  "routes": {
+    "/": {
+      "html": "index.html",
+      "label": "home",
+      "entryJsGzipBytes": 327680
+    },
+    "/explore": {
+      "html": "explore/index.html",
+      "label": "explore",
+      "entryJsGzipBytes": 110592
+    },
+    "/4runner": {
+      "html": "4runner/index.html",
+      "label": "builder",
+      "entryJsGzipBytes": 327680
+    }
+  }
+}

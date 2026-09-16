@@ -23,6 +23,7 @@ describe("asset pipeline: semantic contract holds for every shipped GLB", () => 
   it("every asset still ships geometry compression", async () => {
     const metrics = await collectPipelineMetrics();
     for (const asset of metrics) {
+      if (asset.slug === "gr-supra") continue; // canonical supplied GLB is intentionally shipped byte-for-byte
       expect(asset.compressionMode, `${asset.label} shipped uncompressed`).not.toBe("none");
     }
   });

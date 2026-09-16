@@ -8,6 +8,7 @@ import { getOptionById } from "../lib/data/options";
 import { validateSelections } from "../lib/validation/configuration";
 import { withOptionSelected, type CustomizationOption } from "../lib/types/customization";
 import { ApiError } from "../lib/api/errors";
+import { resolveAssetUrl } from "../lib/three/assetUrl";
 
 /**
  * Regression coverage for the issues raised in review of PR #2. Each block names the behaviour it
@@ -167,6 +168,12 @@ describe("material disposal", () => {
 // ─────────────────────────────────────────────── asset URL normalization
 
 describe("catalog asset URLs", () => {
+  it("does not double-prefix an already-normalized deployment URL", () => {
+    expect(resolveAssetUrl("/toyota-showroom/models/parts/x.glb", "/toyota-showroom")).toBe(
+      "/toyota-showroom/models/parts/x.glb",
+    );
+  });
+
   it("prefixes root-relative URLs with the deployment base", async () => {
     const { normalizeOptionAssets } = await import("../lib/api/configurations");
 

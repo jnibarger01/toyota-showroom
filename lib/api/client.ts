@@ -2,6 +2,7 @@ import { withBasePath as sharedWithBasePath } from "../shared/basePath";
 import type { MediaAsset, MediaManifest, Vehicle, Vehicle3DConfig, VehicleSummary } from "../types/vehicle";
 import { ApiError, type ApiErrorBody } from "./errors";
 import { paginateAndFilter, type Pagination, type PagedResult, type VehicleFilters } from "./query";
+import { resilientFetch } from "./resilientFetch";
 
 /**
  * Typed client SDK for the versioned vehicle API. This project builds as a static export
@@ -77,7 +78,7 @@ function normalizeSummary(summary: VehicleSummary): VehicleSummary {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await resilientFetch(url);
   if (!response.ok) {
     // Defensive: an error response need not carry the `{ error: {...} }` envelope (a static host's
     // own 404 page will not), and the error path must not itself throw.

@@ -3,8 +3,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, GitCompare, Loader2, Truck, X } from "lucide-react";
 import { listVehicles, pageUrl, MAX_COMPARE } from "../../lib/api/client";
+import { loadExploreInventoryBadges } from "../../lib/api/dealerInventory";
+import { ValidatedLeadForm } from "../components/ValidatedLeadForm";
 import { matchesFilters, paginateAndFilter, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, type VehicleFilters } from "../../lib/api/query";
+import type { InventoryBadge } from "../../lib/dealerInventory";
 import type { BodyStyle, PowertrainType, VehicleSummary } from "../../lib/types/vehicle";
+
+const INVENTORY_BADGE_LABELS: Record<InventoryBadge, string> = {
+  near_me: "Near me",
+  buildable: "Buildable",
+};
 
 const BODY_STYLE_LABELS: Record<BodyStyle, string> = {
   suv: "SUV",
@@ -39,6 +47,10 @@ export default function ExplorePage() {
   const [minSeating, setMinSeating] = useState<number | null>(null);
   const [compareSlugs, setCompareSlugs] = useState<string[]>([]);
   const [page, setPage] = useState(1);
+  // Inventory badges load independently of the catalog so a slow/failed dealer feed never blocks
+  // the lineup (#20). `null` = still pending or skipped; empty object = loaded with no matches.
+  const [inventoryBadges, setInventoryBadges] = useState<ReadonlyMap<string, InventoryBadge[]> | null>(null);
+  const [leadVehicle, setLeadVehicle] = useState<VehicleSummary | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +68,23 @@ export default function ExplorePage() {
       cancelled = true;
     };
   }, []);
+
+  // Dealer inventory match is explicitly non-blocking: kicked off after (and in parallel with)
+  // catalog load, swallowed on failure, and never consulted before cards render.
+  useEffect(() => {
+    if (allSummaries === null) return;
+    let cancelled = false;
+    void loadExploreInventoryBadges(allSummaries.map((summary) => summary.slug))
+      .then((badges) => {
+        if (!cancelled) setInventoryBadges(badges);
+      })
+      .catch(() => {
+        if (!cancelled) setInventoryBadges(new Map());
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [allSummaries]);
 
   const bodyStyles = useMemo(
     () => Array.from(new Set((allSummaries ?? []).map((summary) => summary.bodyStyle))).sort(),
@@ -260,9 +289,20 @@ export default function ExplorePage() {
             <a key={summary.slug} className="vehicle-card" href={pageUrl(summary.slug)}>
               <div className="vehicle-card-media">
                 <img src={summary.thumbnail.url} alt={summary.thumbnail.alt} loading="lazy" />
-                {summary.availability !== "in_production" ? (
-                  <span className="vehicle-card-badge">{AVAILABILITY_LABELS[summary.availability]}</span>
-                ) : null}
+                <div className="vehicle-card-badges">
+                  {summary.hasModel ? <span className="vehicle-card-badge">3D available</span> : null}
+                  {summary.availability !== "in_production" ? (
+                    <span className="vehicle-card-badge">{AVAILABILITY_LABELS[summary.availability]}</span>
+                  ) : null}
+                  {(inventoryBadges?.get(summary.slug) ?? []).map((badge) => (
+                    <span
+                      key={badge}
+                      className={`vehicle-card-badge vehicle-card-badge--${badge === "near_me" ? "near-me" : "buildable"}`}
+                    >
+                      {INVENTORY_BADGE_LABELS[badge]}
+                    </span>
+                  ))}
+                </div>
               </div>
               <div className="vehicle-card-body">
                 <span className="vehicle-card-year">{summary.year} &middot; {BODY_STYLE_LABELS[summary.bodyStyle]}</span>
@@ -272,6 +312,18 @@ export default function ExplorePage() {
                   {summary.maxTowingLbs > 0 ? <span>{summary.maxTowingLbs.toLocaleString()} lb tow</span> : null}
                 </div>
                 <p className="vehicle-card-price">Starting at ${summary.startingMsrp.toLocaleString()}</p>
+                <span className="vehicle-card-action">{summary.hasModel ? "Configure 3D build" : "View details"}</span>
+                <button
+                  type="button"
+                  className="vehicle-card-action"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setLeadVehicle(summary);
+                  }}
+                >
+                  Request a test drive
+                </button>
                 <label
                   className="vehicle-card-compare"
                   // The card itself is the link; this control must not trigger that navigation.
@@ -290,6 +342,15 @@ export default function ExplorePage() {
           );
         })}
       </div>
+
+      {leadVehicle ? (
+        <div className="owner-token-dialog" role="dialog" aria-modal="true" aria-labelledby="explore-lead-form-title">
+          <button type="button" className="tour-close" aria-label="Close test drive request" onClick={() => setLeadVehicle(null)}><X size={15} /></button>
+          <div className="owner-token-dialog-heading"><Truck size={16} aria-hidden /><strong id="explore-lead-form-title">Request a test drive</strong></div>
+          <p>Tell us how to reach you about the {leadVehicle.model}.</p>
+          <ValidatedLeadForm buildSnapshot={{ vehicleId: leadVehicle.slug, gradeId: "default", selections: {}, shareUrl: new URL(pageUrl(leadVehicle.slug), window.location.origin).toString(), ownerTokenPresent: false }} />
+        </div>
+      ) : null}
 
       {paged.totalPages > 1 ? (
         <nav className="explore-pagination" aria-label="Lineup pages">

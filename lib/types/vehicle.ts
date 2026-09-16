@@ -140,6 +140,8 @@ export interface Vehicle3DConfig {
   modelUrl?: string;
   scale?: [number, number, number];
   rotation?: [number, number, number];
+  /** Optional renderer compatibility policy for authored textures that fail on a target backend. */
+  texturePolicy?: "preserve" | "factors-only";
   cameraPresets: CameraPresetConfig[];
   paintableMaterialNames: string[];
   wheelMountNames: string[];
@@ -214,6 +216,7 @@ export function toVehicleQueryFacts(vehicle: Vehicle): VehicleQueryFacts {
 export type VehicleSummary = Pick<Vehicle, "slug" | "year" | "model" | "updatedAt"> &
   VehicleQueryFacts & {
     thumbnail: MediaAsset;
+    hasModel?: boolean;
   };
 
 export function toVehicleSummary(vehicle: Vehicle): VehicleSummary {
@@ -223,6 +226,7 @@ export function toVehicleSummary(vehicle: Vehicle): VehicleSummary {
     model: vehicle.model,
     updatedAt: vehicle.updatedAt,
     thumbnail: vehicle.media.thumbnails[0] ?? vehicle.media.hero,
+    hasModel: vehicle.threeDConfig.hasModel && Boolean(vehicle.threeDConfig.modelUrl),
     ...toVehicleQueryFacts(vehicle),
   };
 }

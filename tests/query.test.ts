@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeVehicleCursor,
   DEFAULT_PAGE_SIZE,
+  encodeVehicleCursor,
   MAX_PAGE_SIZE,
   matchesFilters,
   paginateAndFilter,
@@ -143,6 +145,25 @@ describe("paginateAndFilter", () => {
     expect(minimum.data).toHaveLength(1);
     expect(maximum.pageSize).toBe(MAX_PAGE_SIZE);
     expect(maximum.data).toHaveLength(MAX_PAGE_SIZE);
+  });
+
+
+  it("returns an opaque cursor that continues without overlap", () => {
+    const first = paginateAndFilter(items, {}, { page: 1, pageSize: 5 });
+    const offset = decodeVehicleCursor(first.nextCursor!);
+    expect(first.nextCursor).toBe(encodeVehicleCursor(5));
+    expect(offset).toBe(5);
+    expect(paginateAndFilter(items, {}, { page: 1, pageSize: 5, cursorOffset: offset! }).data.map((item) => item.id)).toEqual([
+      "vehicle-6", "vehicle-7", "vehicle-8", "vehicle-9", "vehicle-10",
+    ]);
+  });
+
+  it("omits the cursor on the final page and never repeats records at the end", () => {
+    const final = paginateAndFilter(items.slice(0, 6), {}, { page: 1, pageSize: 5, cursorOffset: 5 });
+    const exhausted = paginateAndFilter(items.slice(0, 10), {}, { page: 1, pageSize: 5, cursorOffset: 10 });
+    expect(final.data.map((item) => item.id)).toEqual(["vehicle-6"]);
+    expect(final.nextCursor).toBeUndefined();
+    expect(exhausted.data).toEqual([]);
   });
 
   it("returns a stable first page for an empty result set", () => {

@@ -3,6 +3,7 @@
 import { useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { submitLead } from "../../lib/api/leads";
 import { newId } from "../../lib/shared/id";
+import type { SelectionMap } from "../../lib/types/customization";
 
 type FormValues = {
   name: string;
@@ -12,9 +13,24 @@ type FormValues = {
 
 type FormErrors = Partial<Record<keyof FormValues, string>>;
 
+type BuildSnapshotProps = {
+  vehicleId: string;
+  gradeId: string;
+  selections: SelectionMap;
+  shareUrl: string;
+  configurationId?: string;
+  /** Metadata only — never pass the plaintext owner token into the lead/CRM path. */
+  ownerTokenPresent?: boolean;
+};
+
 type Props = {
   /** Test/future-provider injection. When omitted, the form submits to POST /api/v1/leads. */
   onSubmit?: (values: FormValues) => Promise<void> | void;
+  /**
+   * Optional builder context forwarded to POST /api/v1/leads for CRM handoff.
+   * The Worker attaches this to the webhook payload; CRM secrets never leave Worker env.
+   */
+  buildSnapshot?: BuildSnapshotProps;
 };
 
 const initialValues: FormValues = { name: "", email: "", message: "" };
@@ -38,7 +54,7 @@ function validateField(field: keyof FormValues, values: FormValues): string | un
   return validate(values)[field];
 }
 
-export function ValidatedLeadForm({ onSubmit }: Props) {
+export function ValidatedLeadForm({ onSubmit, buildSnapshot }: Props) {
   const formId = useId();
   const idempotencyKey = useRef<string | null>(null);
   const [values, setValues] = useState(initialValues);
@@ -76,11 +92,35 @@ export function ValidatedLeadForm({ onSubmit }: Props) {
       } else {
         idempotencyKey.current ??= newId("lead-submit");
         await submitLead({
-          kind: "contact",
+          kind: buildSnapshot ? "model" : "contact",
           name: values.name,
           email: values.email,
           message: values.message,
           idempotencyKey: idempotencyKey.current,
+          ...(buildSnapshot
+            ? {
+                vehicleId: buildSnapshot.vehicleId,
+                build: {
+                  vehicleId: buildSnapshot.vehicleId,
+                  gradeId: buildSnapshot.gradeId,
+                  selections: buildSnapshot.selections,
+                  shareUrl: buildSnapshot.shareUrl,
+                  ...(buildSnapshot.configurationId
+                    ? { configurationId: buildSnapshot.configurationId }
+                    : {}),
+                  ...(typeof buildSnapshot.ownerTokenPresent === "boolean"
+                    ? {
+                        ownerToken: {
+                          present: buildSnapshot.ownerTokenPresent,
+                          ...(buildSnapshot.configurationId
+                            ? { configurationId: buildSnapshot.configurationId }
+                            : {}),
+                        },
+                      }
+                    : {}),
+                },
+              }
+            : {}),
         });
       }
       setSubmitted(true);
