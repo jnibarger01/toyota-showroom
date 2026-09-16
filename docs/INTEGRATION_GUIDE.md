@@ -1370,8 +1370,9 @@ $ npm test             # 208 passed (16 files), including a CI-time check that t
                         # against the real, checked-in GLB (tests/glbContract.test.ts), 13 tests of
                         # D1ConfigurationRepository against a real local D1 instance, 7 tests of the
                         # write rate limiter against both a fake and a real local binding, 9 tests
-                        # proving the Tacoma/Camry catalogs resolve against the real procedural
-                        # fallback vehicle they actually render with, 10 real component tests
+                        # proving the Tacoma catalog resolves against the procedural fallback it
+                        # renders with, plus authored Camry GLB coverage in tests/camryShowroom.test.ts,
+                        # 10 real component tests
                         # (tests/components/*.test.tsx, jsdom) for CustomizationButton and BuilderApp,
                         # and 23 tests of lib/api/query.ts's filter/pagination logic, including
                         # against the real three-vehicle catalog
@@ -1402,13 +1403,13 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   (`CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`) — the MCP connector that created the databases is
   a separate, narrower grant (D1/KV/R2/Workers resource management only, no deploy/publish tool and
   no way to export a usable token) and does not substitute for those.
-- **Tacoma and Camry render the procedural fallback vehicle, not a real model.** Neither has a GLB in
-  this repo (`threeDConfig.hasModel: false`), so both use `createProceduralVehicle()`
-  (`lib/three/proceduralParts.ts`) — a low-detail stand-in, not a placeholder-only state. Their
-  catalogs (`lib/data/options/{tacoma,camry}.ts`) are written against that fallback's node/material
-  names and are genuinely functional today, verified in
-  `tests/proceduralVehicleCatalogs.test.ts`, not gated. Swapping in real GLBs later needs no catalog
-  changes as long as the new assets follow the same naming contract (§3).
+- **Tacoma renders the procedural fallback vehicle, not a real model.** It has no GLB in this repo
+  (`threeDConfig.hasModel: false`), so it uses `createProceduralVehicle()`
+  (`lib/three/proceduralParts.ts`) — a low-detail stand-in, not a placeholder-only state. Its catalog
+  (`lib/data/options/tacoma.ts`) is written against that fallback's node/material names and is
+  functional today, verified in `tests/proceduralVehicleCatalogs.test.ts`, not gated. Camry now ships
+  an authored GLB with dedicated scene-map and option-contract coverage. Swapping in a real Tacoma
+  GLB later needs no catalog changes as long as the new asset follows the same naming contract (§3).
 - **Owner tokens have no recovery path.** Losing the token (clearing localStorage, switching
   browsers) permanently locks out further writes to that configuration; only reads keep working.
   Acceptable for the anonymous, no-accounts v1 this implements — revisit if user accounts land.
@@ -1823,15 +1824,15 @@ the same architecture — no renderer swap, no React Three Fiber, nothing here c
 diagram looks at the top level.
 
 **Semantic scene identity.** `lib/types/sceneMap.ts` declares a `SceneMapEntry[]` per vehicle
-(`lib/data/sceneMap/{4runner,ae86}.ts`) mapping GLB node/material names to stable semantic IDs
+(`lib/data/sceneMap/{4runner,ae86,camry,gr-supra,rav4}.ts`) mapping GLB node/material names to stable semantic IDs
 (`wheel.front-left`, `body.exterior`, `headlight.assembly`, ...) — the same "declare the contract,
 verify it against the real asset" shape §3's node-contract already uses for customization options,
 now for identity rather than behavior. `lib/three/sceneRegistry.ts`'s `SceneRegistry`
 (register/unregister/get/has/findByType/findByCapability) is populated by `buildSceneRegistry`,
 which resolves each entry against the loaded root and reports the ones that don't resolve —
 forward-declared parts (door, mirror, badge, roof, interior — this GLB has no separate geometry for
-them yet) or vehicles with no scene map at all (Camry, Tacoma: `hasModel: false`) degrade to "not
-found" rather than throwing. `VehicleSceneController` builds its own registry at construction from
+them yet) or vehicles with no scene map at all (Tacoma: `hasModel: false`) degrade to "not found"
+rather than throwing. `VehicleSceneController` builds its own registry at construction from
 an optional third constructor argument, defaulting to empty so every pre-existing call site keeps
 compiling unchanged.
 

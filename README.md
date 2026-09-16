@@ -32,8 +32,9 @@ The AE86 is wired to a real catalog vehicle (`lib/data/vehicles/ae86.ts`, slug `
 customization catalog (`lib/data/options/ae86.ts`). The asset is a minimal FBX2glTF export — one
 shared material across the body and all four wheels, no separate glass/chrome/trim materials — so its
 catalog is deliberately paint-only for now; see that options file's header comment for the full node
-inventory and why wheels/trim/accessories aren't offered yet. Tacoma and Camry remain catalog entries
-without GLB assets until their source models are supplied and their node contracts are validated.
+inventory and why wheels/trim/accessories aren't offered yet. Tacoma remains a catalog entry without a
+GLB asset. Camry now ships an authored GLB at `public/models/camry/camry.glb`; its scene map and
+customization targets are covered by `tests/camryShowroom.test.ts` and browser model-integrity coverage.
 
 ## Customization integration
 
