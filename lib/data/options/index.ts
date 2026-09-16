@@ -5,6 +5,7 @@ import { camryOptions } from "./camry";
 import { ae86Options } from "./ae86";
 import { rav4Options } from "./rav4";
 import { grSupraOptions } from "./gr-supra";
+import { grCorollaOptions } from "./gr-corolla";
 import { getGlobalWheelOptions } from "../wheels";
 import { createRuntimeModificationOptions } from "./runtimeMods";
 
@@ -20,6 +21,7 @@ const BASE_OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
   ae86: ae86Options,
   rav4: rav4Options,
   "gr-supra": grSupraOptions,
+  "gr-corolla": grCorollaOptions,
 };
 
 const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = Object.fromEntries(
