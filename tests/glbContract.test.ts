@@ -70,8 +70,8 @@ describe("catalog vs. shipped GLB", () => {
 
       it("has at least one customization option to check", () => {
         // An empty catalog trivially "passes" every check below; assert non-emptiness so this file
-        // can't silently stop covering a vehicle once its catalog is populated (Task 1 fills this in
-        // for tacoma/camry once their assets exist).
+        // can't silently stop covering a vehicle once its catalog is populated. This is especially
+        // important for authored assets, where an empty catalog would otherwise make the contract trivial.
         expect(options.length).toBeGreaterThan(0);
       });
 
