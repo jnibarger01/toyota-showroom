@@ -294,7 +294,9 @@ export class VehicleSceneController {
     this.writer.restoreOriginals();
 
     for (const option of this.catalog.values()) {
-      if (isMultiSelect(option.category)) await this.removeOption(option);
+      if (option.operation === "mesh-replacement" || isMultiSelect(option.category)) {
+        await this.removeOption(option);
+      }
     }
 
     for (const category of CATEGORY_APPLY_ORDER) {
