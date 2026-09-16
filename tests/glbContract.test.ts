@@ -66,7 +66,11 @@ describe("catalog vs. shipped GLB", () => {
 
     describe(vehicle.slug, () => {
       const inspection = inspectGlb(filePath);
-      const options = getOptionsForVehicle(vehicle.slug);
+      // Runtime-generated options are validated against the live Three.js kit in
+      // tests/runtimeModificationKit.test.ts. They intentionally do not exist in the raw GLB.
+      const options = getOptionsForVehicle(vehicle.slug).filter(
+        (option) => option.geometrySource !== "procedural-runtime",
+      );
 
       it("has at least one customization option to check", () => {
         // An empty catalog trivially "passes" every check below; assert non-emptiness so this file

@@ -53,6 +53,15 @@ describe("VehicleCanvas lifecycle ordering", () => {
     ).toBeLessThan(modelAwait);
   });
 
+  it("builds runtime modification geometry before verifying the option contract", () => {
+    const runtimeKit = CANVAS_SOURCE.indexOf("buildRuntimeModificationKit(root, slug)");
+    const publishReady = CANVAS_SOURCE.indexOf("publishReady(root)");
+
+    expect(runtimeKit, "expected runtime modification geometry to be attached in VehicleCanvas").toBeGreaterThan(-1);
+    expect(publishReady, "expected VehicleCanvas to publish the verified scene").toBeGreaterThan(-1);
+    expect(runtimeKit).toBeLessThan(publishReady);
+  });
+
   it("loads running gear after the detailed body resolves", () => {
     const bodyAwait = CANVAS_SOURCE.indexOf("await loadVehicleRoot(");
     const runningGear = CANVAS_SOURCE.indexOf("await installWheelAndTireAssets(");

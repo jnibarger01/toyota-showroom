@@ -122,14 +122,36 @@ type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Paint",
   wheels: "Wheels",
+  tires: "Tires",
+  brakes: "Brakes",
+  exhaust: "Exhaust",
+  aero: "Aero",
+  carbon: "Carbon",
   lighting: "Lighting",
   hood: "Hood",
   panel: "Body panels",
   decal: "Decals & graphics",
-  trim: "Suspension",
+  trim: "Trim",
   accessory: "Accessories",
   interior: "Interior",
 };
+
+const BUILDER_RAIL_CATEGORIES = [
+  { category: "paint", label: "Exterior", Icon: PaintBucket },
+  { category: "wheels", label: "Wheels", Icon: CircleGauge },
+  { category: "tires", label: "Tires", Icon: CircleGauge },
+  { category: "brakes", label: "Brakes", Icon: CircleGauge },
+  { category: "exhaust", label: "Exhaust", Icon: Move3d },
+  { category: "aero", label: "Aero", Icon: Move3d },
+  { category: "carbon", label: "Carbon", Icon: Box },
+  { category: "trim", label: "Trim", Icon: SlidersHorizontal },
+  { category: "lighting", label: "Lighting", Icon: Lightbulb },
+  { category: "hood", label: "Hood", Icon: Box },
+  { category: "panel", label: "Performance", Icon: Cog },
+  { category: "decal", label: "Decals & Graphics", Icon: Box },
+  { category: "accessory", label: "Accessories", Icon: Settings2 },
+  { category: "interior", label: "Interior", Icon: Armchair },
+] as const satisfies readonly { category: CustomizationCategory; label: string; Icon: typeof PaintBucket }[];
 
 /** Categories rendered as circular colour swatches rather than text chips. */
 const SWATCH_CATEGORIES: ReadonlySet<CustomizationCategory> = new Set(["paint", "interior"]);
@@ -1134,14 +1156,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           </div>
 
           <div className="section-label">Systems</div>
-          <button className={`rail-item ${activeCategory === "paint" ? "active" : ""}`} onClick={() => setActiveCategory("paint")}><PaintBucket size={18} /> Exterior</button>
-          <button className={`rail-item ${activeCategory === "wheels" ? "active" : ""}`} onClick={() => setActiveCategory("wheels")}><CircleGauge size={18} /> Wheels &amp; Tires</button>
-          <button className={`rail-item ${activeCategory === "trim" ? "active" : ""}`} onClick={() => setActiveCategory("trim")}><SlidersHorizontal size={18} /> Suspension</button>
-          <button className={`rail-item ${activeCategory === "lighting" ? "active" : ""}`} onClick={() => setActiveCategory("lighting")}><Lightbulb size={18} /> Lighting</button>
-          <button className={`rail-item ${activeCategory === "panel" ? "active" : ""}`} onClick={() => setActiveCategory("panel")}><Cog size={18} /> Performance</button>
-          <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Decals &amp; Graphics</button>
-          <button className={`rail-item ${activeCategory === "accessory" ? "active" : ""}`} onClick={() => setActiveCategory("accessory")}><Settings2 size={18} /> Accessories</button>
-          <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
+          {BUILDER_RAIL_CATEGORIES.filter(({ category }) =>
+            catalog.some((option) => option.category === category),
+          ).map(({ category, label, Icon }) => (
+            <button
+              key={category}
+              className={`rail-item ${activeCategory === category ? "active" : ""}`}
+              onClick={() => setActiveCategory(category)}
+            >
+              <Icon size={18} /> {label}
+            </button>
+          ))}
 
           <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button type="button" onClick={() => setLeadFormOpen(true)}>Request a test drive</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={() => void exportConfigJson()}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
