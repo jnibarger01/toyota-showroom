@@ -122,7 +122,7 @@ describe("shipped GLB payload budget", () => {
     "/models/rav4-2024/rav4_2024_limited_decoded.glb": 1.5 * 1024 * 1024,
     // ~3.91 MiB after texture stripping + Draco. 5 MiB leaves controlled headroom without
     // permitting the original 68.36 MiB source payload to regress into production.
-    "/models/camry-2025/2025_toyota_camry_xv80_hybrid.glb": 5 * 1024 * 1024,
+    "/models/camry/camry.glb": 5 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
   };
 

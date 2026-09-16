@@ -99,7 +99,7 @@ test("the Camry decodes in the browser and settles without procedural fallback",
   });
   const responses: number[] = [];
   page.on("response", (response) => {
-    if (new URL(response.url()).pathname.endsWith("2025_toyota_camry_xv80_hybrid.glb")) responses.push(response.status());
+    if (new URL(response.url()).pathname.endsWith("/models/camry/camry.glb")) responses.push(response.status());
   });
 
   await page.goto("camry/");

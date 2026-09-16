@@ -100,16 +100,16 @@ export const camry: Vehicle = {
   ],
 
   media: {
-    hero: { url: "/chessathon/assets/camry.webp", alt: "2025 Toyota Camry" },
-    gallery: [],
-    thumbnails: [{ url: "/chessathon/assets/camry.webp", alt: "2025 Toyota Camry thumbnail" }],
+    hero: { url: "/images/vehicles/camry/camry-front-three-quarter.png", alt: "2025 Toyota Camry front three-quarter studio render", width: 800, height: 500 },
+    gallery: [{ url: "/images/vehicles/camry/camry-front-three-quarter.png", alt: "2025 Toyota Camry front three-quarter studio render", width: 800, height: 500 }],
+    thumbnails: [{ url: "/images/vehicles/camry/camry-front-three-quarter.png", alt: "2025 Toyota Camry front three-quarter studio render", width: 800, height: 500 }],
     videos: [],
     environmentMaps: [],
   },
 
   threeDConfig: {
     hasModel: true,
-    modelUrl: "/models/camry-2025/2025_toyota_camry_xv80_hybrid.glb",
+    modelUrl: "/models/camry/camry.glb",
     // Sketchfab authored this XV80 scene at 0.01 world scale; 100x yields real vehicle dimensions.
     scale: [100, 100, 100],
     rotation: [0, 0, 0],

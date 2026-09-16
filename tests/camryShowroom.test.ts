@@ -7,7 +7,7 @@ import { getSceneMapForVehicle } from "../lib/data/sceneMap";
 import { inspectGlb } from "../lib/tooling/glbInspect";
 import { requiredNodeNames } from "../lib/three/nodes";
 
-const MODEL_URL = "/models/camry-2025/2025_toyota_camry_xv80_hybrid.glb";
+const MODEL_URL = "/models/camry/camry.glb";
 
 describe("2025 Camry showroom integration", () => {
   it("ships a real XV80 GLB instead of the procedural fallback", () => {

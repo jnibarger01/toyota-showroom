@@ -2,7 +2,7 @@
 
 ## Source asset
 
-The showroom integration targets `public/models/camry-2025/2025_toyota_camry_xv80_hybrid.glb`.
+The showroom integration targets `public/models/camry/camry.glb`.
 The supplied source asset is **2025 Toyota Camry (XV80) Hybrid** by **Ddiaz Design**:
 
 - Sketchfab model: `53f8cbf2483940fba956f4e740a3a4ae`

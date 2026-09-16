@@ -97,6 +97,10 @@ const ALLOWANCES: Record<string, { bytes: number; why: string }> = {
     bytes: 3 * MiB,
     why: "Approved design reference image.",
   },
+  "public/models/camry/camry.glb": {
+    bytes: 5 * MiB,
+    why: "Optimized Camry showroom model; loaded by the Camry vehicle route.",
+  },
   // Reviewed transfer bundle from #82 (not wired into the runtime catalog yet).
   "assets/imported/toyota-rav4-showroom.glb": {
     bytes: 4 * MiB,
