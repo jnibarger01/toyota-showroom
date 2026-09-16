@@ -29,8 +29,15 @@
  * for, exactly as `tests/glbContract.test.ts` argues for unbudgeted GLBs.
  *
  * Usage:
- *   node scripts/bundle-budget.mjs            # check against scripts/bundle-budgets.json
- *   node scripts/bundle-budget.mjs --update   # rewrite budgets from the current build
+ *   node scripts/bundle-budget.mjs                 # check against scripts/bundle-budgets.json
+ *   node scripts/bundle-budget.mjs --add-missing    # budget only chunks that have no entry
+ *   node scripts/bundle-budget.mjs --update         # re-baseline every budget from the current build
+ *
+ * Prefer `--add-missing` when a PR introduces a new chunk. `--update` rewrites *every* budget from
+ * current sizes, which quietly raises budgets for chunks that were comfortably passing — folding
+ * "adopt a new chunk" into the same diff as "relax two unrelated limits" is the silent absorption
+ * this gate exists to prevent. That happened for real: the only way to adopt three tiny chunks added
+ * by another PR was to re-baseline the whole file.
  */
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
@@ -82,12 +89,33 @@ const kib = (bytes) => `${(bytes / 1024).toFixed(1)} KiB`;
 
 const sizes = measure();
 
+const budgetFor = (gzip) => Math.ceil((gzip * HEADROOM) / 1024) * 1024;
+const writeBudgets = (budgets) => {
+  const sorted = Object.fromEntries(Object.keys(budgets).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase())).map((k) => [k, budgets[k]]));
+  writeFileSync(BUDGET_FILE, `${JSON.stringify(sorted, null, 2)}\n`);
+};
+
 if (process.argv.includes("--update")) {
-  const budgets = Object.fromEntries(
-    [...sizes.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, gzip]) => [name, Math.ceil((gzip * HEADROOM) / 1024) * 1024]),
-  );
-  writeFileSync(BUDGET_FILE, `${JSON.stringify(budgets, null, 2)}\n`);
-  console.log(`Wrote ${Object.keys(budgets).length} budgets to ${path.relative(process.cwd(), BUDGET_FILE)} (+${Math.round((HEADROOM - 1) * 100)}% headroom).`);
+  const budgets = Object.fromEntries([...sizes.entries()].map(([name, gzip]) => [name, budgetFor(gzip)]));
+  writeBudgets(budgets);
+  console.log(`Re-baselined ${Object.keys(budgets).length} budgets in ${path.relative(process.cwd(), BUDGET_FILE)} (+${Math.round((HEADROOM - 1) * 100)}% headroom).`);
+  process.exit(0);
+}
+
+if (process.argv.includes("--add-missing")) {
+  const budgets = existsSync(BUDGET_FILE) ? JSON.parse(readFileSync(BUDGET_FILE, "utf8")) : {};
+  const added = [];
+  for (const [name, gzip] of sizes) {
+    if (budgets[name] !== undefined) continue;
+    budgets[name] = budgetFor(gzip);
+    added.push(`${name} (${kib(gzip)} → ${kib(budgets[name])})`);
+  }
+  if (added.length === 0) {
+    console.log("Every chunk already has a budget; nothing to add.");
+    process.exit(0);
+  }
+  writeBudgets(budgets);
+  console.log(`Added ${added.length} budget(s), leaving existing entries untouched:\n  ${added.join("\n  ")}`);
   process.exit(0);
 }
 
@@ -126,7 +154,12 @@ for (const { name, gzip } of unbudgeted) {
   console.error(`FAIL  ${name} (${kib(gzip)} gzipped) has no budget entry.`);
 }
 console.error(
-  "\nIf the growth is intentional, run `node scripts/bundle-budget.mjs --update` and commit the\n" +
-    "change so the increase is reviewed as a deliberate diff rather than absorbed silently.",
+  unbudgeted.length > 0
+    ? "\nFor a newly added chunk, run `npm run bundle:budget:add-missing` — it budgets only the\n" +
+        "chunks that have no entry and leaves every existing budget alone.\n" +
+        "If an existing chunk grew intentionally, use `npm run bundle:budget:update` and commit the\n" +
+        "change so the increase is reviewed as a deliberate diff rather than absorbed silently."
+    : "\nIf the growth is intentional, run `npm run bundle:budget:update` and commit the change so\n" +
+        "the increase is reviewed as a deliberate diff rather than absorbed silently.",
 );
 process.exit(1);

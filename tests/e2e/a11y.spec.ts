@@ -22,12 +22,16 @@ import { expect, test, type Page } from "@playwright/test";
  * is worse than no gate. `serious` and `critical` are the tiers that map to a user being genuinely
  * blocked, so those fail the build and the rest are reported for information.
  *
- * ## Why the canvas is excluded
+ * ## Why only the `<canvas>` element is excluded
  *
- * `.vehicle-canvas` hosts a `<canvas>`. axe cannot inspect rendered pixels, and the keyboard
- * affordances that make the stage operable live on the host element and the surrounding toolbar,
- * which *are* scanned. Including it would produce a colour-contrast finding against a 3D render,
- * which is neither actionable nor meaningful.
+ * axe cannot inspect rendered pixels, so scanning the WebGL surface produces a colour-contrast
+ * finding against a 3D render — not actionable and not meaningful.
+ *
+ * The exclusion is `.vehicle-canvas > canvas`, **not** `.vehicle-canvas`. The host is itself the
+ * focusable `role="group"` carrying the stage's `aria-label` and keyboard affordances, and an axe
+ * exclusion removes the matched node *and its subtree* — so excluding the host meant a serious ARIA
+ * regression on the primary 3D interaction would leave this gate green. The original comment claimed
+ * the host was scanned while the selector ensured it was not.
  */
 
 /** Rendering everything axe found, not just the first failure — one line per violation is the
@@ -46,7 +50,7 @@ const BLOCKING_IMPACTS = new Set(["serious", "critical"]);
 async function scan(page: Page) {
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .exclude(".vehicle-canvas")
+    .exclude(".vehicle-canvas > canvas")
     .analyze();
 
   const blocking = results.violations.filter((violation) => BLOCKING_IMPACTS.has(violation.impact ?? ""));

@@ -23,6 +23,7 @@
     "assets:benchmark-compression": "node scripts/benchmark-compression.mjs",
     "bundle:budget": "node scripts/bundle-budget.mjs",
     "bundle:budget:update": "node scripts/bundle-budget.mjs --update",
+    "bundle:budget:add-missing": "node scripts/bundle-budget.mjs --add-missing",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply toyota-showroom --local",
     "db:migrate:remote": "wrangler d1 migrations apply toyota-showroom --remote",
