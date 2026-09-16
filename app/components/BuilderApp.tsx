@@ -161,6 +161,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [xrPresenting, setXrPresenting] = useState(false);
   /** Mirrors the renderer's stored preference; `VehicleCanvas` reports the real value on mount. */
   const [qualityPreference, setQualityPreference] = useState<QualityPreference>("auto");
+  /** True when the chosen tier needs a reload to apply in full — see `qualityPreferenceNeedsReload`. */
+  const [qualityNeedsReload, setQualityNeedsReload] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   /** Text for the polite live region — the only channel that reports a selection to a screen reader
    * when focus is not on the control that changed (deep link, undo, grade switch). */
@@ -406,6 +408,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       // Announced explicitly rather than left to the selection diff: the grade is not a selection,
       // and its change is exactly what a screen-reader user cannot otherwise infer — a switch that
       // drops incompatible options would otherwise be heard only as options disappearing.
+      // Cancel any pending selection announcement first. `attachScene` has just published the new
+      // configuration, so the selection-diff effect already scheduled its 220 ms update — and a grade
+      // switch that drops incompatible options guarantees a diff. Left alone, that timer replaces
+      // "Grade changed to …" in the same live region before assistive technology reads it, which
+      // defeats the point of announcing the grade separately.
+      if (announcementTimerRef.current !== null) {
+        clearTimeout(announcementTimerRef.current);
+        announcementTimerRef.current = null;
+      }
       const gradeName = bootstrap.vehicle.grades.find((grade) => grade.id === gradeId)?.name ?? gradeId;
       setAnnouncement(describeGradeChange(gradeName));
     } catch (err) {
@@ -852,6 +863,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   <option value="low">Low</option>
                 </select>
               </label>
+              {qualityNeedsReload ? (
+                /* `antialias` and the authored running gear are set at construction, so the chosen
+                 * tier is only partly live until the page reloads. Saying so is the point of
+                 * `qualityPreferenceNeedsReload`, which existed and went unused — without it the
+                 * selector reports a tier it has not fully applied. */
+                <span className="quality-reload-note" role="status">
+                  Reload to apply fully
+                </span>
+              ) : null}
               <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
             </div>
           </div>
@@ -890,6 +910,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onXrPresentingChange={setXrPresenting}
               qualityPreference={qualityPreference}
               onQualityPreferenceLoaded={setQualityPreference}
+              onQualityNeedsReload={setQualityNeedsReload}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}

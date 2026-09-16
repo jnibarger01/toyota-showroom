@@ -96,6 +96,16 @@ Budget, enforced by construction rather than by a number:
 
 `window.__vehiclePrefetch()` lists warmed ids in DEV.
 
+The tier is read through a predicate on every item, not snapshotted at construction: a governor
+downgrade after the scheduler is built must stop queued fetches, or the policy protects the wrong
+devices. `start()` is also the resume path — the scheduler stops rather than spins while suspended,
+so `visibilitychange` restarts it; without that wiring one backgrounded tab disabled prefetching for
+the rest of the session.
+
+HDRI URLs are resolved through `lib/shared/basePath.ts`. Catalog `hdrUrl`s are root-relative and the
+Pages deployment is served from a sub-path, so an unresolved request hits the domain root and 404s —
+which silently disabled both this prefetch and the WebGPU IBL path on that deployment.
+
 ## XR (immersive AR)
 
 `lib/three/xrSession.ts` owns `immersive-ar` session lifecycle only. The control appears in the
@@ -115,11 +125,33 @@ The cinematic tour already takes the controls the same way.
 Idle suspension does not apply while presenting: an `IntersectionObserver` on the page canvas says
 nothing about what the headset is showing.
 
+### Compositing over the camera
+
+An XR session showing the *room* rather than the showroom needs three things, all of which the first
+implementation missed:
+
+1. `alpha: true` on the renderer. A construction-time argument, like `antialias` — with `alpha: false`
+   the framebuffer has no transparency for passthrough to show through. Costs nothing outside XR,
+   since `EnvironmentController` still paints an opaque `scene.background`.
+2. `EnvironmentController.setPassthrough(true)` — clears background and fog, hides floor, grid,
+   starfield and rocks. The light rig stays: it is what makes the vehicle read as a physical object
+   in the room rather than a flat cutout. Re-asserted from `applyPalette` and after an HDRI apply, so
+   a preset change mid-session cannot put the showroom back in front of the camera.
+3. Stopping everything that writes the camera — `cancelTour()`, `setAutoRotate(false)`, then
+   `setControlsEnabled(false)`. Disabling controls alone only refuses new input; a running GSAP tour
+   or auto-rotate still moves the virtual origin while the device supplies the real pose, which is
+   motion sickness rather than a camera bug.
+
+`local-floor` is requested **optionally**, not required: `isSessionSupported("immersive-ar")` does
+not account for reference-space features, so requiring it made the entry control fail on tap for
+devices that passed the support check.
+
 **Not verified on hardware.** The session lifecycle is unit-tested against a stubbed `navigator.xr`
-(ordering of the renderer handover, declined permission, device-initiated exit, unmount during the
-permission prompt). Whether AR *looks* correct on a phone is not something any test here can claim.
-No hit-testing or placement UI: `local-floor` puts the vehicle on the viewer's real floor, which is
-enough to walk around it.
+(handover ordering, declined permission, a renderer that refuses the session, device-initiated exit,
+unmount during the permission prompt), and the passthrough transition is unit-tested on the
+environment controller. Whether AR *looks* correct on a phone is not something any test here can
+claim. No hit-testing or placement UI: `local-floor` puts the vehicle on the viewer's real floor,
+which is enough to walk around it.
 
 ## Client bundle budgets
 

@@ -39,8 +39,15 @@ export interface PrefetchSchedulerOptions {
   load: (id: string) => Promise<boolean>;
   /** Ids to warm, in priority order. */
   ids: readonly string[];
-  /** Live quality tier. `low` disables prefetching entirely. */
-  tier: QualityTier;
+  /**
+   * Reads the *current* quality tier; `low` disables prefetching.
+   *
+   * A function rather than a value because this is polled before each item. A snapshot taken at
+   * construction froze the tier, so a governor downgrade — or a viewer selecting Low — after the
+   * scheduler was built still let queued HDRI fetches run, contradicting the documented policy on
+   * exactly the constrained devices it exists to protect.
+   */
+  tier: () => QualityTier;
   /** `navigator.connection.saveData`. Disables prefetching entirely. */
   saveData?: boolean;
   /** Whether the canvas is currently suspended (hidden tab / off-screen). Polled before each item. */
@@ -88,10 +95,11 @@ export function createPrefetchScheduler(options: PrefetchSchedulerOptions): Pref
   let pending = false;
   let cancelPending: (() => void) | null = null;
 
-  const enabled = tier !== "low" && !saveData;
+  /** Save-Data cannot change mid-session; the tier can, so it is read per item rather than latched. */
+  const enabled = () => !saveData && tier() !== "low";
 
   function pump(): void {
-    if (disposed || !enabled || pending) return;
+    if (disposed || !enabled() || pending) return;
     const next = ids.find((id) => !attempted.has(id));
     if (next === undefined) return;
 
@@ -101,6 +109,12 @@ export function createPrefetchScheduler(options: PrefetchSchedulerOptions): Pref
       if (disposed) return;
       // Re-checked here rather than only at start: a viewer can background the tab between the
       // scheduling call and the callback, which on a slow idle queue is a long window.
+      // Re-read here too: the tier can change between scheduling and running, and this callback is
+      // the last point before bytes go over the wire.
+      if (!enabled()) {
+        pending = false;
+        return;
+      }
       if (isSuspended()) {
         // Stop rather than reschedule. Re-pumping here spins: the id is still unattempted, so the
         // next pass picks the same one and finds the same suspension, forever — burning CPU on
