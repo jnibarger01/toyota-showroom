@@ -185,3 +185,10 @@ browser with `CHROME_PATH` if you do not have Playwright Chromium.
 ## Final packaged assets
 
 This package includes the authoritative Blender source, final exported GLB, and approved hero render. See `FINAL_ASSET_MANIFEST.md`.
+
+### Read-only production smoke check
+
+Run `SMOKE_BASE_URL=https://your-deployment.example/ npm run smoke:production` after a release.
+The harness performs bounded GET-only checks against health and the paginated vehicle catalog,
+validates their response contracts and baseline security headers, rejects credential-bearing or
+insecure remote URLs, and emits one JSON result suitable for CI evidence.

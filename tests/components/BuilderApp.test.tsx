@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { fourRunner } from "../../lib/data/vehicles/4runner";
 import { fourRunnerOptions } from "../../lib/data/options/4runner";
 import type { CreateConfigurationInput, UpdateConfigurationInput } from "../../lib/api/configurations";
@@ -165,6 +165,9 @@ vi.mock("../../lib/api/configurations", () => ({
   resetTransportDetection() {},
 }));
 
+const { submitLeadMock } = vi.hoisted(() => ({ submitLeadMock: vi.fn() }));
+vi.mock("../../lib/api/leads", () => ({ submitLead: submitLeadMock }));
+
 const { BuilderApp } = await import("../../app/components/BuilderApp");
 const { configurationStore } = await import("../../lib/state/configurationStore");
 
@@ -201,6 +204,33 @@ describe("BuilderApp", () => {
     expect(screen.getByText(/loading 4runner/i)).toBeInTheDocument();
   });
 
+  it("opens the test-drive form with the current build context", async () => {
+    submitLeadMock.mockResolvedValue(undefined);
+    await renderBuilderReady();
+
+    fireEvent.click(screen.getByRole("button", { name: /request a test drive/i }));
+    expect(screen.getByRole("dialog", { name: /request a test drive/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "Jamie Customer" } });
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "jamie@example.com" } });
+    fireEvent.change(screen.getByLabelText(/how can we help/i), { target: { value: "Test drive, please." } });
+    fireEvent.click(screen.getByRole("button", { name: /send request/i }));
+
+    await waitFor(() => expect(screen.getByText(/thanks — your request was sent/i)).toBeInTheDocument());
+    expect(submitLeadMock).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "model",
+      vehicleId: "4runner",
+      build: expect.objectContaining({
+        vehicleId: "4runner",
+        gradeId: "trd-pro",
+        selections: {},
+        configurationId: "cfg-2",
+        shareUrl: expect.stringContaining("?c="),
+        ownerToken: { present: true, configurationId: "cfg-2" },
+      }),
+    }));
+    expect(JSON.stringify(submitLeadMock.mock.calls[0][0])).not.toMatch(/ownerToken[^:]*:[^,{]*[A-Za-z0-9]/);
+  });
+
   it("renders the vehicle, its default grade, and the option catalog once bootstrapped", async () => {
     await renderBuilderReady();
     expect(screen.getByTestId("vehicle-canvas")).toBeInTheDocument();
@@ -214,11 +244,33 @@ describe("BuilderApp", () => {
     // CustomizationButton instances.
     expect(screen.getByRole("button", { name: /blueprint/i })).toBeInTheDocument();
 
-    // The right panel only shows one category at a time (main's single-category redesign,
-    // §12 in docs/INTEGRATION_GUIDE.md's known gaps notes the rail labels don't all match the
-    // category they switch to — "Lighting" is the rail item that actually opens "accessory").
-    fireEvent.click(screen.getByRole("button", { name: /lighting/i }));
+    // The right panel only shows one category at a time; each rail label now maps to its typed category.
+    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
     expect(screen.getByRole("button", { name: /overland roof rack/i })).toBeInTheDocument();
+  });
+
+  it("opens the mobile configurator as a labelled modal, traps focus, and returns focus on Escape", async () => {
+    await renderBuilderReady();
+
+    const trigger = screen.getByRole("button", { name: /customize/i });
+    fireEvent.click(trigger);
+
+    const panel = screen.getByRole("dialog", { name: /paint/i });
+    expect(panel).toHaveAttribute("aria-modal", "true");
+    await waitFor(() => expect(screen.getByPlaceholderText(/search options/i)).toHaveFocus());
+
+    const search = screen.getByPlaceholderText(/search options/i);
+    const focusable = panel.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+    );
+    const last = focusable[focusable.length - 1];
+    last.focus();
+    fireEvent.keyDown(panel, { key: "Tab" });
+    expect(within(panel).getByRole("button", { name: /close configuration panel/i })).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("dialog", { name: /paint/i })).not.toBeInTheDocument();
   });
 
   it("switching grades creates a new configuration and updates the active grade button", async () => {
@@ -336,7 +388,7 @@ describe("BuilderApp", () => {
     });
 
     // Deep-link restore creates a config; catalog may still be grade-filtered in the store.
-    fireEvent.click(screen.getByRole("button", { name: /lighting/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
     await waitFor(() => expect(screen.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true"));
 
     const expected = estimateBuildTotal(

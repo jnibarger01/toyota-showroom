@@ -19,9 +19,9 @@ const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   lighting: "Lighting",
   hood: "Hood",
   panel: "Body panel",
-  decal: "Decal",
-  trim: "Trim",
-  accessory: "Accessory",
+  decal: "Decals & graphics",
+  trim: "Suspension",
+  accessory: "Accessories",
   interior: "Interior",
 };
 

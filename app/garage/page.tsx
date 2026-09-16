@@ -154,7 +154,7 @@ export default function GaragePage() {
           <Warehouse size={28} aria-hidden /> My garage
         </h1>
         <p>
-          Saved builds across 4Runner, AE86, Tacoma, and Camry. Pick {MIN_COMPARE}–{MAX_COMPARE} to
+          Saved builds across 4Runner, AE86, Tacoma, Camry, and GR Supra. Pick {MIN_COMPARE}–{MAX_COMPARE} to
           compare option categories side by side.
         </p>
         {persistenceMode === "local" ? (

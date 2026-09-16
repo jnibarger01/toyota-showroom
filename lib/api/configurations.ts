@@ -9,6 +9,7 @@ import { ApiError, type ApiErrorBody } from "./errors";
 import { isOptionAvailableForGrade } from "../data/options";
 import { localConfigurationTransport } from "./localConfigurationTransport";
 import { trackPersistenceMode } from "../observability/funnelTelemetry";
+import { ProviderUnavailableError, resilientFetch } from "./resilientFetch";
 
 /**
  * The only module in the client that talks to the configuration endpoints.
@@ -34,13 +35,14 @@ function catalogUrl(path: string): string {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await resilientFetch(url, {
       ...init,
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
   } catch (cause) {
-    // Network-level failure never reaches the UI as a raw TypeError.
-    throw new ApiError(0, "network_error", "Could not reach the configuration service.", { cause });
+    // Network-level, timeout, retry exhaustion, and open-circuit failures never reaches the UI as a raw TypeError.
+    const code = cause instanceof ProviderUnavailableError ? "provider_unavailable" : "network_error";
+    throw new ApiError(0, code, "Could not reach the configuration service.", { cause });
   }
 
   if (!response.ok) {
@@ -110,7 +112,7 @@ export function subscribePersistenceMode(listener: () => void): () => void {
 
 function indicatesMissingBackend(error: unknown, method: "GET" | "WRITE"): boolean {
   if (!(error instanceof ApiError)) return false;
-  if (error.code === "network_error" || error.status === 405 || error.status === 501) return true;
+  if (error.code === "network_error" || error.code === "provider_unavailable" || error.status === 405 || error.status === 501) return true;
 
   if (error.status === 404) {
     // A write can only 404 on a host that has no such route.

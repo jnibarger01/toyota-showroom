@@ -78,6 +78,17 @@ vi.mock("../../lib/api/dealerInventory", () => ({
 const { default: ExplorePage } = await import("../../app/explore/page");
 
 describe("ExplorePage pagination", () => {
+  it("offers a test-drive action on every visible vehicle card without navigating", async () => {
+    render(<ExplorePage />);
+    await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(DEFAULT_PAGE_SIZE));
+
+    expect(screen.getAllByRole("button", { name: /request a test drive/i })).toHaveLength(DEFAULT_PAGE_SIZE);
+    const card = screen.getByRole("heading", { name: "suv-0" }).closest("a")!;
+    fireEvent.click(card.querySelector("button")!);
+    expect(screen.getByRole("dialog", { name: /request a test drive/i })).toBeInTheDocument();
+    expect(window.location.pathname).toBe("/");
+  });
+
   it("shows one page's worth of cards, with a disabled Previous and an enabled Next", async () => {
     render(<ExplorePage />);
     await waitFor(() => expect(screen.getAllByRole("link", { name: /suv-0|truck-0/i }).length).toBeGreaterThan(0));

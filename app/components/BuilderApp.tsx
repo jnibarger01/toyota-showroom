@@ -61,6 +61,7 @@ import {
 } from "../../lib/three/xrCapability";
 import { PersistenceModeBanner } from "./PersistenceModeBanner";
 import { OwnerTokenDialog } from "./OwnerTokenDialog";
+import { ValidatedLeadForm } from "./ValidatedLeadForm";
 import { isOptionAvailableForGrade } from "../../lib/data/options";
 import type { Vehicle } from "../../lib/types/vehicle";
 import {
@@ -125,7 +126,7 @@ const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   hood: "Hood",
   panel: "Body panels",
   decal: "Decals & graphics",
-  trim: "Trim",
+  trim: "Suspension",
   accessory: "Accessories",
   interior: "Interior",
 };
@@ -168,6 +169,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     configurationId: string;
     ownerToken: string;
   } | null>(null);
+  const [leadFormOpen, setLeadFormOpen] = useState(false);
   const [optionQuery, setOptionQuery] = useState("");
   const [selectedOnly, setSelectedOnly] = useState(false);
   const [budget, setBudget] = useState(65_000);
@@ -213,6 +215,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const fullApplicableRef = useRef<CustomizationOption[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
   const configJsonFileRef = useRef<HTMLInputElement>(null);
+  const mobileTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobilePanelRef = useRef<HTMLElement>(null);
   const undoStack = useRef<SelectionMap[]>([]);
   const redoStack = useRef<SelectionMap[]>([]);
   /** Paint Studio undo/redo (#73) — distinct from selection-map stacks above. */
@@ -740,6 +744,45 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     [importConfigJsonText],
   );
 
+  useEffect(() => {
+    if (!mobilePanelOpen) return;
+
+    const panel = mobilePanelRef.current;
+    const focusable = () =>
+      Array.from(
+        panel?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+
+    searchRef.current?.focus();
+    const onPanelKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (items.length === 0) {
+        event.preventDefault();
+        panel?.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    panel?.addEventListener("keydown", onPanelKeyDown);
+    return () => panel?.removeEventListener("keydown", onPanelKeyDown);
+  }, [mobilePanelOpen]);
+
+  const closeMobilePanel = useCallback(() => {
+    setMobilePanelOpen(false);
+    window.setTimeout(() => mobileTriggerRef.current?.focus(), 0);
+  }, []);
+
   const reset = async () => {
     if (!bootstrap) return;
     const fresh = await configurationsApi.createConfiguration({
@@ -818,11 +861,20 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     }
   }, [configuration, isLocalPersistence, persistenceMode, vehicleSlug]);
 
+  const leadShareUrl = configuration
+    ? createBuildDeepLinkUrl(window.location.origin, window.location.pathname, {
+        gradeId: configuration.gradeId,
+        selections: configuration.selections,
+        cameraState: configuration.cameraState,
+        paintStudio: configuration.paintStudio,
+      })
+    : "";
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const action = resolveBuilderShortcut(event, { cheatSheetOpen });
       if (!action) {
-        if (event.key === "Escape") setMobilePanelOpen(false);
+        if (event.key === "Escape" && mobilePanelOpen) closeMobilePanel();
         return;
       }
       event.preventDefault();
@@ -864,7 +916,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   }, [
     cheatSheetOpen,
     cinematicTourStatus,
+    closeMobilePanel,
     dispatchCinematicTour,
+    mobilePanelOpen,
     restoreHistory,
     saveToGarage,
     share,
@@ -991,6 +1045,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         />
       ) : null}
 
+      {leadFormOpen ? (
+        <div className="owner-token-dialog" role="dialog" aria-modal="true" aria-labelledby="lead-form-title">
+          <button type="button" className="tour-close" aria-label="Close test drive request" onClick={() => setLeadFormOpen(false)}><X size={15} /></button>
+          <div className="owner-token-dialog-heading"><Truck size={16} aria-hidden /><strong id="lead-form-title">Request a test drive</strong></div>
+          <p>Tell us how to reach you about this {vehicle.model} build.</p>
+          <ValidatedLeadForm buildSnapshot={{ vehicleId: vehicle.slug, gradeId: configuration?.gradeId ?? "default", selections: configuration?.selections ?? {}, shareUrl: leadShareUrl, configurationId: configuration?.configurationId, ownerTokenPresent: true }} />
+        </div>
+      ) : null}
+
       {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your {bootstrap?.vehicle.model ?? "Toyota"}</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
 
       {cheatSheetOpen ? (
@@ -1074,12 +1137,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button className={`rail-item ${activeCategory === "paint" ? "active" : ""}`} onClick={() => setActiveCategory("paint")}><PaintBucket size={18} /> Exterior</button>
           <button className={`rail-item ${activeCategory === "wheels" ? "active" : ""}`} onClick={() => setActiveCategory("wheels")}><CircleGauge size={18} /> Wheels &amp; Tires</button>
           <button className={`rail-item ${activeCategory === "trim" ? "active" : ""}`} onClick={() => setActiveCategory("trim")}><SlidersHorizontal size={18} /> Suspension</button>
-          <button className={`rail-item ${activeCategory === "accessory" ? "active" : ""}`} onClick={() => setActiveCategory("accessory")}><Lightbulb size={18} /> Lighting</button>
+          <button className={`rail-item ${activeCategory === "lighting" ? "active" : ""}`} onClick={() => setActiveCategory("lighting")}><Lightbulb size={18} /> Lighting</button>
           <button className={`rail-item ${activeCategory === "panel" ? "active" : ""}`} onClick={() => setActiveCategory("panel")}><Cog size={18} /> Performance</button>
-          <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Accessories</button>
+          <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Decals &amp; Graphics</button>
+          <button className={`rail-item ${activeCategory === "accessory" ? "active" : ""}`} onClick={() => setActiveCategory("accessory")}><Settings2 size={18} /> Accessories</button>
           <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
 
-          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button type="button" onClick={() => setLeadFormOpen(true)}>Request a test drive</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={() => void exportConfigJson()}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
@@ -1188,6 +1252,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           </div>
 
           <button
+            ref={mobileTriggerRef}
             className="mobile-config-trigger"
             aria-controls="configuration-panel"
             aria-expanded={mobilePanelOpen}
@@ -1271,20 +1336,24 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button
             className="mobile-panel-backdrop"
             aria-label="Close configuration panel"
-            onClick={() => setMobilePanelOpen(false)}
+            onClick={closeMobilePanel}
           />
         ) : null}
 
         <aside
+          ref={mobilePanelRef}
           id="configuration-panel"
           className={`right-panel ${mobilePanelOpen ? "mobile-open" : ""}`}
-          aria-label="Vehicle configuration"
+          role={mobilePanelOpen ? "dialog" : undefined}
+          aria-modal={mobilePanelOpen || undefined}
+          aria-labelledby="configuration-panel-title"
+          tabIndex={-1}
         >
           <div className="panel-title">
-            <div><span>Configuration</span><h2>{CATEGORY_LABELS[activeCategory]}</h2></div>
+            <div><span>Configuration</span><h2 id="configuration-panel-title">{CATEGORY_LABELS[activeCategory]}</h2></div>
             <div className="panel-actions">
               <Mountain size={22} />
-              <button className="panel-close" aria-label="Close configuration panel" onClick={() => setMobilePanelOpen(false)}><X size={18} /></button>
+              <button className="panel-close" aria-label="Close configuration panel" onClick={closeMobilePanel}><X size={18} /></button>
             </div>
           </div>
           <div className="option-tools"><label><Search size={14} /><input ref={searchRef} value={optionQuery} onChange={(event) => setOptionQuery(event.target.value)} placeholder="Search options…" /></label><button className={selectedOnly ? "active" : ""} aria-pressed={selectedOnly} onClick={() => setSelectedOnly((value) => !value)}>Selected only</button></div>

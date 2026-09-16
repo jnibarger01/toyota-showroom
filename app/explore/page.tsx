@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, GitCompare, Loader2, Truck, X } from "lucide-react";
 import { listVehicles, pageUrl, MAX_COMPARE } from "../../lib/api/client";
 import { loadExploreInventoryBadges } from "../../lib/api/dealerInventory";
+import { ValidatedLeadForm } from "../components/ValidatedLeadForm";
 import { matchesFilters, paginateAndFilter, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, type VehicleFilters } from "../../lib/api/query";
 import type { InventoryBadge } from "../../lib/dealerInventory";
 import type { BodyStyle, PowertrainType, VehicleSummary } from "../../lib/types/vehicle";
@@ -49,6 +50,7 @@ export default function ExplorePage() {
   // Inventory badges load independently of the catalog so a slow/failed dealer feed never blocks
   // the lineup (#20). `null` = still pending or skipped; empty object = loaded with no matches.
   const [inventoryBadges, setInventoryBadges] = useState<ReadonlyMap<string, InventoryBadge[]> | null>(null);
+  const [leadVehicle, setLeadVehicle] = useState<VehicleSummary | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -311,6 +313,17 @@ export default function ExplorePage() {
                 </div>
                 <p className="vehicle-card-price">Starting at ${summary.startingMsrp.toLocaleString()}</p>
                 <span className="vehicle-card-action">{summary.hasModel ? "Configure 3D build" : "View details"}</span>
+                <button
+                  type="button"
+                  className="vehicle-card-action"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setLeadVehicle(summary);
+                  }}
+                >
+                  Request a test drive
+                </button>
                 <label
                   className="vehicle-card-compare"
                   // The card itself is the link; this control must not trigger that navigation.
@@ -329,6 +342,15 @@ export default function ExplorePage() {
           );
         })}
       </div>
+
+      {leadVehicle ? (
+        <div className="owner-token-dialog" role="dialog" aria-modal="true" aria-labelledby="explore-lead-form-title">
+          <button type="button" className="tour-close" aria-label="Close test drive request" onClick={() => setLeadVehicle(null)}><X size={15} /></button>
+          <div className="owner-token-dialog-heading"><Truck size={16} aria-hidden /><strong id="explore-lead-form-title">Request a test drive</strong></div>
+          <p>Tell us how to reach you about the {leadVehicle.model}.</p>
+          <ValidatedLeadForm buildSnapshot={{ vehicleId: leadVehicle.slug, gradeId: "default", selections: {}, shareUrl: new URL(pageUrl(leadVehicle.slug), window.location.origin).toString(), ownerTokenPresent: false }} />
+        </div>
+      ) : null}
 
       {paged.totalPages > 1 ? (
         <nav className="explore-pagination" aria-label="Lineup pages">

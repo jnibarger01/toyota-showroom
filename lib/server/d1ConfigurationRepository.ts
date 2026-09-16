@@ -121,6 +121,13 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
     }
 
     if (patch.expectedRevision !== undefined && patch.expectedRevision !== row.revision) {
+      // A client may retry an identical PATCH after the first response was lost. When the stored
+      // row is exactly the requested post-state and only one revision ahead, return that durable
+      // result instead of creating a duplicate revision or reporting a false conflict. Different
+      // payloads remain fail-closed with 409. The existing revision row is the audit provenance.
+      if (patch.expectedRevision + 1 === row.revision && patchMatchesStoredState(patch, row)) {
+        return this.toVehicleConfiguration(row);
+      }
       throw revisionConflict(
         `Configuration "${configurationId}" is at revision ${row.revision}, not ${patch.expectedRevision}. Reload before retrying.`,
       );
@@ -237,4 +244,19 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
       updatedAt: row.updatedAt.toISOString(),
     };
   }
+}
+
+function patchMatchesStoredState(
+  patch: ValidatedPatch,
+  stored: {
+    selections: VehicleConfiguration["selections"];
+    cameraState: VehicleConfiguration["cameraState"] | null;
+    paintStudio: VehicleConfiguration["paintStudio"] | null;
+  },
+): boolean {
+  return (
+    (patch.selections === undefined || JSON.stringify(patch.selections) === JSON.stringify(stored.selections)) &&
+    (patch.cameraState === undefined || JSON.stringify(patch.cameraState) === JSON.stringify(stored.cameraState)) &&
+    (patch.paintStudio === undefined || JSON.stringify(patch.paintStudio) === JSON.stringify(stored.paintStudio))
+  );
 }

@@ -33,7 +33,7 @@ describe("describeSelectionChange", () => {
 
   it("announces a removal on its own", () => {
     expect(describeSelectionChange(map({ accessory: ["acc-rack"] }), map({ accessory: [] }), catalog)).toBe(
-      "Accessory: Roof Rack removed.",
+      "Accessories: Roof Rack removed.",
     );
   });
 

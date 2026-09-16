@@ -33,7 +33,9 @@
     "db:studio": "drizzle-kit studio",
     "deploy": "npm run build && wrangler deploy dist/server/index.js --no-bundle --env \"\" --config wrangler.jsonc",
     "deploy:staging": "npm run build && wrangler deploy dist/server/index.js --no-bundle --env staging --config wrangler.jsonc",
-    "test:perf": "node scripts/assert-perf-budget.mjs"
+    "test:perf": "node scripts/assert-perf-budget.mjs",
+    "smoke:production": "tsx scripts/production-smoke.ts",
+    "test:production-smoke": "vitest run --config vitest.production-smoke.config.ts"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

@@ -21,7 +21,7 @@ export const GARAGE_INDEX_KEY = "toyota-showroom:garage:v1";
 export const OWNER_TOKENS_STORAGE_KEY = "toyota-showroom:ownerTokens";
 
 /** Display order for garage groupings — matches issue #17's vehicle list. */
-export const GARAGE_VEHICLE_ORDER = ["4runner", "ae86", "tacoma", "camry"] as const;
+export const GARAGE_VEHICLE_ORDER = ["4runner", "ae86", "tacoma", "camry", "gr-supra"] as const;
 
 export type GarageVehicleId = (typeof GARAGE_VEHICLE_ORDER)[number];
 
@@ -58,9 +58,9 @@ export const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   lighting: "Lighting",
   hood: "Hood",
   panel: "Performance",
-  decal: "Accessories",
+  decal: "Decals & graphics",
   trim: "Suspension",
-  accessory: "Lighting",
+  accessory: "Accessories",
   interior: "Interior",
 };
 
