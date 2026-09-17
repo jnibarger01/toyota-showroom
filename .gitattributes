@@ -15,10 +15,9 @@
 *.hdr      filter=lfs diff=lfs merge=lfs -text
 *.exr      filter=lfs diff=lfs merge=lfs -text
 
-# This checked-in runtime HDR predates the LFS rule and is stored as raw Radiance bytes in Git.
-# Exempt it from the clean filter so a normal checkout does not appear modified or require an LFS
-# upload merely to preserve the already-tracked representation.
-public/renders/rav4-2024/cold_photography_studio_1k.hdr -filter -diff -merge -text
+# Runtime HDRs under public/renders are fetched directly by the browser and GitHub Pages.
+# Keep them as ordinary Git blobs so a checkout without Git LFS never deploys pointer text.
+public/renders/**/*.hdr -filter -diff -merge -text
 
 # Runtime GLBs are deliberately NOT routed to LFS. They are shipped to browsers, must exist in a
 # plain checkout for `npm run build`, GitHub Pages, and `tests/glbContract.test.ts`, and are kept
