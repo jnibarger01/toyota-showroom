@@ -71,11 +71,13 @@ export async function runProductionSmoke(
       assert(typeof body?.schemaVersion === "string" && body.schemaVersion.length > 0, "Health schemaVersion was invalid.");
       assert(!Number.isNaN(Date.parse(body?.timestamp)), "Health timestamp was invalid.");
     }, fetchImpl, timeoutMs),
-    await check(baseUrl, "api/v1/vehicles?limit=1", (body) => {
+    await check(baseUrl, "api/v1/vehicles?pageSize=1", (body) => {
       assert(typeof body?.schemaVersion === "string" && body.schemaVersion.length > 0, "Catalog schemaVersion was invalid.");
       assert(Array.isArray(body?.data) && body.data.length === 1, "Catalog smoke query did not return exactly one vehicle.");
       assert(typeof body.data[0]?.slug === "string" && body.data[0].slug.length > 0, "Catalog vehicle slug was invalid.");
-      assert(Number.isInteger(body?.pagination?.total) && body.pagination.total > 0, "Catalog pagination total was invalid.");
+      assert(body?.page === 1 && body?.pageSize === 1, "Catalog pagination request was not honored.");
+      assert(Number.isInteger(body?.totalItems) && body.totalItems > 0, "Catalog totalItems was invalid.");
+      assert(Number.isInteger(body?.totalPages) && body.totalPages === body.totalItems, "Catalog totalPages was invalid.");
     }, fetchImpl, timeoutMs),
   ];
 }
