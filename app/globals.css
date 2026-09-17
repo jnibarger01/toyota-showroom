@@ -539,6 +539,7 @@ button { font: inherit; color: inherit; }
   overflow: hidden; color: inherit; text-decoration: none;
 }
 .vehicle-card:hover { border-color: #3a4552; }
+.vehicle-card-link { display: block; color: inherit; text-decoration: none; }
 .vehicle-card-media { position: relative; aspect-ratio: 16 / 10; background: #0c1015; }
 .vehicle-card-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .vehicle-card-badges {
@@ -555,11 +556,14 @@ button { font: inherit; color: inherit; }
   background: rgba(42, 58, 92, .9); border-color: #3d5280; color: #d7e4f5;
 }
 .vehicle-card-body { padding: 16px; }
+/* Controls are siblings of the link, so move the card's bottom padding to their wrapper. */
+.vehicle-card-link .vehicle-card-body { padding-bottom: 0; }
 .vehicle-card-year { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
 .vehicle-card-body h2 { margin: 5px 0 9px; font-size: 19px; }
 .vehicle-card-specs { display: flex; gap: 10px; margin-bottom: 10px; }
 .vehicle-card-specs span { font-size: 11px; color: #9aa4b0; padding: 4px 8px; border-radius: 6px; background: #171d24; }
 .vehicle-card-price { margin: 0; font-size: 13px; color: #d7dde4; }
+.vehicle-card-controls { padding: 0 16px 16px; }
 .vehicle-card-compare {
   display: flex; align-items: center; gap: 7px; margin-top: 12px; padding-top: 12px;
   border-top: 1px solid #1e242c; font-size: 11px; color: #9aa4b0;

@@ -286,49 +286,43 @@ export default function ExplorePage() {
         {paged.data.map((summary) => {
           const checked = compareSlugs.includes(summary.slug);
           return (
-            <a key={summary.slug} className="vehicle-card" href={pageUrl(summary.slug)}>
-              <div className="vehicle-card-media">
-                <img src={summary.thumbnail.url} alt={summary.thumbnail.alt} loading="lazy" />
-                <div className="vehicle-card-badges">
-                  {summary.hasModel ? <span className="vehicle-card-badge">3D available</span> : null}
-                  {summary.availability !== "in_production" ? (
-                    <span className="vehicle-card-badge">{AVAILABILITY_LABELS[summary.availability]}</span>
-                  ) : null}
-                  {(inventoryBadges?.get(summary.slug) ?? []).map((badge) => (
-                    <span
-                      key={badge}
-                      className={`vehicle-card-badge vehicle-card-badge--${badge === "near_me" ? "near-me" : "buildable"}`}
-                    >
-                      {INVENTORY_BADGE_LABELS[badge]}
-                    </span>
-                  ))}
+            <article key={summary.slug} className="vehicle-card">
+              {/* Keep card controls outside the model link. Interactive descendants of an anchor are
+                  invalid HTML and made the test-drive and compare controls unreliable for keyboard users. */}
+              <a className="vehicle-card-link" href={pageUrl(summary.slug)}>
+                <div className="vehicle-card-media">
+                  <img src={summary.thumbnail.url} alt={summary.thumbnail.alt} loading="lazy" />
+                  <div className="vehicle-card-badges">
+                    {summary.hasModel ? <span className="vehicle-card-badge">3D available</span> : null}
+                    {summary.availability !== "in_production" ? (
+                      <span className="vehicle-card-badge">{AVAILABILITY_LABELS[summary.availability]}</span>
+                    ) : null}
+                    {(inventoryBadges?.get(summary.slug) ?? []).map((badge) => (
+                      <span
+                        key={badge}
+                        className={`vehicle-card-badge vehicle-card-badge--${badge === "near_me" ? "near-me" : "buildable"}`}
+                      >
+                        {INVENTORY_BADGE_LABELS[badge]}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div className="vehicle-card-body">
-                <span className="vehicle-card-year">{summary.year} &middot; {BODY_STYLE_LABELS[summary.bodyStyle]}</span>
-                <h2>{summary.model}</h2>
-                <div className="vehicle-card-specs">
-                  <span>Seats {summary.maxSeating}</span>
-                  {summary.maxTowingLbs > 0 ? <span>{summary.maxTowingLbs.toLocaleString()} lb tow</span> : null}
+                <div className="vehicle-card-body">
+                  <span className="vehicle-card-year">{summary.year} &middot; {BODY_STYLE_LABELS[summary.bodyStyle]}</span>
+                  <h2>{summary.model}</h2>
+                  <div className="vehicle-card-specs">
+                    <span>Seats {summary.maxSeating}</span>
+                    {summary.maxTowingLbs > 0 ? <span>{summary.maxTowingLbs.toLocaleString()} lb tow</span> : null}
+                  </div>
+                  <p className="vehicle-card-price">Starting at ${summary.startingMsrp.toLocaleString()}</p>
+                  <span className="vehicle-card-action">{summary.hasModel ? "Configure 3D build" : "View details"}</span>
                 </div>
-                <p className="vehicle-card-price">Starting at ${summary.startingMsrp.toLocaleString()}</p>
-                <span className="vehicle-card-action">{summary.hasModel ? "Configure 3D build" : "View details"}</span>
-                <button
-                  type="button"
-                  className="vehicle-card-action"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setLeadVehicle(summary);
-                  }}
-                >
+              </a>
+              <div className="vehicle-card-controls">
+                <button type="button" className="vehicle-card-action" onClick={() => setLeadVehicle(summary)}>
                   Request a test drive
                 </button>
-                <label
-                  className="vehicle-card-compare"
-                  // The card itself is the link; this control must not trigger that navigation.
-                  onClick={(event) => event.preventDefault()}
-                >
+                <label className="vehicle-card-compare">
                   <input
                     type="checkbox"
                     checked={checked}
@@ -338,7 +332,7 @@ export default function ExplorePage() {
                   Compare
                 </label>
               </div>
-            </a>
+            </article>
           );
         })}
       </div>

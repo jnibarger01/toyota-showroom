@@ -78,13 +78,17 @@ vi.mock("../../lib/api/dealerInventory", () => ({
 const { default: ExplorePage } = await import("../../app/explore/page");
 
 describe("ExplorePage pagination", () => {
-  it("offers a test-drive action on every visible vehicle card without navigating", async () => {
+  it("keeps test-drive and compare controls outside the model link", async () => {
     render(<ExplorePage />);
     await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(DEFAULT_PAGE_SIZE));
 
-    expect(screen.getAllByRole("button", { name: /request a test drive/i })).toHaveLength(DEFAULT_PAGE_SIZE);
-    const card = screen.getByRole("heading", { name: "suv-0" }).closest("a")!;
-    fireEvent.click(card.querySelector("button")!);
+    const card = screen.getByRole("heading", { name: "suv-0" }).closest("article")!;
+    const testDrive = card.querySelector<HTMLButtonElement>("button")!;
+    const compare = card.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(testDrive.closest("a")).toBeNull();
+    expect(compare.closest("a")).toBeNull();
+
+    fireEvent.click(testDrive);
     expect(screen.getByRole("dialog", { name: /request a test drive/i })).toBeInTheDocument();
     expect(window.location.pathname).toBe("/");
   });
