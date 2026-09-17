@@ -8,7 +8,7 @@ import { withRouteTelemetry } from "../../../../lib/server/apiResponse";
 import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 import { enforceCatalogReadRateLimit } from "../../../../lib/server/rateLimit";
 
-export const dynamic = "force-static";
+export const dynamic = "force-dynamic";
 
 /**
  * GET /api/v1/vehicles — Toyota lineup with filtering + pagination when served by a
