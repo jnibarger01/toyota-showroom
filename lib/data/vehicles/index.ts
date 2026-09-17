@@ -6,9 +6,10 @@ import { ae86 } from "./ae86";
 import { rav4 } from "./rav4";
 import { grSupra } from "./gr-supra";
 import { grCorolla } from "./gr-corolla";
+import { gt86 } from "./gt86";
 
 /** Single source of truth for the vehicle catalog. Add new models here only. */
-export const VEHICLES: readonly Vehicle[] = [fourRunner, tacoma, camry, ae86, rav4, grSupra, grCorolla];
+export const VEHICLES: readonly Vehicle[] = [fourRunner, tacoma, camry, ae86, rav4, grSupra, grCorolla, gt86];
 
 export function getVehicleBySlug(slug: string): Vehicle | undefined {
   return VEHICLES.find((vehicle) => vehicle.slug === slug);

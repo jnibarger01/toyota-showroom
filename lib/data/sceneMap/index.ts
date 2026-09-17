@@ -5,6 +5,7 @@ import { RAV4_SCENE_MAP } from "./rav4";
 import { GR_SUPRA_SCENE_MAP } from "./gr-supra";
 import { CAMRY_SCENE_MAP } from "./camry";
 import { GR_COROLLA_SCENE_MAP } from "./gr-corolla";
+import { GT86_SCENE_MAP } from "./gt86";
 
 const SCENE_MAPS: Record<string, readonly SceneMapEntry[]> = {
   "4runner": FOUR_RUNNER_SCENE_MAP,
@@ -13,6 +14,7 @@ const SCENE_MAPS: Record<string, readonly SceneMapEntry[]> = {
   "gr-supra": GR_SUPRA_SCENE_MAP,
   camry: CAMRY_SCENE_MAP,
   "gr-corolla": GR_COROLLA_SCENE_MAP,
+  gt86: GT86_SCENE_MAP,
 };
 
 /** Vehicles using the procedural fallback have no authored scene map. */

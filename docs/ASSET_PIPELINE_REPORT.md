@@ -62,3 +62,10 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Compression: draco
 - Largest textures: (unnamed) (2048×2048, 1669.5 KiB), (unnamed) (1024×1024, 669.7 KiB), (unnamed) (256×256, 2.5 KiB)
 - Semantic contract: 12 satisfied, 0 unsatisfied
+
+## GT86 body (`gt86`)
+
+- Source: `/models/gt86/toyota_gt86.glb` — 2918.9 KiB
+- Meshes: 64   Triangles: 1,152,374   Materials: 12   Textures: 0
+- Compression: draco
+- Semantic contract: 4 satisfied, 0 unsatisfied

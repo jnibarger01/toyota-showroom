@@ -128,6 +128,7 @@ describe("shipped GLB payload budget", () => {
     // permitting the original 68.36 MiB source payload to regress into production.
     "/models/camry/camry.glb": 5 * 1024 * 1024,
     "/models/gr-corolla-2023/2023_toyota_gr_corolla.glb": 5 * 1024 * 1024,
+    "/models/gt86/toyota_gt86.glb": 4 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
   };
 

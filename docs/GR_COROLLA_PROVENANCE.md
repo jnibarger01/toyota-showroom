@@ -11,7 +11,16 @@ The showroom integration uses a user-supplied local asset:
 - Contract inspection: 64 nodes, 44 meshes, 25 materials, 0 animations
 - Authored material slots include `paint`, `roof`, `spoiler`, `mirror`, `rim_detail`, `calliper`, `lights`, `int_2`, and `material_21`.
 
-The source author and license were not encoded in the repository context used for this integration, so this document does not assert ownership or a redistribution license. Repository owners should retain the source-side permission record separately.
+The source GLB's `asset.extras` and the live Sketchfab API identify the asset as:
+
+- Title: `2023 Toyota GR Corolla`
+- Author: XENVOR creations (`srineshchethiya` on Sketchfab)
+- Source: https://sketchfab.com/3d-models/2023-toyota-gr-corolla-204283fa663d4ccea7f3bdfd1ba6680e
+- License: Creative Commons Attribution 4.0 International (`CC-BY-4.0`)
+
+CC-BY-4.0 permits sharing and adaptation, including commercial use, provided attribution and the
+license notice are retained. Toyota names and marks remain subject to their respective trademark
+rights; this asset license does not grant trademark ownership or imply Toyota endorsement.
 
 ## Runtime optimization
 
