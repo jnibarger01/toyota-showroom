@@ -58,7 +58,7 @@ export interface GlbJson {
 }
 
 export interface GlbInspection {
-  /** Every named node in the document (mesh-bearing or transform-only). */
+  /** Every raw node name plus its Three.js GLTFLoader runtime name. */
   nodeNames: Set<string>;
   /** Node name → the set of material names its mesh (if any) carries across all primitives. */
   materialsByNode: Map<string, Set<string>>;
@@ -94,9 +94,19 @@ export function inspectGlb(filePath: string): GlbInspection {
   const nodeNames = new Set<string>();
   const materialsByNode = new Map<string, Set<string>>();
 
+  const runtimeNameUses = new Map<string, number>();
   for (const node of document.nodes ?? []) {
     if (!node.name) continue;
     nodeNames.add(node.name);
+    // GLTFLoader routes every node name through PropertyBinding.sanitizeNodeName and gives
+    // collisions numeric suffixes. Catalog contracts address the loaded Three.js scene, so expose
+    // that runtime spelling alongside the raw glTF spelling without importing all of three.js into
+    // this dependency-free inspector.
+    const baseRuntimeName = node.name.replace(/\s/g, "_").replace(/[\[\].:/]/g, "");
+    const seen = runtimeNameUses.get(baseRuntimeName) ?? 0;
+    const runtimeName = seen === 0 ? baseRuntimeName : `${baseRuntimeName}_${seen}`;
+    runtimeNameUses.set(baseRuntimeName, seen + 1);
+    nodeNames.add(runtimeName);
 
     if (node.mesh === undefined) continue;
     const mesh = document.meshes?.[node.mesh];
@@ -108,7 +118,10 @@ export function inspectGlb(filePath: string): GlbInspection {
       const name = document.materials?.[primitive.material]?.name;
       if (name) materialNames.add(name);
     }
-    if (materialNames.size > 0) materialsByNode.set(node.name, materialNames);
+    if (materialNames.size > 0) {
+      materialsByNode.set(node.name, materialNames);
+      materialsByNode.set(runtimeName, materialNames);
+    }
   }
 
   return { nodeNames, materialsByNode };
