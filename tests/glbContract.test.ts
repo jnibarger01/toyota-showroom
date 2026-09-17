@@ -130,6 +130,10 @@ describe("shipped GLB payload budget", () => {
     "/models/gr-corolla-2023/2023_toyota_gr_corolla.glb": 5 * 1024 * 1024,
     "/models/gt86/toyota_gt86.glb": 4 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
+    // ~4.61 MiB optimized authored RAV4 Hybrid import; 6 MiB allows modest mesh growth.
+    "/models/rav4-hybrid-2023/rav4-hybrid.glb": 6 * 1024 * 1024,
+    // ~7.37 MiB optimized authored Land Cruiser import; 9 MiB leaves controlled headroom.
+    "/models/land-cruiser-250-2025/land-cruiser-250.glb": 9 * 1024 * 1024,
   };
 
   for (const vehicle of VEHICLES) {
