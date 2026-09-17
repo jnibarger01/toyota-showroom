@@ -128,10 +128,10 @@ describe("shipped GLB payload budget", () => {
     // permitting the original 68.36 MiB source payload to regress into production.
     "/models/camry/camry.glb": 5 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
-    // ~4.61 MiB optimized authored RAV4 Hybrid import; 6 MiB allows modest mesh growth.
-    "/models/rav4-hybrid-2023/rav4-hybrid.glb": 6 * 1024 * 1024,
-    // ~7.37 MiB optimized authored Land Cruiser import; 9 MiB leaves controlled headroom.
-    "/models/land-cruiser-250-2025/land-cruiser-250.glb": 9 * 1024 * 1024,
+    // Supplied sources are 20.93 MiB / 71.94 MiB. Draco runtime derivatives retain attribution
+    // metadata and semantic names while keeping browser downloads bounded.
+    "/models/rav4-hybrid-2023/rav4-hybrid.glb": 5 * 1024 * 1024,
+    "/models/land-cruiser-250-2025/land-cruiser-250.glb": 8 * 1024 * 1024,
   };
 
   for (const vehicle of VEHICLES) {

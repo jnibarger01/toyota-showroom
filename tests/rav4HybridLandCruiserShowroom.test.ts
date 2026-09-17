@@ -23,7 +23,10 @@ describe("RAV4 Hybrid and Land Cruiser showroom integration", () => {
       expect(existsSync(path.join(process.cwd(), "public", entry.modelUrl))).toBe(true);
       expect(getSceneMapForVehicle(entry.slug).length).toBeGreaterThan(0);
       const options = getOptionsForVehicle(entry.slug);
-      expect(options.length).toBeGreaterThanOrEqual(20);
+      const authoredPaintOptions = options.filter(
+        (option) => option.category === "paint" && !option.id.startsWith("runtime-"),
+      );
+      expect(authoredPaintOptions).toHaveLength(4);
       expect(options.every((option) => option.compatibleVehicleIds.includes(entry.slug))).toBe(true);
     });
   }

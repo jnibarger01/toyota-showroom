@@ -54,3 +54,19 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Meshes: 88   Triangles: 178,690   Materials: 28   Textures: 0
 - Compression: draco
 - Semantic contract: 23 satisfied, 0 unsatisfied
+
+## RAV4 Hybrid body (`rav4-hybrid`)
+
+- Source: `/models/rav4-hybrid-2023/rav4-hybrid.glb` — 4714.9 KiB
+- Meshes: 205   Triangles: 368,950   Materials: 21   Textures: 32
+- Compression: draco
+- Largest textures: (unnamed) (512×512, 266.4 KiB), (unnamed) (512×512, 215.1 KiB), (unnamed) (512×512, 193.4 KiB)
+- Semantic contract: 4 satisfied, 0 unsatisfied
+
+## Land Cruiser body (`land-cruiser`)
+
+- Source: `/models/land-cruiser-250-2025/land-cruiser-250.glb` — 7549.1 KiB
+- Meshes: 293   Triangles: 1,557,462   Materials: 36   Textures: 9
+- Compression: draco
+- Largest textures: (unnamed) (1024×1024, 642.5 KiB), (unnamed) (2048×1024, 404.2 KiB), (unnamed) (512×512, 354.8 KiB)
+- Semantic contract: 5 satisfied, 0 unsatisfied
