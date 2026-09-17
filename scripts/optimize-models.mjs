@@ -75,6 +75,8 @@ const MODELS = [
   { path: asset("4runner-2024/wheel_trd_pro.glb"), label: "4Runner TRD Pro wheel" },
   { path: asset("gr-supra-2024/toyota_gr_supra.glb"), label: "GR Supra", stripTextures: true },
   { path: asset("camry/camry.glb"), label: "Camry", stripTextures: true },
+  { path: asset("gr-corolla-2023/2023_toyota_gr_corolla.glb"), label: "GR Corolla" },
+  { path: asset("gt86/toyota_gt86.glb"), label: "GT86" },
   // External-buffer .gltf (docs/RAV4_PROVENANCE.md §3) — writeTargetFor rewrites it to .glb,
   // repackaging the container only; the primitives are already Draco-compressed on read, and the
   // draco() transform below re-applies the same codec on write, not a different one.

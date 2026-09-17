@@ -5,6 +5,8 @@ import { camry } from "./camry";
 import { ae86 } from "./ae86";
 import { rav4 } from "./rav4";
 import { grSupra } from "./gr-supra";
+import { grCorolla } from "./gr-corolla";
+import { gt86 } from "./gt86";
 import { rav4Hybrid } from "./rav4-hybrid";
 import { landCruiser } from "./land-cruiser";
 
@@ -18,6 +20,8 @@ export const VEHICLES: readonly Vehicle[] = [
   grSupra,
   rav4Hybrid,
   landCruiser,
+  grCorolla,
+  gt86,
 ];
 
 export function getVehicleBySlug(slug: string): Vehicle | undefined {
