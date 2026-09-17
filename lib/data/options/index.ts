@@ -5,6 +5,8 @@ import { camryOptions } from "./camry";
 import { ae86Options } from "./ae86";
 import { rav4Options } from "./rav4";
 import { grSupraOptions } from "./gr-supra";
+import { rav4HybridOptions } from "./rav4-hybrid";
+import { landCruiserOptions } from "./land-cruiser";
 import { getGlobalWheelOptions } from "../wheels";
 import { createRuntimeModificationOptions } from "./runtimeMods";
 
@@ -19,6 +21,8 @@ const BASE_OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
   camry: camryOptions,
   ae86: ae86Options,
   rav4: rav4Options,
+  "rav4-hybrid": rav4HybridOptions,
+  "land-cruiser": landCruiserOptions,
   "gr-supra": grSupraOptions,
 };
 
