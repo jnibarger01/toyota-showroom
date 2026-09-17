@@ -522,6 +522,22 @@ describe("BuilderApp", () => {
     await waitFor(() => expect(screen.queryByTestId("keyboard-shortcut-sheet")).toBeNull());
   });
 
+  it("opens the QR share card with the same ?c= deep link as Share under local persistence", async () => {
+    await renderBuilderReady();
+
+    expect(screen.queryByTestId("share-qr-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /show qr share card/i }));
+
+    const card = await screen.findByTestId("share-qr-card");
+    expect(card).toBeInTheDocument();
+    const urlEl = await screen.findByTestId("share-qr-url");
+    expect(urlEl.textContent).toMatch(/[?&]c=/);
+    expect(urlEl.textContent).not.toMatch(/share-card/);
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("share-qr-card")).toBeNull());
+  });
+
   it("shows graceful unsupported-device messaging when WebXR immersive-ar is unavailable", async () => {
     canvasXr.supported = false;
     await renderBuilderReady();

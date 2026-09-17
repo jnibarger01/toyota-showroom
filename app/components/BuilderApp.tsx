@@ -29,6 +29,7 @@ import {
   Shuffle,
   Save,
   Settings2,
+  QrCode,
   Share2,
   SlidersHorizontal,
   Truck,
@@ -89,6 +90,7 @@ import {
   readBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
+import { createShareQrUrl } from "../../lib/showroom/shareQr";
 import { createShareCardUrl } from "../../lib/showroom/openGraph";
 import { pinConfigurationToGarage } from "../../lib/showroom/garage";
 import {
@@ -106,6 +108,8 @@ import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/show
  * become interactive before that chunk finishes downloading.
  */
 const VehicleCanvas = lazy(() => import("./VehicleCanvas").then((module) => ({ default: module.VehicleCanvas })));
+/** QR share card (#50) — keeps `uqr` out of the BuilderApp chrome chunk. */
+const ShareQrCard = lazy(() => import("./ShareQrCard").then((module) => ({ default: module.ShareQrCard })));
 
 /** Used only when no `vehicleSlug` prop is given — the root route's implicit default vehicle. */
 const DEFAULT_VEHICLE_SLUG = "4runner";
@@ -202,6 +206,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [tourOpen, setTourOpen] = useState(false);
   /** `?` keyboard shortcut cheat sheet (#74). */
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
+  /** Optional QR for the current `?c=` deep link (#50). */
+  const [shareQrOpen, setShareQrOpen] = useState(false);
   /** Cinematic camera tour (hero → wheels → interior), distinct from the onboarding tour card. */
   const [cinematicTourStatus, setCinematicTourStatus] = useState<TourStatus>("idle");
   const [cinematicTourAction, setCinematicTourAction] = useState<TourAction | null>(null);
@@ -903,11 +909,27 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       })
     : "";
 
+  /** Same deep link Share copies under local/demo — always `?c=`, never Worker share-card HTML. */
+  const shareQrUrl = configuration
+    ? createShareQrUrl(window.location.origin, window.location.pathname, {
+        gradeId: configuration.gradeId,
+        selections: configuration.selections,
+        cameraState: configuration.cameraState,
+        paintStudio: configuration.paintStudio,
+      })
+    : "";
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const action = resolveBuilderShortcut(event, { cheatSheetOpen });
       if (!action) {
-        if (event.key === "Escape" && mobilePanelOpen) closeMobilePanel();
+        if (event.key === "Escape") {
+          if (shareQrOpen) {
+            setShareQrOpen(false);
+            return;
+          }
+          if (mobilePanelOpen) closeMobilePanel();
+        }
         return;
       }
       event.preventDefault();
@@ -955,6 +977,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     restoreHistory,
     saveToGarage,
     share,
+    shareQrOpen,
     toggleCinematicTour,
   ]);
 
@@ -1006,6 +1029,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <SaveIndicator status={status} local={isLocalPersistence} />
           <button className="primary" title="Share (Ctrl/⌘ Shift L)" onClick={() => void share()}>
             <Share2 size={16} /> Share
+          </button>
+          <button
+            type="button"
+            className="ghost icon-action"
+            title="Show QR code for this build"
+            aria-label="Show QR share card"
+            aria-pressed={shareQrOpen}
+            disabled={!configuration}
+            onClick={() => setShareQrOpen((open) => !open)}
+          >
+            <QrCode size={16} />
           </button>
         </div>
       </header>
@@ -1088,6 +1122,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       ) : null}
 
       {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your {bootstrap?.vehicle.model ?? "Toyota"}</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
+
+      {shareQrOpen && shareQrUrl ? (
+        <Suspense fallback={null}>
+          <ShareQrCard url={shareQrUrl} onClose={() => setShareQrOpen(false)} />
+        </Suspense>
+      ) : null}
 
       {cheatSheetOpen ? (
         <div
