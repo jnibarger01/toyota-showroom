@@ -18,7 +18,7 @@ names were read out of `public/models/modsnation_7416_assets_assembled.glb`, not
 | Concern | Location | State before this work |
 |---|---|---|
 | Vehicle catalog | `lib/data/vehicles/*.ts` | Solid. Typed, versioned, single source of truth. |
-| Catalog API | `app/api/v1/vehicles/**` | Solid. `force-static`, ETagged, validated query params. |
+| Catalog API | `app/api/v1/vehicles/**` | Solid. Query-aware Worker collection is `force-dynamic`; item/media/options handlers remain `force-static`. Pages uses generated `/catalog/v1/vehicles.json` with client-side pagination. |
 | Static fixtures | `scripts/generate-static-api.ts` | Solid. Generates `/catalog/v1/*.json` for the Pages export. |
 | Client SDK | `lib/api/client.ts` | Solid. Base-path normalization, in-memory caching. |
 | 3D viewport | `app/components/VehicleCanvas.tsx` | **Disconnected.** |

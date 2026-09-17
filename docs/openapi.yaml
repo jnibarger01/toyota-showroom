@@ -8,10 +8,11 @@ info:
     route handlers under `app/api/v1/`, not generated — see `docs/INTEGRATION_GUIDE.md` §5 for the
     design rationale (why option ids are the only thing a client ever sends, why validation always
     re-checks against the server's own catalog) and §12/`docs/DEPLOYMENT_RUNBOOK.md` for where this
-    is actually reachable: the vehicle-catalog routes below (`GET /vehicles*`) are `force-static`
-    and served from both deployment targets (a static JSON snapshot on GitHub Pages,
-    `scripts/generate-static-api.ts`'s output at build time; live from the Worker where one is
-    deployed). The `configurations` routes are `force-dynamic` and only exist where a real,
+    is actually reachable: the Worker collection route (`GET /vehicles`) is `force-dynamic` so it
+    can honor filters and pagination; the item, media, and options handlers remain `force-static`.
+    GitHub Pages does not serve these `/api` routes: it serves the generated, unpaged
+    `/catalog/v1/vehicles.json` snapshot and paginates client-side. The `configurations` routes are
+    `force-dynamic` and only exist where a real,
     request-aware runtime is deployed — GitHub Pages alone cannot serve them at all, which is why
     `lib/api/configurations.ts` falls back to `localConfigurationTransport` (browser
     `localStorage`) once it detects their absence.
