@@ -109,6 +109,14 @@ const ALLOWANCES: Record<string, { bytes: number; why: string }> = {
     bytes: 4 * MiB,
     why: "Optimized Toyota GT86 showroom model; loaded by the GT86 vehicle route.",
   },
+  "public/models/rav4-hybrid-2023/rav4-hybrid.glb": {
+    bytes: 6 * MiB,
+    why: "Optimized RAV4 Hybrid showroom model merged from current main.",
+  },
+  "public/models/land-cruiser-250-2025/land-cruiser-250.glb": {
+    bytes: 9 * MiB,
+    why: "Optimized Land Cruiser showroom model merged from current main.",
+  },
   // Reviewed transfer bundle from #82 (not wired into the runtime catalog yet).
   "assets/imported/toyota-rav4-showroom.glb": {
     bytes: 4 * MiB,

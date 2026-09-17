@@ -1,7 +1,16 @@
 import type { CustomizationOption, MaterialConfig } from "../../types/customization";
 
 const vehicleIds = ["gt86"];
-const bodyNodes = ["Object_10"];
+const bodyNodes = [
+  "Object_10",
+  "Object_11",
+  "Object_12",
+  "Object_13",
+  "Object_14",
+  "Object_15",
+  "Object_16",
+  "Object_17",
+];
 
 function paint(id: string, label: string, color: string, extra: MaterialConfig = {}): CustomizationOption {
   return {
