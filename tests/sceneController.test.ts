@@ -58,7 +58,7 @@ describe("material updates", () => {
 
   it("updates all four tyres while sparing the donor tyre", async () => {
     const { fixture, controller } = makeController();
-    await controller.applyOption(getOptionById("4runner", "trim-tire-letters-raised-white")!);
+    await controller.applyOption(getOptionById("4runner", "tire-sidewall-raised-white")!);
 
     for (const node of [
       "PLACED_KO3_front_left",

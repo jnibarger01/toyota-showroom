@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlertTriangle,
   Armchair,
@@ -67,6 +67,7 @@ import type { Vehicle } from "../../lib/types/vehicle";
 import {
   CATEGORY_APPLY_ORDER,
   isProceduralPreview,
+  selectionGroupOf,
   type CustomizationCategory,
   type CustomizationOption,
   type SelectionMap,
@@ -133,6 +134,44 @@ const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
 
 /** Categories rendered as circular colour swatches rather than text chips. */
 const SWATCH_CATEGORIES: ReadonlySet<CustomizationCategory> = new Set(["paint", "interior"]);
+
+interface OptionSubGroup {
+  key: string;
+  /** Rendered above the chips. Absent when the category has only one sub-group. */
+  heading?: string;
+  options: CustomizationOption[];
+}
+
+/**
+ * Splits a category's options into its `selectionGroup`s, preserving catalog order.
+ *
+ * A category is a rail entry; a selection group is a *choice*. "Wheels & Tires" carries two —
+ * which wheel-and-tyre package is fitted, and what finish its sidewalls wear — and rendering both
+ * as one undifferentiated row of chips would read as a single choice where two clicks are needed.
+ * Every other category has exactly one group, and gets back the single unlabelled row it has always
+ * rendered, so nothing else in the panel moves.
+ */
+function subGroupsOf(options: CustomizationOption[]): OptionSubGroup[] {
+  // A plain array lookup, not a Map: `Map` is a lucide-react icon in this module's import list.
+  // Group counts are single digits, so the linear scan is not worth working around that.
+  const groups: OptionSubGroup[] = [];
+
+  for (const option of options) {
+    const key = selectionGroupOf(option);
+    let group = groups.find((entry) => entry.key === key);
+    if (!group) {
+      group = { key, options: [] };
+      groups.push(group);
+    }
+    group.options.push(option);
+    if (option.groupLabel) group.heading = option.groupLabel;
+  }
+
+  if (groups.length < 2) {
+    for (const group of groups) group.heading = undefined;
+  }
+  return groups;
+}
 
 /**
  * Bootstrap data resolved before the scene is touched.
@@ -1393,19 +1432,29 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <label>{CATEGORY_LABELS[category]}</label>
               {visibleOptions.some(isProceduralPreview) ? (
                 <p className="panel-preview-note" data-testid="procedural-preview-note">
-                  Preview geometry — procedural stand-ins until authored catalog meshes ship. Selections still save by option id.
+                  Preview geometry — generated at runtime and fitted to this vehicle, not an authored catalog mesh. Selections still save by option id.
                 </p>
               ) : null}
-              <div className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"} data-testid={category === "paint" ? "oem-paint-swatches" : undefined}>
-                {visibleOptions.map((option) => (
-                  <CustomizationButton
-                    key={option.id}
-                    option={option}
-                    variant={SWATCH_CATEGORIES.has(category) ? "swatch" : "chip"}
-                    onBeforeSelect={category === "paint" ? rememberPaintHistory : rememberHistory}
-                  />
-                ))}
-              </div>
+              {subGroupsOf(visibleOptions).map(({ key, heading, options: groupOptions }) => (
+                // A category with one sub-group renders exactly the markup it always has — no
+                // wrapper, no heading — so only the Wheels & Tires panel changes shape.
+                <Fragment key={key}>
+                  {heading ? <p className="panel-subgroup-label">{heading}</p> : null}
+                  <div
+                    className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"}
+                    data-testid={category === "paint" ? "oem-paint-swatches" : undefined}
+                  >
+                    {groupOptions.map((option) => (
+                      <CustomizationButton
+                        key={option.id}
+                        option={option}
+                        variant={SWATCH_CATEGORIES.has(category) ? "swatch" : "chip"}
+                        onBeforeSelect={category === "paint" ? rememberPaintHistory : rememberHistory}
+                      />
+                    ))}
+                  </div>
+                </Fragment>
+              ))}
               {visibleOptions.length === 0 ? <p className="panel-empty">No matching options in this system.</p> : null}
             </section>
             );

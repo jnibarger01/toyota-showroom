@@ -32,8 +32,23 @@ The AE86 is wired to a real catalog vehicle (`lib/data/vehicles/ae86.ts`, slug `
 customization catalog (`lib/data/options/ae86.ts`). The asset is a minimal FBX2glTF export — one
 shared material across the body and all four wheels, no separate glass/chrome/trim materials — so its
 catalog is deliberately paint-only for now; see that options file's header comment for the full node
-inventory and why wheels/trim/accessories aren't offered yet. Tacoma and Camry remain catalog entries
-without GLB assets until their source models are supplied and their node contracts are validated.
+inventory and why trim/accessories aren't offered yet. Its wheels come from the shared procedural
+running-gear catalog below, which does not depend on the asset having separable wheel materials.
+Tacoma and Camry remain catalog entries without GLB assets until their source models are supplied and
+their node contracts are validated.
+
+## Wheels and tires
+
+Every vehicle offers wheel-and-tyre packages and sidewall finishes under **Wheels & Tires**,
+regardless of how its own asset models its running gear. The rim and tyre geometry is generated at
+runtime by `lib/three/proceduralWheels.ts` (plain Three.js `BufferGeometry` and PBR materials, so it
+renders identically on the WebGPU renderer and the WebGL2 fallback) and fitted to each vehicle from
+measurements taken off that vehicle's own scene graph (`lib/data/wheelFitment.ts`). That is what lets
+one five-package catalog fit all six vehicles — including the RAV4, whose capture contains no wheel
+geometry at all, and the AE86, whose single baked material makes a wheel finish impossible to target.
+
+Packages are labelled *Preview* in the UI: they are faithful fitments generated from proportions, not
+authored Toyota accessory wheels.
 
 ## Customization integration
 

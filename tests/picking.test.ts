@@ -67,6 +67,49 @@ describe("VehiclePicker", () => {
     picker.dispose();
   });
 
+  it("sees through hidden geometry parked in front of a real part", () => {
+    // Every vehicle carries hidden geometry sitting exactly where a visible part is — the
+    // procedural accessories, and one full set of wheels per offered wheel-and-tyre package.
+    // `Raycaster` does not skip them, so without an explicit visibility filter the nearest hit is a
+    // mesh nobody can see, it resolves to no registered part, and clicking the wheel does nothing.
+    const root = new THREE.Group();
+    root.name = "VEHICLE_ROOT";
+    const wheel = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial());
+    wheel.name = "PLACED_WEISU_front_left";
+    root.add(wheel);
+
+    const hiddenPackage = new THREE.Group();
+    hiddenPackage.name = "WHEELSET_offroad-beadlock";
+    hiddenPackage.visible = false;
+    // Closer to the camera than the real wheel, and unregistered — the exact shadowing case.
+    const hiddenWheel = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 1.2), new THREE.MeshStandardMaterial());
+    hiddenPackage.add(hiddenWheel);
+    root.add(hiddenPackage);
+
+    const { registry } = buildSceneRegistry(root, [
+      {
+        id: "wheel.front-left",
+        type: "wheel",
+        label: "Front-left wheel",
+        capabilities: ["selectable", "wheel"],
+        match: { kind: "object", objectName: "PLACED_WEISU_front_left" },
+      },
+    ]);
+    const picker = new VehiclePicker(registry);
+    picker.prepare(root);
+
+    const result = picker.pick(new THREE.Vector2(0, 0), orthoCameraAlongAxis("y"), root);
+
+    expect(result?.entry.id).toBe("wheel.front-left");
+
+    // …and once the package is fitted it is the wheel on screen, so it shadows the factory one
+    // exactly as it should — a visibility filter, not a blanket exclusion.
+    hiddenPackage.visible = true;
+    expect(picker.pick(new THREE.Vector2(0, 0), orthoCameraAlongAxis("y"), root)).toBeNull();
+
+    picker.dispose();
+  });
+
   it("returns null for a miss", () => {
     const fixture = createVehicleFixture();
     const { registry } = buildSceneRegistry(fixture.root, FOUR_RUNNER_SCENE_MAP);

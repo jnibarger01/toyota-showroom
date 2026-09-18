@@ -104,6 +104,15 @@ export interface CustomizationOption {
    * so options that don't need sub-grouping are unaffected.
    */
   selectionGroup?: string;
+  /**
+   * Heading for this option's `selectionGroup` in the builder panel.
+   *
+   * Only needed where one category renders more than one independently-selectable set — wheel
+   * packages and tyre sidewall finishes both live under `wheels`, and an unlabelled row of chips
+   * mixing them would read as one choice when it is two. Options without it render as they always
+   * have, so no existing category's layout changes.
+   */
+  groupLabel?: string;
   /** Server-resolved. Populated from the trusted asset map; never accepted from a client. */
   assetUrl?: string;
   materialConfig?: MaterialConfig;

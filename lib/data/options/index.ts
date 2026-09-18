@@ -6,6 +6,7 @@ import { ae86Options } from "./ae86";
 import { rav4Options } from "./rav4";
 import { grSupraOptions } from "./gr-supra";
 import { getGlobalWheelOptions } from "../wheels";
+import { getRunningGearOptions } from "./runningGear";
 
 /**
  * Server-side source of truth for customization options. The browser receives these records from
@@ -20,6 +21,20 @@ const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
   rav4: rav4Options,
   "gr-supra": grSupraOptions,
 };
+
+/**
+ * Wheel-and-tyre packages and sidewall finishes, generated for every vehicle from its measured
+ * fitment (`lib/data/wheelFitment.ts`) rather than written out six times.
+ *
+ * Appended here rather than merged into each vehicle's file because the underlying geometry is
+ * shared and generated: the per-vehicle files describe what is *in that vehicle's GLB*, and none of
+ * this is. Vehicles whose assets cannot support wheel options by material at all — the RAV4 has no
+ * wheel geometry, the AE86 bakes rim and tyre into one material — get a real, working wheel
+ * configurator through this path and no other.
+ */
+for (const [vehicleId, options] of Object.entries(OPTIONS_BY_VEHICLE)) {
+  options.push(...getRunningGearOptions(vehicleId));
+}
 
 export const ALL_OPTIONS: readonly CustomizationOption[] = Object.values(OPTIONS_BY_VEHICLE).flat();
 
