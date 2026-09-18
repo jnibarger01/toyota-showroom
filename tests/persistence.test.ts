@@ -3,6 +3,7 @@ import { ApiError } from "../lib/api/errors";
 import { InMemoryConfigurationRepository } from "../lib/server/configurationRepository";
 import { validateCreateConfiguration, validatePatchConfiguration } from "../lib/validation/configuration";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../lib/types/customization";
+import { DEFAULT_CUSTOM_MATERIAL, PAINT_CUSTOM_OPTION_ID } from "../lib/data/paintStudio";
 
 const repo = new InMemoryConfigurationRepository();
 
@@ -69,6 +70,23 @@ describe("update", () => {
     expect(updated.selections.paint).toEqual(["paint-3u5-barcelona-red"]);
     expect(updated.selections.accessory).toEqual(["accessory-roof-rack"]);
     expect(updated.createdAt).toBe(saved.createdAt);
+  });
+
+  it("rejects selections-only patches that invalidate persisted custom paint state", async () => {
+    const { configuration: saved, ownerToken } = await repo.create(
+      validateCreateConfiguration({
+        vehicleId: "4runner",
+        modelYear: 2024,
+        gradeId: "trd-pro",
+        selections: { paint: [PAINT_CUSTOM_OPTION_ID] },
+        paintStudio: { mode: "custom", material: DEFAULT_CUSTOM_MATERIAL },
+      }),
+    );
+
+    await expect(
+      repo.update(saved.configurationId, { selections: { paint: ["paint-218-blueprint"] } }, ownerToken),
+    ).rejects.toMatchObject({ status: 422, code: "invalid_body" });
+    expect((await repo.get(saved.configurationId))?.revision).toBe(1);
   });
 
   it("preserves fields the patch omits", async () => {

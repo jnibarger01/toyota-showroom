@@ -1,5 +1,5 @@
 import { CUSTOMIZATION_SCHEMA_VERSION, type VehicleConfiguration } from "../types/customization";
-import type { ValidatedConfigurationInput, ValidatedPatch } from "../validation/configuration";
+import { validatePaintStudio, type ValidatedConfigurationInput, type ValidatedPatch } from "../validation/configuration";
 import { forbidden, notFound, revisionConflict } from "../api/errors";
 import { generateOwnerToken, hashOwnerToken, verifyOwnerToken } from "../shared/ownerToken";
 import { newId } from "../shared/id";
@@ -101,11 +101,15 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
       );
     }
 
+    const nextSelections = patch.selections ?? existing.selections;
+    const nextPaintStudio = patch.paintStudio ?? existing.paintStudio;
+    if (nextPaintStudio) validatePaintStudio(nextPaintStudio, nextSelections);
+
     const next: VehicleConfiguration = {
       ...existing,
-      selections: patch.selections ?? existing.selections,
+      selections: nextSelections,
       cameraState: patch.cameraState ?? existing.cameraState,
-      paintStudio: patch.paintStudio ?? existing.paintStudio,
+      paintStudio: nextPaintStudio,
       revision: existing.revision + 1,
       updatedAt: new Date().toISOString(),
     };

@@ -9,7 +9,7 @@ import { validateSelections } from "../lib/validation/configuration";
 import { withOptionSelected, type CustomizationOption } from "../lib/types/customization";
 import { ApiError } from "../lib/api/errors";
 import { resolveAssetUrl } from "../lib/three/assetUrl";
-import { markAttached } from "../lib/three/assets";
+import { DRACO_DECODER_PATH, markAttached } from "../lib/three/assets";
 
 /**
  * Regression coverage for the issues raised in review of PR #2. Each block names the behaviour it
@@ -186,6 +186,11 @@ describe("material disposal", () => {
 // ─────────────────────────────────────────────── asset URL normalization
 
 describe("catalog asset URLs", () => {
+  it("keeps the Draco decoder path app-relative instead of protocol-relative", () => {
+    expect(DRACO_DECODER_PATH).toBe(resolveAssetUrl("/draco/"));
+    expect(DRACO_DECODER_PATH.startsWith("//")).toBe(false);
+  });
+
   it("does not double-prefix an already-normalized deployment URL", () => {
     expect(resolveAssetUrl("/toyota-showroom/models/parts/x.glb", "/toyota-showroom")).toBe(
       "/toyota-showroom/models/parts/x.glb",

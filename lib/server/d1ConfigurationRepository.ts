@@ -13,7 +13,7 @@ import {
   type VehicleConfiguration,
 } from "../types/customization";
 import type { PaintStudioState } from "../types/paintStudio";
-import type { ValidatedConfigurationInput, ValidatedPatch } from "../validation/configuration";
+import { validatePaintStudio, type ValidatedConfigurationInput, type ValidatedPatch } from "../validation/configuration";
 import { forbidden, notFound, revisionConflict } from "../api/errors";
 import { generateOwnerToken, hashOwnerToken, verifyOwnerToken } from "../shared/ownerToken";
 import { newId } from "../shared/id";
@@ -138,6 +138,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
     const nextSelections = patch.selections ?? row.selections;
     const nextCameraState = patch.cameraState ?? row.cameraState;
     const nextPaintStudio = patch.paintStudio !== undefined ? patch.paintStudio : row.paintStudio;
+    if (nextPaintStudio) validatePaintStudio(nextPaintStudio, nextSelections);
 
     const updateStatement = this.db
       .update(configurations)
