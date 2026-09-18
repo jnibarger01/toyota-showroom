@@ -90,6 +90,8 @@ type Props = {
   /** Full server catalog. Only the options this GLB can satisfy are handed back via `onReady`. */
   catalog: CustomizationOption[];
   cameraPreset: CameraPreset;
+  /** False when the route is intentionally presenting a static vehicle preview over this internal scene. */
+  interactive?: boolean;
   /** Ride-height offset in inches; not a catalog category, so it stays a plain prop. */
   lift: number;
   terrain: Terrain;
@@ -178,7 +180,7 @@ type Props = {
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, interactive = true, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -938,16 +940,19 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         // viewport was pointer-only. `group` rather than `application`: the element is a composite
         // widget the user steps into, and `application` would suppress the screen reader's own
         // navigation keys everywhere inside it in exchange for nothing this needs.
-        tabIndex={0}
-        role="group"
+        tabIndex={interactive ? 0 : -1}
+        role={interactive ? "group" : undefined}
+        aria-hidden={interactive ? undefined : true}
         aria-label={
-          "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
-          "and Home to return to the selected camera angle. Use the right and left bracket keys " +
-          "to cycle through selectable vehicle parts, Enter to select the highlighted part, and " +
-          "Escape to clear the selection. Click or tap a part directly to select it."
+          interactive
+            ? "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
+              "and Home to return to the selected camera angle. Use the right and left bracket keys " +
+              "to cycle through selectable vehicle parts, Enter to select the highlighted part, and " +
+              "Escape to clear the selection. Click or tap a part directly to select it."
+            : undefined
         }
       />
-      {modelStatus ? (
+      {interactive && modelStatus ? (
         <CanvasModelStatus
           kind={modelStatus}
           onRetry={

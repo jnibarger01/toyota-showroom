@@ -104,9 +104,9 @@ export const tacoma: Vehicle = {
   ],
 
   media: {
-    hero: { url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota Tacoma TRD Pro placeholder hero" },
+    hero: { url: "/images/vehicles/tacoma/tacoma-static-preview.svg", alt: "2024 Toyota Tacoma static pickup preview" },
     gallery: [],
-    thumbnails: [{ url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota Tacoma thumbnail" }],
+    thumbnails: [{ url: "/images/vehicles/tacoma/tacoma-static-preview.svg", alt: "2024 Toyota Tacoma thumbnail" }],
     videos: [],
     environmentMaps: [],
   },

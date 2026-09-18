@@ -39,12 +39,14 @@ export async function generateMetadata({
 
 export default async function VehiclePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  const vehicle = getVehicleBySlug(slug);
+  const hasDetailedModel = Boolean(vehicle?.threeDConfig.hasModel && vehicle.threeDConfig.modelUrl);
   // `key` forces a clean remount on vehicle switches — see the comment on BuilderApp's bootstrap
   // effect for why that's the chosen reset strategy over clearing state imperatively in an effect.
   return (
     <>
       <BuilderApp key={slug} vehicleSlug={slug} />
-      <PremiumViewerControls />
+      {hasDetailedModel ? <PremiumViewerControls /> : null}
     </>
   );
 }

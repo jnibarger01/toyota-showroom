@@ -130,7 +130,8 @@ describe("VehicleCanvas keyboard access", () => {
   const source = readFileSync(path.join(process.cwd(), "app/components/VehicleCanvas.tsx"), "utf8");
 
   it("makes the stage focusable and labelled", () => {
-    expect(source).toContain("tabIndex={0}");
+    expect(source).toContain("tabIndex={interactive ? 0 : -1}");
+    expect(source).toContain('role={interactive ? "group" : undefined}');
     expect(source).toContain("aria-label");
   });
 

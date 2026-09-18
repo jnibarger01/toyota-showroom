@@ -94,11 +94,10 @@ export const ae86: Vehicle = {
   ],
 
   media: {
-    // No dedicated AE86 photography exists in this repo; reusing the shared placeholder image, same
-    // convention lib/data/vehicles/tacoma.ts and camry.ts already use for vehicles without one.
-    hero: { url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota 4Runner TRD Pro placeholder hero (no AE86 photography available)" },
+    // Dedicated still captured from this vehicle's verified in-app GLB so lineup cards never borrow another model's imagery.
+    hero: { url: "/images/vehicles/ae86/ae86-front-three-quarter.webp", alt: "1985 Toyota Corolla GT-S AE86 front three-quarter 3D render" },
     gallery: [],
-    thumbnails: [{ url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "Toyota AE86 thumbnail placeholder" }],
+    thumbnails: [{ url: "/images/vehicles/ae86/ae86-front-three-quarter.webp", alt: "1985 Toyota Corolla GT-S AE86 thumbnail" }],
     videos: [],
     environmentMaps: [],
   },
@@ -107,8 +106,7 @@ export const ae86: Vehicle = {
     hasModel: true,
     modelUrl: "/models/toyota-ae86-ivofficial.glb",
     // Distances scaled down from the 4Runner's presets for a car roughly two-thirds the length and
-    // notably lower — not visually verified in a browser (no GPU available in this environment); a
-    // manual pass to fine-tune framing is a documented follow-up.
+    // notably lower. These presets have since been browser-verified at desktop and mobile sizes.
     cameraPresets: [
       { id: "hero", label: "Hero", position: [5.0, 2.2, 5.5], target: [0, 0.55, 0] },
       { id: "wheels", label: "Wheels", position: [3.0, 0.65, 3.1], target: [-0.55, 0.35, 0.85] },

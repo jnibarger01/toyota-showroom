@@ -21,6 +21,7 @@ import {
   Mountain,
   Move3d,
   Map,
+  Menu,
   PaintBucket,
   Pause,
   Play,
@@ -48,6 +49,7 @@ import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
 import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
 import type { QualityPreference } from "../../lib/three/qualityPreference";
+import { resolveAssetUrl } from "../../lib/three/assetUrl";
 import { describeGradeChange, describeSelectionChange } from "../../lib/showroom/selectionAnnouncement";
 import { describeTourScene } from "../../lib/showroom/tourAnnouncement";
 import {
@@ -229,6 +231,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [qualityPreference, setQualityPreference] = useState<QualityPreference>("auto");
   /** True when the chosen tier needs a reload to apply in full — see `qualityPreferenceNeedsReload`. */
   const [qualityNeedsReload, setQualityNeedsReload] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   /** Text for the polite live region — the only channel that reports a selection to a screen reader
    * when focus is not on the control that changed (deep link, undo, grade switch). */
@@ -245,6 +248,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const fullApplicableRef = useRef<CustomizationOption[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
   const configJsonFileRef = useRef<HTMLInputElement>(null);
+  const mobileMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuRef = useRef<HTMLElement>(null);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
   const mobilePanelRef = useRef<HTMLElement>(null);
   const undoStack = useRef<SelectionMap[]>([]);
@@ -784,6 +789,47 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   );
 
   useEffect(() => {
+    if (!mobileMenuOpen) return;
+
+    const panel = mobileMenuRef.current;
+    const focusable = () =>
+      Array.from(
+        panel?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+
+    const items = focusable();
+    items[0]?.focus();
+
+    const onMenuKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Tab") return;
+      const menuItems = focusable();
+      if (menuItems.length === 0) {
+        event.preventDefault();
+        panel?.focus();
+        return;
+      }
+      const first = menuItems[0];
+      const last = menuItems[menuItems.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    panel?.addEventListener("keydown", onMenuKeyDown);
+    return () => panel?.removeEventListener("keydown", onMenuKeyDown);
+  }, [mobileMenuOpen]);
+
+  const closeMobileMenu = useCallback(() => {
+    setMobileMenuOpen(false);
+    window.setTimeout(() => mobileMenuTriggerRef.current?.focus(), 0);
+  }, []);
+
+  useEffect(() => {
     if (!mobilePanelOpen) return;
 
     const panel = mobilePanelRef.current;
@@ -928,6 +974,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             setShareQrOpen(false);
             return;
           }
+          if (mobileMenuOpen) {
+            closeMobileMenu();
+            return;
+          }
           if (mobilePanelOpen) closeMobilePanel();
         }
         return;
@@ -971,8 +1021,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   }, [
     cheatSheetOpen,
     cinematicTourStatus,
+    closeMobileMenu,
     closeMobilePanel,
     dispatchCinematicTour,
+    mobileMenuOpen,
     mobilePanelOpen,
     restoreHistory,
     saveToGarage,
@@ -1004,6 +1056,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const { vehicle } = bootstrap;
   const cameraPresets = vehicle.threeDConfig.cameraPresets;
+  const hasDetailedModel = Boolean(vehicle.threeDConfig.hasModel && vehicle.threeDConfig.modelUrl);
 
   return (
     <main className="builder-shell">
@@ -1021,6 +1074,21 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button onClick={() => window.location.assign(pageUrl("garage"))}>Garage</button>
         </nav>
         <div className="top-actions">
+          <button
+            ref={mobileMenuTriggerRef}
+            type="button"
+            className="mobile-menu-trigger"
+            aria-controls="builder-menu"
+            aria-expanded={mobileMenuOpen}
+            aria-label={mobileMenuOpen ? "Close build menu" : "Open build menu"}
+            onClick={() => {
+              setTourOpen(false);
+              setMobilePanelOpen(false);
+              setMobileMenuOpen((open) => !open);
+            }}
+          >
+            <Menu size={18} aria-hidden />
+          </button>
           <button className="ghost icon-action" title="Undo (Ctrl/⌘ Z)" disabled={!historyAvailability.canUndo} onClick={() => void restoreHistory("undo")}><Undo2 size={16} /></button>
           <button className="ghost icon-action" title="Redo (Ctrl/⌘ Shift Z)" disabled={!historyAvailability.canRedo} onClick={() => void restoreHistory("redo")}><Redo2 size={16} /></button>
           <button className="ghost" onClick={() => void reset()}>
@@ -1089,7 +1157,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         can find it, and this status explains why a tap does nothing. Hidden while pending/supported
         so desktop WebGPU/WebGL viewers are not nagged by a permanent banner.
       */}
-      {xrCapability === "unsupported" ? (
+      {hasDetailedModel && xrCapability === "unsupported" ? (
         <p className="xr-capability-status" id="xr-capability-status" role="status" data-testid="xr-unsupported-message">
           {xrCapabilityMessage}
         </p>
@@ -1166,7 +1234,35 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       ) : null}
 
       <section className="workspace">
-        <aside className="left-rail">
+        {mobileMenuOpen ? (
+          <button
+            className="mobile-menu-backdrop"
+            aria-label="Close build menu"
+            onClick={closeMobileMenu}
+          />
+        ) : null}
+        <aside
+          ref={mobileMenuRef}
+          id="builder-menu"
+          className={`left-rail ${mobileMenuOpen ? "mobile-open" : ""}`}
+          role={mobileMenuOpen ? "dialog" : undefined}
+          aria-modal={mobileMenuOpen || undefined}
+          aria-label={mobileMenuOpen ? "Build menu" : undefined}
+          tabIndex={-1}
+        >
+          <div className="mobile-builder-nav">
+            <div className="mobile-builder-nav-header">
+              <strong>Build menu</strong>
+              <button className="panel-close" aria-label="Close build menu" onClick={closeMobileMenu}>
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mobile-builder-nav-links">
+              <button className="active" type="button" onClick={closeMobileMenu}>Build</button>
+              <button type="button" onClick={() => window.location.assign(pageUrl("explore"))}>Explore</button>
+              <button type="button" onClick={() => window.location.assign(pageUrl("garage"))}>Garage</button>
+            </div>
+          </div>
           <div className="vehicle-title">
             <span>{vehicle.year} TOYOTA</span>
             <h1>{vehicle.model}</h1>
@@ -1229,6 +1325,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </aside>
 
         <section className="stage" ref={stageRef}>
+          {hasDetailedModel ? (
           <div className="stage-toolbar">
             <div className="camera-group">
               <Camera size={16} />
@@ -1335,6 +1432,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
             </div>
           </div>
+          ) : null}
 
           <button
             ref={mobileTriggerRef}
@@ -1343,6 +1441,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             aria-expanded={mobilePanelOpen}
             onClick={() => {
               setTourOpen(false);
+              setMobileMenuOpen(false);
               setMobilePanelOpen(true);
             }}
           >
@@ -1361,6 +1460,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               slug={vehicle.slug}
               catalog={bootstrap.catalog}
               cameraPreset={preset}
+              interactive={hasDetailedModel}
               lift={lift}
               terrain={terrain}
               environmentPreset={environmentPreset}
@@ -1384,6 +1484,16 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             />
             </Suspense>
           </CanvasErrorBoundary>
+          {!hasDetailedModel ? (
+            <div className="vehicle-canvas static-vehicle-preview" data-testid="static-vehicle-preview">
+              {/* eslint-disable-next-line @next/next/no-img-element -- static export; no image optimizer. */}
+              <img src={resolveAssetUrl(vehicle.media.hero.url)} alt={vehicle.media.hero.alt} />
+              <div className="static-vehicle-preview-notice">
+                <strong>3D model unavailable</strong>
+                <span>Showing a static {vehicle.model} preview. Configuration controls remain available.</span>
+              </div>
+            </div>
+          ) : null}
           {selectedPart && (
             <div className="selected-part-badge">
               <span>{selectedPart.label}</span>
@@ -1412,9 +1522,18 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             </div>
           )}
 
-          <div className="gpu-status">
-            <span><i /> WebGPU preferred</span>
-            <small>{bootstrap?.vehicle.model ?? "Vehicle"} asset · WebGL fallback ready</small>
+          <div className={hasDetailedModel ? "gpu-status" : "gpu-status static-preview-status"}>
+            {hasDetailedModel ? (
+              <>
+                <span><i /> WebGPU preferred</span>
+                <small>{bootstrap?.vehicle.model ?? "Vehicle"} asset · WebGL fallback ready</small>
+              </>
+            ) : (
+              <>
+                <span>Static vehicle preview</span>
+                <small>{vehicle.model} · interactive 3D not available</small>
+              </>
+            )}
           </div>
         </section>
 

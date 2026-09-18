@@ -63,10 +63,11 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
-body { font-family: var(--font-family-base); overflow: hidden; }
+body { font-family: var(--font-family-base); overflow: auto; }
 button { font: inherit; color: inherit; }
 
-.builder-shell { min-height: 100vh; background: radial-gradient(circle at 45% 10%, #18202a 0, #0b0f14 38%, #07090c 100%); }
+/* Only the fixed-height configurator owns viewport locking. Document-flow routes (Explore/Compare/Garage) must scroll normally. */
+.builder-shell { height: 100vh; min-height: 100vh; overflow: hidden; background: radial-gradient(circle at 45% 10%, #18202a 0, #0b0f14 38%, #07090c 100%); }
 .builder-status { display: grid; place-items: center; color: var(--muted); font-size: 14px; }
 .topbar {
   height: 72px; display: grid; grid-template-columns: 260px 1fr auto; align-items: center;
@@ -254,6 +255,22 @@ button { font: inherit; color: inherit; }
 .vehicle-canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .vehicle-canvas-loading { display: flex; align-items: center; justify-content: center; color: var(--muted); }
 
+.static-vehicle-preview {
+  z-index: 3; display: grid; place-items: center; overflow: hidden; pointer-events: auto;
+  background: radial-gradient(circle at 50% 42%, #1d2732 0, #0c1117 58%, #080b0f 100%);
+}
+.static-vehicle-preview img {
+  width: 100%; height: 100%; object-fit: contain; padding: clamp(28px, 6vw, 72px);
+}
+.static-vehicle-preview-notice {
+  position: absolute; left: 18px; right: 18px; bottom: 102px; display: grid; gap: 3px;
+  max-width: 420px; padding: 10px 12px; border: 1px solid #3b4652; border-radius: 10px;
+  background: rgba(10,14,19,.9); box-shadow: var(--shadow-elevated);
+}
+.static-vehicle-preview-notice strong { font-size: 12px; }
+.static-vehicle-preview-notice span { color: #9aa4b0; font-size: 10px; line-height: 1.4; }
+.static-preview-status i { display: none; }
+
 /*
  * Vehicle download progress. Sits at the top edge of the stage rather than centred over it,
  * because the showroom is already rendered and interactive underneath while this counts up —
@@ -341,7 +358,7 @@ button { font: inherit; color: inherit; }
 .panel-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
 .panel-title h2 { margin: 3px 0 0; font-size: 20px; }
 .panel-actions { display: flex; align-items: center; gap: 8px; }
-.mobile-config-trigger, .mobile-panel-backdrop, .panel-close { display: none; }
+.mobile-menu-trigger, .mobile-menu-backdrop, .mobile-builder-nav, .mobile-config-trigger, .mobile-panel-backdrop, .panel-close { display: none; }
 .option-tools { display: grid; grid-template-columns: 1fr auto; gap: 7px; margin-bottom: 13px; }
 .option-tools label { display: flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid #2c343e; border-radius: 8px; background: #11161c; }
 .option-tools input { width: 100%; height: 34px; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 11px; }
@@ -471,24 +488,55 @@ button { font: inherit; color: inherit; }
   .workspace { grid-template-columns: 200px minmax(0, 1fr); }
   .right-panel { position: absolute; right: 0; top: 72px; bottom: 0; width: 290px; z-index: 8; box-shadow: -18px 0 45px rgba(0,0,0,.4); }
 }
-@media (max-width: 760px) {
-  body { overflow: hidden; }
-  .topbar { grid-template-columns: 1fr auto; }
-  .topbar nav, .top-actions .ghost { display: none; }
-  .workspace { height: calc(100vh - 72px); grid-template-columns: 1fr; }
-  .left-rail { display: none; }
-  .right-panel {
-    display: block; position: fixed; top: 72px; right: 0; bottom: 0; width: min(92vw, 340px);
-    z-index: 22; box-shadow: -18px 0 45px rgba(0,0,0,.55); transform: translateX(105%);
-    visibility: hidden; transition: transform var(--duration-base) var(--ease-standard), visibility 0s var(--duration-base);
+@media (max-width: 900px) {
+  .stage-toolbar {
+    flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 6px;
   }
-  .right-panel.mobile-open { transform: translateX(0); visibility: visible; transition-delay: 0s; }
+  .camera-group, .viewport-actions {
+    flex: none; max-width: 100%; min-width: 0; overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .camera-group::-webkit-scrollbar, .viewport-actions::-webkit-scrollbar { display: none; }
+  .camera-group > *, .viewport-actions > * { flex: 0 0 auto; }
+  .viewport-actions { align-self: flex-end; }
+}
+@media (max-width: 760px) {
+  .topbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .topbar nav, .top-actions .ghost { display: none; }
+  .brand, .brand > div { min-width: 0; }
+  .brand strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .top-actions { gap: 6px; }
+  .mobile-menu-trigger {
+    display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
+    border: 1px solid var(--border); border-radius: 9px; background: #151a21;
+  }
+  .workspace { height: calc(100vh - 72px); grid-template-columns: 1fr; }
+  .left-rail, .right-panel {
+    display: block; position: fixed; top: 72px; bottom: 0; width: min(92vw, 340px);
+    z-index: 22; visibility: hidden;
+    transition: transform var(--duration-base) var(--ease-standard), visibility 0s var(--duration-base);
+  }
+  .left-rail {
+    left: 0; transform: translateX(-105%); box-shadow: 18px 0 45px rgba(0,0,0,.55);
+  }
+  .right-panel {
+    right: 0; transform: translateX(105%); box-shadow: -18px 0 45px rgba(0,0,0,.55);
+  }
+  .left-rail.mobile-open, .right-panel.mobile-open {
+    transform: translateX(0); visibility: visible; transition-delay: 0s;
+  }
   .mobile-config-trigger {
     display: inline-flex; position: absolute; right: 16px; bottom: 88px; z-index: 7;
     align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 1px solid #743036;
     border-radius: 9px; background: #2a171a; box-shadow: var(--shadow-elevated); color: white; font-size: 12px;
   }
-  .mobile-panel-backdrop { display: block; position: fixed; inset: 72px 0 0; z-index: 21; border: 0; background: rgba(0,0,0,.58); }
+  .mobile-menu-backdrop, .mobile-panel-backdrop { display: block; position: fixed; inset: 72px 0 0; z-index: 21; border: 0; background: rgba(0,0,0,.58); }
+  .mobile-builder-nav { display: grid; gap: 10px; margin: -6px 0 18px; padding-bottom: 16px; border-bottom: 1px solid #222a33; }
+  .mobile-builder-nav-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .mobile-builder-nav-header strong { font-size: 13px; }
+  .mobile-builder-nav-links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .mobile-builder-nav-links button { min-height: 38px; border: 1px solid #2c343e; border-radius: 8px; background: #151a21; color: #aeb6c1; font-size: 11px; }
+  .mobile-builder-nav-links button.active { border-color: #743036; background: #2a171a; color: #fff; }
   .panel-close { width: 34px; height: 34px; padding: 0; place-items: center; border: 1px solid #2c343e; border-radius: 8px; background: #151a21; color: #cfd5dc; }
   .mobile-open .panel-close { display: grid; }
   .vehicle-canvas { inset-bottom: 70px; }
