@@ -1,5 +1,5 @@
 import { invalidQuery } from "../api/errors";
-import { DEFAULT_PAGE_SIZE, type Pagination, type VehicleFilters } from "../api/query";
+import { decodeVehicleCursor, DEFAULT_PAGE_SIZE, type Pagination, type VehicleFilters } from "../api/query";
 import type { AvailabilityStatus, BodyStyle, DrivetrainType, PowertrainType } from "../types/vehicle";
 
 const BODY_STYLES: BodyStyle[] = ["suv", "truck", "sedan", "minivan", "crossover", "coupe", "hatchback"];
@@ -33,8 +33,14 @@ function parseNumber(value: string | null, paramName: string): number | undefine
   return num;
 }
 
+const ALLOWED_QUERY_PARAMS = new Set(["bodyStyle", "category", "drivetrain", "powertrainType", "availability", "minPrice", "maxPrice", "minSeating", "minTowingLbs", "page", "pageSize", "cursor"]);
+
 /** Parses and validates `/api/v1/vehicles` query parameters into filters + pagination. Throws ApiError on bad input. */
 export function parseVehicleQuery(searchParams: URLSearchParams): { filters: VehicleFilters; pagination: Pagination } {
+  for (const key of searchParams.keys()) {
+    if (!ALLOWED_QUERY_PARAMS.has(key)) throw invalidQuery(`Unknown query parameter "${key}".`);
+  }
+
   const filters: VehicleFilters = {
     bodyStyle: parseEnumList(searchParams.get("bodyStyle"), BODY_STYLES, "bodyStyle"),
     category: splitParam(searchParams.get("category")),
@@ -47,10 +53,15 @@ export function parseVehicleQuery(searchParams: URLSearchParams): { filters: Veh
     minTowingLbs: parseNumber(searchParams.get("minTowingLbs"), "minTowingLbs"),
   };
 
+  const cursor = searchParams.get("cursor");
+  if (cursor !== null && searchParams.has("page")) throw invalidQuery(`"cursor" and "page" are mutually exclusive.`);
+  const cursorOffset = cursor === null ? undefined : decodeVehicleCursor(cursor);
+  if (cursor !== null && cursorOffset === null) throw invalidQuery(`"cursor" is malformed or unsupported.`);
+
   const page = parseNumber(searchParams.get("page"), "page") ?? 1;
   const pageSize = parseNumber(searchParams.get("pageSize"), "pageSize") ?? DEFAULT_PAGE_SIZE;
   if (page < 1 || !Number.isInteger(page)) throw invalidQuery(`"page" must be a positive integer, got "${page}"`);
   if (pageSize < 1 || !Number.isInteger(pageSize)) throw invalidQuery(`"pageSize" must be a positive integer, got "${pageSize}"`);
 
-  return { filters, pagination: { page, pageSize } };
+  return { filters, pagination: { page, pageSize, ...(typeof cursorOffset === "number" ? { cursorOffset } : {}) } };
 }

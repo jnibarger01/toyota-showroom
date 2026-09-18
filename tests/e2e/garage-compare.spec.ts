@@ -17,6 +17,15 @@ async function waitForAutosaveIdle(page: import("@playwright/test").Page): Promi
   await expect(page.getByRole("button", { name: /saving/i })).toHaveCount(0, { timeout: 10_000 });
 }
 
+/** First Save build opens the one-time owner-token dialog (#80); dismiss so later steps can proceed. */
+async function dismissOwnerTokenDialogIfShown(page: import("@playwright/test").Page): Promise<void> {
+  const dialog = page.getByTestId("owner-token-dialog");
+  if ((await dialog.count()) === 0) return;
+  page.once("dialog", (d) => void d.accept());
+  await page.getByTestId("owner-token-dismiss").click();
+  await expect(dialog).toHaveCount(0);
+}
+
 test("garage compare shows 2–4 slots and a visible spec delta", async ({ page }) => {
   await page.goto("4runner/");
 
@@ -31,6 +40,7 @@ test("garage compare shows 2–4 slots and a visible spec delta", async ({ page 
 
   await page.getByRole("button", { name: /^save build$/i }).click();
   await expect(page.locator(".garage-card")).toContainText(/pinned to garage|saved to your garage/i);
+  await dismissOwnerTokenDialogIfShown(page);
 
   // New configuration id (grade switch). Limited offers Barcelona Red Metallic.
   const limited = page.getByRole("button", { name: /Limited/i });
@@ -46,6 +56,7 @@ test("garage compare shows 2–4 slots and a visible spec delta", async ({ page 
 
   await page.getByRole("button", { name: /^save build$/i }).click();
   await expect(page.locator(".garage-card")).toContainText(/pinned to garage|saved to your garage/i);
+  await dismissOwnerTokenDialogIfShown(page);
 
   await page.goto("garage/");
   await expect(page.getByTestId("garage-groups")).toBeVisible({ timeout: 15_000 });

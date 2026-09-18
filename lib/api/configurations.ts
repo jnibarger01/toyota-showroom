@@ -8,6 +8,8 @@ import type { PaintStudioState } from "../types/paintStudio";
 import { ApiError, type ApiErrorBody } from "./errors";
 import { isOptionAvailableForGrade } from "../data/options";
 import { localConfigurationTransport } from "./localConfigurationTransport";
+import { trackPersistenceMode } from "../observability/funnelTelemetry";
+import { ProviderUnavailableError, resilientFetch } from "./resilientFetch";
 
 /**
  * The only module in the client that talks to the configuration endpoints.
@@ -33,13 +35,14 @@ function catalogUrl(path: string): string {
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await resilientFetch(url, {
       ...init,
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
   } catch (cause) {
-    // Network-level failure never reaches the UI as a raw TypeError.
-    throw new ApiError(0, "network_error", "Could not reach the configuration service.", { cause });
+    // Network-level, timeout, retry exhaustion, and open-circuit failures never reaches the UI as a raw TypeError.
+    const code = cause instanceof ProviderUnavailableError ? "provider_unavailable" : "network_error";
+    throw new ApiError(0, code, "Could not reach the configuration service.", { cause });
   }
 
   if (!response.ok) {
@@ -89,6 +92,7 @@ function notifyPersistenceModeListeners(): void {
 function setRemoteAvailable(value: boolean): void {
   if (remoteAvailable === value) return;
   remoteAvailable = value;
+  trackPersistenceMode(value ? "worker" : "local");
   notifyPersistenceModeListeners();
 }
 
@@ -108,7 +112,7 @@ export function subscribePersistenceMode(listener: () => void): () => void {
 
 function indicatesMissingBackend(error: unknown, method: "GET" | "WRITE"): boolean {
   if (!(error instanceof ApiError)) return false;
-  if (error.code === "network_error" || error.status === 405 || error.status === 501) return true;
+  if (error.code === "network_error" || error.code === "provider_unavailable" || error.status === 405 || error.status === 501) return true;
 
   if (error.status === 404) {
     // A write can only 404 on a host that has no such route.
@@ -168,18 +172,31 @@ export interface UpdateConfigurationInput {
  * Owner-token bookkeeping (lib/shared/ownerToken.ts).
  *
  * `createConfiguration` receives a plaintext capability token exactly once and remembers it here;
- * `updateConfiguration`/`deleteConfiguration` attach it automatically. This is deliberately invisible
- * to every caller above this module — `configurationStore.ts` and `BuilderApp.tsx` call
- * `updateConfiguration(id, patch)` exactly as before and need no awareness that a write is now
- * authenticated at all.
+ * `updateConfiguration`/`deleteConfiguration` attach it automatically for the store path.
+ *
+ * The builder also surfaces that plaintext once after the first explicit "Save build" (#31 / #80):
+ * `takeOwnerTokenForFirstSaveReveal` + `markOwnerTokenShown` keep the raw secret out of the DOM on
+ * later saves and refreshes. Tokens stay in localStorage only for authenticated PATCH/DELETE —
+ * never for re-display.
  */
 const OWNER_TOKENS_STORAGE_KEY = "toyota-showroom:ownerTokens";
+/** Configuration ids whose owner token has already been shown in the one-time save dialog. */
+const OWNER_TOKENS_SHOWN_KEY = "toyota-showroom:ownerTokensShown";
 const OWNER_TOKEN_HEADER = "X-Owner-Token";
 
 function readOwnerTokens(): Record<string, string> {
   try {
     const raw = window.localStorage.getItem(OWNER_TOKENS_STORAGE_KEY);
     return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function readShownOwnerTokenIds(): Record<string, true> {
+  try {
+    const raw = window.localStorage.getItem(OWNER_TOKENS_SHOWN_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, true>) : {};
   } catch {
     return {};
   }
@@ -209,6 +226,45 @@ function forgetOwnerToken(configurationId: string): void {
   } catch {
     // Nothing to recover — the configuration itself is already gone.
   }
+  try {
+    const shown = readShownOwnerTokenIds();
+    if (shown[configurationId]) {
+      delete shown[configurationId];
+      window.localStorage.setItem(OWNER_TOKENS_SHOWN_KEY, JSON.stringify(shown));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Whether the one-time save dialog has already presented this configuration's owner token.
+ * Persisted so a refresh never re-shows the raw secret (#80).
+ */
+export function wasOwnerTokenShown(configurationId: string): boolean {
+  return Boolean(readShownOwnerTokenIds()[configurationId]);
+}
+
+/** Mark the token as shown-once so later saves / reloads skip the reveal dialog. */
+export function markOwnerTokenShown(configurationId: string): void {
+  try {
+    const shown = readShownOwnerTokenIds();
+    shown[configurationId] = true;
+    window.localStorage.setItem(OWNER_TOKENS_SHOWN_KEY, JSON.stringify(shown));
+  } catch {
+    /* best-effort — worst case the dialog may reappear once */
+  }
+}
+
+/**
+ * For the first explicit "Save build": return the remembered plaintext token if it has not been
+ * shown yet. Does not mark shown — the dialog calls `markOwnerTokenShown` on dismiss so a mid-dialog
+ * refresh can still recover the prompt once.
+ */
+export function takeOwnerTokenForFirstSaveReveal(configurationId: string): string | null {
+  if (wasOwnerTokenShown(configurationId)) return null;
+  const token = readOwnerTokens()[configurationId];
+  return token || null;
 }
 
 /**

@@ -16,11 +16,17 @@ import type { CustomizationCategory, CustomizationOption, SelectionMap } from ".
 const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Paint",
   wheels: "Wheels",
+  tires: "Tires",
+  brakes: "Brakes",
+  exhaust: "Exhaust",
+  aero: "Aero",
+  carbon: "Carbon",
+  lighting: "Lighting",
   hood: "Hood",
   panel: "Body panel",
-  decal: "Decal",
+  decal: "Decals & graphics",
   trim: "Trim",
-  accessory: "Accessory",
+  accessory: "Accessories",
   interior: "Interior",
 };
 

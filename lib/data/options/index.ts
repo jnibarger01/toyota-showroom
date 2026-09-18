@@ -4,19 +4,34 @@ import { tacomaOptions } from "./tacoma";
 import { camryOptions } from "./camry";
 import { ae86Options } from "./ae86";
 import { rav4Options } from "./rav4";
+import { grSupraOptions } from "./gr-supra";
+import { rav4HybridOptions } from "./rav4-hybrid";
+import { landCruiserOptions } from "./land-cruiser";
+import { getGlobalWheelOptions } from "../wheels";
+import { createRuntimeModificationOptions } from "./runtimeMods";
 
 /**
  * Server-side source of truth for customization options. The browser receives these records from
  * `GET /api/v1/vehicles/:slug/options`; it never invents them, and it never sends node names,
  * material names, or asset paths back — only option ids, which are resolved here.
  */
-const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
-  "4runner": fourRunnerOptions,
+const BASE_OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
+  "4runner": [...fourRunnerOptions.filter((option) => option.id !== "wheels-trd-pro-global"), ...getGlobalWheelOptions("4runner")],
   tacoma: tacomaOptions,
   camry: camryOptions,
   ae86: ae86Options,
   rav4: rav4Options,
+  "rav4-hybrid": rav4HybridOptions,
+  "land-cruiser": landCruiserOptions,
+  "gr-supra": grSupraOptions,
 };
+
+const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = Object.fromEntries(
+  Object.entries(BASE_OPTIONS_BY_VEHICLE).map(([vehicleId, options]) => [
+    vehicleId,
+    [...options, ...createRuntimeModificationOptions(vehicleId, options)],
+  ]),
+);
 
 export const ALL_OPTIONS: readonly CustomizationOption[] = Object.values(OPTIONS_BY_VEHICLE).flat();
 

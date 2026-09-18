@@ -94,9 +94,10 @@ or rotating to a new database).
 5. **Verify:** `curl https://<your-worker-subdomain>.workers.dev/api/v1/health` should return
    `{"status":"ok", ...}` (`app/api/v1/health/route.ts`).
 
-6. **Rate limiter namespace.** `wrangler.jsonc`'s `ratelimits[0].namespace_id` (`1001`) is a
-   developer-chosen value, not Cloudflare-issued — no extra provisioning step needed, it's created
-   implicitly on first deploy.
+6. **Rate limiter namespaces.** `wrangler.jsonc`'s `ratelimits[].namespace_id` values (`1001`,
+   `1003`, `1005`, `1007` in production) are developer-chosen, not Cloudflare-issued — no extra
+   provisioning step needed; each is created implicitly on first deploy. Budgets and how to
+   raise them are documented in §9.
 
 ---
 
@@ -172,24 +173,70 @@ Expect health `status: "ok"` and a `201` with a `configurationId`. Same checks a
 ## Demo service worker (Pages only)
 
 `public/sw.js` caches the static shell and the vehicle assets so repeat visits to the Pages demo do
-not re-download the ~1.2 MiB GLB, and so a cached build still opens with the network offline.
+not re-download the ~1.2 MiB GLB, and so a cached build still opens with the network offline. This is
+**explicitly the Pages demo path** — it is not a substitute for the production Cloudflare Worker +
+D1 stack (#49).
 
 **It is gated on runtime proof, not on a build flag.** `lib/pwa/demoServiceWorker.ts` registers it
 only once `getPersistenceMode()` resolves to `"local"` — that is, once the app has confirmed the API
 routes are absent. A service worker installed against the Worker deployment could serve stale
 configuration responses from cache, which is a much worse failure than the download it saves.
 
-Strategies: cache-first for `/assets/*` (content-hashed, `immutable`, so a hit cannot be wrong);
-stale-while-revalidate for `/models/*`, `/draco/*`, `/renders/*`, `/images/*` (large and stable, but
-`public/_headers` serves them `must-revalidate` because the optimisation scripts rewrite them in
-place under unchanged names); network-first for `/catalog/v1/*.json`. `/api/*` is never intercepted.
+### Precache vs runtime strategies
 
-### Kill switch
+Strategies: **network-first with a cached-document fallback for navigations** (without this the
+browser never obtains an HTML document offline and never reaches anything else in the cache — the
+offline claim above was false as written); cache-first for `/assets/*` (content-hashed, `immutable`,
+so a hit cannot be wrong); stale-while-revalidate for `/models/*`, `/draco/*`, `/renders/*`,
+`/images/*` (large and stable, but `public/_headers` serves them `must-revalidate` because the
+optimisation scripts rewrite them in place under unchanged names); network-first for
+`/catalog/v1/*.json`. `/api/*` is never intercepted.
 
-Bump `CACHE_VERSION` in `public/sw.js`. `activate` deletes every cache that is not the current
-version, so a bump evicts everything previously stored. The worker also calls
+The document is stored under one shared key rather than per-URL: every route of this prerendered
+export ships the same client shell, so one cached document boots any of them and the router takes
+over once the (cache-first) JS loads. Caching per-navigation would only make already-visited routes
+work offline.
+
+Cache writes are best-effort. `cache.put` rejects on a full quota or disabled storage, and awaiting
+it in a handler's success path meant such a rejection failed the whole request — an optimisation
+breaking live requests for online users.
+
+On `install` the worker precaches:
+
+- the critical static shell (`./`, `./index.html`, `./4runner/`);
+- the active hero vehicle's models and still (default builder slug `4runner` —
+  `modsnation_7416_assets_assembled.glb`, wheel/tire GLBs, hero PNG);
+- that vehicle's catalog snapshots under `/catalog/v1/…`;
+- the vendored Draco decoder trio under `/draco/`;
+- content-hashed `/assets/*` URLs discovered by scraping `index.html` (so the list cannot drift from
+  what the build emitted).
+
+Runtime fetch strategies (canonical policy in `lib/pwa/demoSwPolicy.ts`, mirrored in `public/sw.js`):
+
+- **cache-first** for `/assets/*` (content-hashed, `immutable`, so a hit cannot be wrong);
+- **stale-while-revalidate** for `/models/*`, `/draco/*`, `/renders/*`, `/images/*` (large and stable,
+  but `public/_headers` serves them `must-revalidate` because the optimisation scripts rewrite them
+  in place under unchanged names);
+- **network-first** for `/catalog/v1/*` (configuration / catalog JSON — live deploy wins online,
+  cached copy keeps the demo opening offline);
+- **`/api/*` is never intercepted** (configuration APIs stay network-only).
+
+### Kill switch / version bump on deploy
+
+`CACHE_VERSION` in `public/sw.js` is the kill switch. `activate` deletes every cache that is not the
+current version, so a bump evicts everything previously stored. The worker also calls
 `skipWaiting`/`clients.claim`, so an update takes effect on the next navigation instead of waiting
 for every tab to close — a sticky cache on a demo surface is worse than no cache at all.
+
+**Deploys stamp the version automatically.** `npm run build` ends with
+`node scripts/stamp-demo-sw.mjs`, which rewrites `dist/client/sw.js`'s `CACHE_VERSION` to
+`v-<git-sha>` (from `GITHUB_SHA` in CI, or `git rev-parse --short HEAD` locally). Override with
+`DEMO_SW_CACHE_VERSION` when you need a forced eviction without a new commit. The source file keeps
+`CACHE_VERSION = "dev"` so a forgotten stamp is obvious in review; do not hand-edit the stamped
+value in `dist/`.
+
+`.github/workflows/pages.yml` also runs `npm run sw:stamp` after the static export verify step so a
+Pages deploy cannot ship an unstamped worker even if the build script is ever split.
 
 To remove it entirely for a browser: promoting that origin to the Worker path is enough. On the next
 load the mode resolves to `"worker"` and the registration is torn down automatically, with no
@@ -297,16 +344,125 @@ re-run a prior successful "Deploy Toyota Showroom" workflow run from the Actions
   instead. Redeploy with the explicit flag.
 - **Rate limiter namespace collisions.** `ratelimits[].namespace_id` is account-scoped, not
   Worker-scoped — production (`1001`) and staging (`1002`) must stay on different ids, or every PR's
-  staging traffic would share production's 30-writes/minute budget.
+  staging traffic would share production's write budgets.
 
 ---
 
 ## 8. Secrets
 
-None of this app's current routes need a Worker secret (`wrangler secret put <key>`) — D1 and the
-rate limiter are both bindings, not credentials read at runtime. This section exists as a pointer
-for when one is needed: `npx wrangler secret put <NAME> --name toyota-showroom` prompts for the
-value and stores it encrypted, available in the Worker as `env.<NAME>`. Never commit a secret value
-to `wrangler.jsonc` — bindings (D1 ids, rate-limiter namespace ids) are not secrets and are fine to
-commit (`docs/INTEGRATION_GUIDE.md`'s own note on this); anything that actually authenticates to a
-third party would not be.
+D1 and the rate limiter are bindings, not credentials. Optional CRM lead handoff (#23) reads Worker
+secrets at runtime:
+
+- `CRM_WEBHOOK_URL` — HTTPS endpoint that receives the agnostic `lead.created` JSON payload
+  (vehicle, selections, share URL, owner-token metadata). When unset, CRM delivery is skipped and
+  local lead persistence alone decides success.
+- `CRM_WEBHOOK_SECRET` — optional bearer token sent as `Authorization: Bearer …`. Never embedded in
+  the webhook JSON body and never available to the browser bundle.
+
+```bash
+npx wrangler secret put CRM_WEBHOOK_URL --name toyota-showroom
+npx wrangler secret put CRM_WEBHOOK_SECRET --name toyota-showroom
+```
+
+`npx wrangler secret put <NAME> --name toyota-showroom` prompts for the value and stores it
+encrypted, available in the Worker as `env.<NAME>`. Never commit a secret value to `wrangler.jsonc`
+— bindings (D1 ids, rate-limiter namespace ids) are not secrets and are fine to commit
+(`docs/INTEGRATION_GUIDE.md`'s own note on this); anything that authenticates to a third party
+must stay in secrets.
+
+
+---
+
+## 9. Abuse controls (rate limits + optional bot friction)
+
+Worker/D1 is the production persistence path. Public write endpoints ship with abuse defaults so a
+scripted burst from one client cannot fill D1 unboundedly. Knobs live in two places that **must
+stay aligned**:
+
+| Knob | Where | Default (prod + staging) | What it meters |
+|---|---|---|---|
+| `CONFIG_CREATE_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.configCreate` | **10 / 60s** | `POST /api/v1/configurations` per `cf-connecting-ip` |
+| `CONFIG_WRITE_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.configWrite` | **20 / 60s** | `PATCH`/`DELETE` per IP **and** independently per owner-token hash |
+| `LEAD_WRITE_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.leadWrite` | **5 / 60s** | `POST /api/v1/leads` per IP |
+| `CATALOG_READ_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.catalogRead` | **300 / 60s** | Catalog `GET`s per IP |
+| Period | `ratelimits[].simple.period` / `RATE_LIMIT_PERIOD_SECONDS` | **60** | Sliding window length (also the `Retry-After` hint) |
+
+Namespace ids (account-scoped, not Worker-scoped):
+
+| Binding | Production `namespace_id` | Staging `namespace_id` |
+|---|---|---|
+| `CONFIG_CREATE_LIMITER` | `1007` | `1008` |
+| `CONFIG_WRITE_LIMITER` | `1001` | `1002` |
+| `LEAD_WRITE_LIMITER` | `1005` | `1006` |
+| `CATALOG_READ_LIMITER` | `1003` | `1004` |
+
+### Raising a limit
+
+1. Edit `wrangler.jsonc` `ratelimits[].simple.limit` (and the matching staging entry).
+2. Edit the matching constant in `lib/server/rateLimit.ts` → `RATE_LIMIT_BUDGETS` (structured 429
+   bodies and unit tests read these constants).
+3. Redeploy the Worker (`npm run deploy` / staging workflow). Rate-limit bindings take effect on
+   the next deploy; no D1 migration is involved.
+4. Update `docs/API_REFERENCE.md` / `docs/openapi.yaml`'s `x-rate-limit-definition` if the public
+   contract number changed.
+
+Do **not** raise create above write without a reason — create is the D1-fill vector. Prefer raising
+`CONFIG_WRITE_LIMITER` when interactive builders on shared NATs are legitimately blocked.
+
+### Structured 429 shape
+
+Every rate-limited response is:
+
+```json
+{
+  "error": {
+    "code": "rate_limited",
+    "status": 429,
+    "message": "…",
+    "details": {
+      "retryAfterSeconds": 60,
+      "periodSeconds": 60,
+      "scope": "create" ,
+      "limit": 10
+    }
+  }
+}
+```
+
+`scope` is one of `create` | `ip` | `owner_token` | `lead` | `catalog`. The `Retry-After` response
+header mirrors `details.retryAfterSeconds`.
+
+### Optional Turnstile bot friction (create only)
+
+Disabled by default. When enabled, `POST /api/v1/configurations` requires a Turnstile token in the
+`cf-turnstile-response` header (`lib/server/botFriction.ts`). Missing token → `422 invalid_body`;
+failed verify → `403 forbidden`.
+
+```bash
+# Required to enable (presence of the secret turns friction on):
+npx wrangler secret put TURNSTILE_SECRET_KEY --name toyota-showroom
+
+# Optional: force off without deleting the secret (value "0" / "false"):
+npx wrangler secret put TURNSTILE_ENABLED --name toyota-showroom
+
+# Optional public site key for a future client widget (safe as a var, not a secret):
+# Add under wrangler.jsonc "vars": { "TURNSTILE_SITE_KEY": "0x…" } then redeploy.
+```
+
+Staging: pass `--env staging` / `--name toyota-showroom-staging` the same way as CRM secrets in §8.
+Create a Turnstile widget in the Cloudflare dashboard (siteverify uses the widget's secret key).
+Until the browser ships a widget, enable this only for API clients that can complete the challenge
+out of band — the server path is real; the client UI is intentionally not required for acceptance.
+
+### Quick verification
+
+```bash
+# Burst creates from one IP should 429 after the create budget (Worker must be deployed):
+for i in $(seq 1 12); do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST https://<worker>/api/v1/configurations \
+    -H "content-type: application/json" \
+    -d '{"vehicleId":"4runner","gradeId":"sr5","modelYear":2024,"selections":{}}'
+done
+# Expect a mix of 201/422 (validation) then 429 with Retry-After: 60.
+```
+

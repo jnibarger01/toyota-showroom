@@ -80,3 +80,75 @@ describe("validateCreateLead", () => {
     expectApiError(() => validateCreateLead("not an object"));
   });
 });
+
+describe("validateCreateLead build snapshot (CRM handoff)", () => {
+  const build = {
+    vehicleId: "4runner",
+    gradeId: "trd-pro",
+    selections: { paint: ["paint-218-blueprint"] },
+    shareUrl: "https://example.test/4runner/?c=abc",
+    configurationId: "cfg_1",
+    ownerToken: { present: true, configurationId: "cfg_1" },
+  };
+
+  it("accepts a catalog-validated build snapshot with share URL and owner-token metadata", () => {
+    expect(
+      validateCreateLead({
+        ...validContact,
+        kind: "model",
+        vehicleId: "4runner",
+        build,
+      }),
+    ).toMatchObject({
+      kind: "model",
+      vehicleId: "4runner",
+      build: {
+        vehicleId: "4runner",
+        gradeId: "trd-pro",
+        selections: { paint: ["paint-218-blueprint"] },
+        shareUrl: "https://example.test/4runner/?c=abc",
+        configurationId: "cfg_1",
+        ownerToken: { present: true, configurationId: "cfg_1" },
+      },
+    });
+  });
+
+  it("rejects a plaintext owner token disguised as build.ownerToken", () => {
+    expectApiError(
+      () =>
+        validateCreateLead({
+          ...validContact,
+          vehicleId: "4runner",
+          build: { ...build, ownerToken: "plaintext-capability-token" },
+        }),
+      422,
+      /metadata/i,
+    );
+  });
+
+  it("rejects inventable option ids inside the build snapshot", () => {
+    expectApiError(
+      () =>
+        validateCreateLead({
+          ...validContact,
+          vehicleId: "4runner",
+          build: { ...build, selections: { paint: ["paint-not-real"] } },
+        }),
+      422,
+      /Unknown option/i,
+    );
+  });
+
+  it("rejects non-http share URLs", () => {
+    expectApiError(
+      () =>
+        validateCreateLead({
+          ...validContact,
+          vehicleId: "4runner",
+          build: { ...build, shareUrl: "javascript:alert(1)" },
+        }),
+      422,
+      /shareUrl/i,
+    );
+  });
+});

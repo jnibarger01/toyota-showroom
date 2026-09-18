@@ -191,6 +191,71 @@ describe("EnvironmentController", () => {
     });
   });
 
+  describe("AR passthrough", () => {
+    /**
+     * `alpha: true` on the renderer is necessary but not sufficient for AR: the scene still paints an
+     * opaque background, fogs everything, and stands the vehicle on a floor with grid/stars/rocks
+     * around it. All of that occludes camera passthrough, so without this the AR feature showed the
+     * virtual showroom instead of the viewer's room.
+     */
+    it("clears everything that would occlude the camera feed", () => {
+      const { scene, controller } = makeController();
+      expect(scene.background).not.toBeNull();
+
+      controller.setPassthrough(true);
+
+      expect(scene.background).toBeNull();
+      expect(scene.fog).toBeNull();
+      expect(controller.floor.visible).toBe(false);
+      expect(controller.grid.visible).toBe(false);
+      expect(controller.stars.visible).toBe(false);
+      expect(controller.rocks.visible).toBe(false);
+      expect(controller.isPassthrough).toBe(true);
+    });
+
+    it("keeps the light rig, which is what makes the vehicle read as a physical object", () => {
+      const { controller } = makeController();
+      controller.setPassthrough(true);
+      for (const light of [controller.hemi, controller.key, controller.rim, controller.fill]) {
+        expect(light.visible).toBe(true);
+      }
+    });
+
+    it("restores the staged environment on exit", () => {
+      const { scene, controller } = makeController({ initialTerrain: "Studio" });
+      controller.setPassthrough(true);
+      controller.setPassthrough(false);
+
+      expect(scene.background).not.toBeNull();
+      expect(scene.fog).not.toBeNull();
+      expect(controller.floor.visible).toBe(true);
+      expect(controller.grid.visible).toBe(true); // Studio terrain
+      expect(controller.isPassthrough).toBe(false);
+    });
+
+    it("survives a preset change mid-session without putting the showroom back", () => {
+      const { scene, controller } = makeController();
+      controller.setPassthrough(true);
+
+      // `applyPalette` is the single writer of background/fog and runs on any preset/terrain change.
+      controller.setPreset("Night");
+
+      expect(scene.background).toBeNull();
+      expect(scene.fog).toBeNull();
+      expect(controller.stars.visible).toBe(false);
+    });
+
+    it("is idempotent in both directions", () => {
+      const { scene, controller } = makeController();
+      controller.setPassthrough(true);
+      controller.setPassthrough(true);
+      expect(scene.background).toBeNull();
+      controller.setPassthrough(false);
+      controller.setPassthrough(false);
+      expect(scene.background).not.toBeNull();
+    });
+  });
+
   describe("applyHdri", () => {
     // `hdri-studio`/`hdri-showroom`/`hdri-overcast` (lib/data/paintStudio.ts) are real catalog
     // presets with no `hdrUrl` — procedural-lighting-only, so `applyHdriPreset` never reaches its

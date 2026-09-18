@@ -24,6 +24,8 @@ export interface VehicleFilters {
 export interface Pagination {
   page: number;
   pageSize: number;
+  /** Zero-based offset decoded from an opaque API cursor. Omitted for page-number requests. */
+  cursorOffset?: number;
 }
 
 export const DEFAULT_PAGE_SIZE = 12;
@@ -35,6 +37,22 @@ export interface PagedResult<T> {
   pageSize: number;
   totalItems: number;
   totalPages: number;
+  /** Opaque continuation token. Absent when this is the final page. */
+  nextCursor?: string;
+}
+
+const CURSOR_PREFIX = "v1_";
+
+export function encodeVehicleCursor(offset: number): string {
+  if (!Number.isSafeInteger(offset) || offset < 0) throw new Error("Cursor offset must be a non-negative safe integer.");
+  return `${CURSOR_PREFIX}${offset.toString(36)}`;
+}
+
+export function decodeVehicleCursor(cursor: string): number | null {
+  if (!/^v1_[0-9a-z]+$/.test(cursor)) return null;
+  const offset = Number.parseInt(cursor.slice(CURSOR_PREFIX.length), 36);
+  if (!Number.isSafeInteger(offset) || offset < 0 || encodeVehicleCursor(offset) !== cursor) return null;
+  return offset;
 }
 
 export function matchesFilters(facts: VehicleQueryFacts, filters: VehicleFilters): boolean {
@@ -64,15 +82,21 @@ export function paginateAndFilter<T extends VehicleQueryFacts>(
   const totalItems = filtered.length;
   const pageSize = Math.min(Math.max(1, pagination.pageSize), MAX_PAGE_SIZE);
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
-  const page = Math.min(Math.max(1, pagination.page), totalPages);
-  const start = (page - 1) * pageSize;
+  const pageRequest = Math.min(Math.max(1, pagination.page), totalPages);
+  const start = pagination.cursorOffset === undefined
+    ? (pageRequest - 1) * pageSize
+    : Math.min(pagination.cursorOffset, totalItems);
+  const page = totalItems === 0 ? 1 : Math.min(totalPages, Math.floor(start / pageSize) + 1);
+  const data = filtered.slice(start, start + pageSize);
+  const nextOffset = start + data.length;
 
   return {
-    data: filtered.slice(start, start + pageSize),
+    data,
     page,
     pageSize,
     totalItems,
     totalPages,
+    ...(nextOffset < totalItems ? { nextCursor: encodeVehicleCursor(nextOffset) } : {}),
   };
 }
 

@@ -6,9 +6,12 @@ import {
   getConfiguration,
   getPersistenceMode,
   listVehicleOptions,
+  markOwnerTokenShown,
   resetTransportDetection,
   subscribePersistenceMode,
+  takeOwnerTokenForFirstSaveReveal,
   updateConfiguration,
+  wasOwnerTokenShown,
 } from "../lib/api/configurations";
 import { localConfigurationTransport } from "../lib/api/localConfigurationTransport";
 import { fourRunnerOptions } from "../lib/data/options/4runner";
@@ -271,6 +274,30 @@ describe("owner token", () => {
     await expect(
       localConfigurationTransport.update(configuration.configurationId, { selections: {} }, ownerToken),
     ).resolves.toMatchObject({ revision: 2 });
+  });
+
+  it("exposes the remembered token once for first-save reveal, then never again after mark", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+
+    const created = await createConfiguration(validCreate);
+    const id = created.configurationId;
+
+    const first = takeOwnerTokenForFirstSaveReveal(id);
+    expect(first).toEqual(expect.any(String));
+    expect(first!.length).toBeGreaterThan(20);
+    expect(wasOwnerTokenShown(id)).toBe(false);
+
+    // Still available until the dialog marks it shown (mid-dialog refresh recovery).
+    expect(takeOwnerTokenForFirstSaveReveal(id)).toBe(first);
+
+    markOwnerTokenShown(id);
+    expect(wasOwnerTokenShown(id)).toBe(true);
+    expect(takeOwnerTokenForFirstSaveReveal(id)).toBeNull();
   });
 });
 

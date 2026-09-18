@@ -4,6 +4,8 @@ import { VEHICLES } from "../lib/data/vehicles";
 import { getOptionsForVehicle } from "../lib/data/options";
 import { VEHICLE_SCHEMA_VERSION, toVehicleSummary } from "../lib/types/vehicle";
 import { CUSTOMIZATION_SCHEMA_VERSION } from "../lib/types/customization";
+import { renderRobotsTxt, renderSitemapXml } from "../lib/site";
+import { DEALER_INVENTORY_CSV_FIXTURE } from "../lib/dealerInventory/csvFixture";
 
 /**
  * `vinext build` (this project's `output: "export"` static export) does not pre-render
@@ -16,6 +18,7 @@ import { CUSTOMIZATION_SCHEMA_VERSION } from "../lib/types/customization";
 
 const outDir = path.resolve(import.meta.dirname, "../public/catalog/v1");
 const legacyApiDir = path.resolve(import.meta.dirname, "../public/api");
+const publicDir = path.resolve(import.meta.dirname, "../public");
 
 async function writeJson(relPath: string, data: unknown): Promise<void> {
   const filePath = path.join(outDir, relPath);
@@ -67,7 +70,17 @@ async function main() {
     timestamp: new Date().toISOString(),
   });
 
+  // Dealer inventory CSV fixture (#20) — same bytes the CsvDealerInventoryAdapter parses in tests
+  // and the Explore client fetches from /catalog/v1/dealer-inventory.csv.
+  await writeFile(path.join(outDir, "dealer-inventory.csv"), DEALER_INVENTORY_CSV_FIXTURE);
+
+  // vinext static export does not emit app/sitemap.ts / app/robots.ts into dist/client
+  // (confirmed on build). Write them into public/ so Pages gets explore + vehicle slugs (#78).
+  await writeFile(path.join(publicDir, "sitemap.xml"), renderSitemapXml());
+  await writeFile(path.join(publicDir, "robots.txt"), renderRobotsTxt());
+
   console.log(`Generated static API fixtures for ${VEHICLES.length} vehicles into ${outDir}`);
+  console.log(`Generated public/sitemap.xml + public/robots.txt for Pages`);
 }
 
 main();

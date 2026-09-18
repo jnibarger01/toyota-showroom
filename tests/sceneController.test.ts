@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { colorHexAt, createVehicleFixture, materialAt } from "./fixtures/scene";
 import { VehicleSceneController } from "../lib/three/sceneController";
+import { createProceduralVehicle } from "../lib/three/proceduralParts";
+import { buildRuntimeModificationKit, RUNTIME_MOD_NODE_NAMES } from "../lib/three/proceduralMods";
 import { verifyNodeContract } from "../lib/three/nodes";
 import { fourRunnerOptions, plannedFourRunnerOptions } from "../lib/data/options/4runner";
-import { getOptionById } from "../lib/data/options";
+import { getOptionById, getOptionsForVehicle } from "../lib/data/options";
 import type { SelectionMap } from "../lib/types/customization";
 import { FOUR_RUNNER_SCENE_MAP } from "../lib/data/sceneMap/4runner";
 
@@ -361,5 +363,23 @@ describe("pickAt", () => {
     camera.updateMatrixWorld(true);
 
     expect(controller.pickAt(new THREE.Vector2(0, 0), camera)).toBeNull();
+  });
+});
+
+describe("procedural runtime modification replay", () => {
+  it("hides a generated single-select part when the next configuration no longer selects it", async () => {
+    const root = createProceduralVehicle();
+    buildRuntimeModificationKit(root, "tacoma");
+    const catalog = getOptionsForVehicle("tacoma");
+    const controller = new VehicleSceneController(root, catalog);
+    const rims = getOptionById("tacoma", "runtime-tacoma-rims-mesh")!;
+    const node = root.getObjectByName(RUNTIME_MOD_NODE_NAMES.rims)!;
+
+    expect(node.visible).toBe(false);
+    await controller.applyConfiguration({ wheels: [rims.id] });
+    expect(node.visible).toBe(true);
+
+    await controller.applyConfiguration({});
+    expect(node.visible).toBe(false);
   });
 });

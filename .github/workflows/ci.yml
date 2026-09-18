@@ -31,8 +31,15 @@ jobs:
       # asset-pipeline work but no workflow ever invoked it, so the gate was documentation rather
       # than enforcement (#34).
       - run: npm run assets:report
+      # The report is deterministic by design (no timings), so a diff here means a shipped asset
+      # changed without its regenerated report being committed. Without this check the command
+      # rewrote the file in CI and exited 0, leaving a stale report in the tree indefinitely.
+      - name: Fail if the generated asset report is out of date
+        run: git diff --exit-code -- docs/ASSET_PIPELINE_REPORT.md
       - run: npm test -- --run
       - run: npm run build
-      # Must follow the build: it measures `dist/client/assets`. A chunk over budget, or a new chunk
-      # with no budget at all, fails here rather than being absorbed silently (#43).
+      # Must follow the build: route entry JS for `/`, `/explore`, `/4runner` plus every client
+      # chunk. Over budget or missing budget entry fails with a readable report (#43).
       - run: npm run bundle:budget
+      # Pages crawler files are written into public/ at prebuild and copied into dist/client (#78).
+      - run: VERIFY_DIST=1 npx vitest run tests/sitemapRobots.test.ts

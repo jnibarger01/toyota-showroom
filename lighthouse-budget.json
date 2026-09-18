@@ -1,0 +1,24 @@
+{
+  "$comment": "Builder route under Pages base /toyota-showroom/. Entry JS gzip sums modulepreload (+ sync script) assets in the builder HTML \u2014 excludes lazy VehicleCanvas/3D. Lighthouse blocks VehicleCanvas/GLB/draco so LCP/TBT measure the builder shell (headless software GL makes full 3D TBT useless as a CI signal). Desktop + headroom for shared CI runners; fail on serious regressions (huge sync script / multi-second shell main-thread block). Complements scripts/bundle-budget.mjs (#43).",
+  "urlPath": "/toyota-showroom/4runner/",
+  "previewHost": "127.0.0.1",
+  "previewPort": 4173,
+  "htmlRelativePath": "4runner/index.html",
+  "assets": {
+    "entryJsGzipBytes": 460800,
+    "entryCssGzipBytes": 40960
+  },
+  "lighthouse": {
+    "preset": "desktop",
+    "onlyCategories": [
+      "performance"
+    ],
+    "lcpMs": 5000,
+    "tbtMs": 800,
+    "blockedUrlPatterns": [
+      "*VehicleCanvas*",
+      "*.glb",
+      "*draco*"
+    ]
+  }
+}

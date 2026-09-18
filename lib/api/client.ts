@@ -1,6 +1,8 @@
+import { withBasePath as sharedWithBasePath } from "../shared/basePath";
 import type { MediaAsset, MediaManifest, Vehicle, Vehicle3DConfig, VehicleSummary } from "../types/vehicle";
 import { ApiError, type ApiErrorBody } from "./errors";
 import { paginateAndFilter, type Pagination, type PagedResult, type VehicleFilters } from "./query";
+import { resilientFetch } from "./resilientFetch";
 
 /**
  * Typed client SDK for the versioned vehicle API. This project builds as a static export
@@ -29,14 +31,13 @@ export function pageUrl(segment: string = ""): string {
 }
 
 /**
- * Catalog data stores root-relative asset URLs (e.g. "/images/hero.png"); under the GitHub
- * Pages deployment the whole site is mounted at a sub-path (`vite.config.ts` `base`), so every
- * asset URL a consumer receives from this SDK needs the same prefix the 3D model loader uses.
- * Centralized here so components never have to remember to do it themselves.
+ * Re-exported from `lib/shared/basePath.ts` rather than defined here.
+ *
+ * It used to live in this module, which meant `lib/three/hdriEnvironment.ts` — loading an HDR
+ * straight from the catalog without going through this SDK — had no way to reach it and silently
+ * requested the domain root under Pages. Shared module, one implementation, both callers.
  */
-function withBasePath(url: string): string {
-  return url.startsWith("/") ? `${basePath}${url}` : url;
-}
+const withBasePath = sharedWithBasePath;
 
 function normalizeAsset(asset: MediaAsset): MediaAsset {
   return { ...asset, url: withBasePath(asset.url) };
@@ -77,7 +78,7 @@ function normalizeSummary(summary: VehicleSummary): VehicleSummary {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  const response = await resilientFetch(url);
   if (!response.ok) {
     // Defensive: an error response need not carry the `{ error: {...} }` envelope (a static host's
     // own 404 page will not), and the error path must not itself throw.

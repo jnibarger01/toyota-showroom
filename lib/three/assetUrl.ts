@@ -24,8 +24,8 @@ function getBasePath(): string {
  * Already-absolute URLs (http/https) and relative URLs pass through untouched,
  * so remote model URLs and already-resolved paths are never double-prefixed.
  */
-export function resolveAssetUrl(url: string): string {
+export function resolveAssetUrl(url: string, basePath: string = getBasePath()): string {
   if (!url.startsWith("/")) return url;
-  const basePath = getBasePath();
+  if (basePath && (url === basePath || url.startsWith(`${basePath}/`))) return url;
   return `${basePath}${url}`;
 }

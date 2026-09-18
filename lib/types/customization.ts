@@ -14,6 +14,12 @@ export const CUSTOMIZATION_SCHEMA_VERSION = "1.0.0";
 export type CustomizationCategory =
   | "paint"
   | "wheels"
+  | "tires"
+  | "brakes"
+  | "exhaust"
+  | "aero"
+  | "carbon"
+  | "lighting"
   | "hood"
   | "panel"
   | "decal"
@@ -33,6 +39,12 @@ export const CATEGORY_APPLY_ORDER: readonly CustomizationCategory[] = [
   "panel",
   "hood",
   "wheels",
+  "tires",
+  "brakes",
+  "exhaust",
+  "aero",
+  "carbon",
+  "lighting",
   "paint",
   "interior",
   "decal",
@@ -61,10 +73,12 @@ export type CustomizationOperation =
  *
  * - `glb` — authored mesh/material slots in the shipped asset (default when omitted).
  * - `procedural-preview` — runtime-built stand-in (`ACCESSORY_*` via `buildProceduralAccessories`)
- *   shown until authored geometry ships. Still selectable and persisted by option id; UI must label
- *   it as a preview so it is not confused with catalog GLB options.
+ *   shown until authored geometry ships. Still selectable and persisted by option id; UI labels it
+ *   as a preview so it is not confused with catalog GLB options.
+ * - `procedural-runtime` — intentionally generated customization geometry (rims, aero, exhaust,
+ *   lighting, and similar) that is the final runtime representation rather than an asset placeholder.
  */
-export type GeometrySource = "glb" | "procedural-preview";
+export type GeometrySource = "glb" | "procedural-preview" | "procedural-runtime";
 
 export interface MaterialConfig {
   color?: string;
@@ -119,7 +133,7 @@ export interface CustomizationOption {
   compatibleGradeIds?: string[];
   /**
    * Geometry provenance. Omit or `"glb"` for authored catalog assets; `"procedural-preview"` for
-   * synthetic stand-ins that remain selectable until their GLB targets land.
+   * temporary stand-ins; `"procedural-runtime"` for intentionally generated final geometry.
    */
   geometrySource?: GeometrySource;
 }

@@ -27,6 +27,27 @@ export interface DemoServiceWorkerDeps {
 }
 
 /**
+ * Whether a registration is the one this module installed.
+ *
+ * Compares the resolved pathname for equality rather than testing whether the script URL *contains*
+ * `sw.js`. A substring test also matches a conventionally-named worker belonging to a different app
+ * on the same origin — `/other-app/app-sw.js` ends in `sw.js` — and unregistering that would
+ * silently disable another application's offline support. A false negative here costs a stale demo
+ * cache; a false positive breaks software this code has no business touching.
+ */
+function isOurWorker(registration: ServiceWorkerRegistration, basePath: string | undefined): boolean {
+  const scriptURL = registration.active?.scriptURL ?? registration.installing?.scriptURL ?? registration.waiting?.scriptURL;
+  if (!scriptURL) return false;
+  const base = (basePath ?? "").replace(/\/$/, "");
+  try {
+    // Resolved against the page so a relative or absolute registration compares the same way.
+    return new URL(scriptURL, globalThis.location?.href).pathname === `${base}/${DEMO_SW_PATH}`;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Applies the correct state for `mode`. Safe to call repeatedly and on every mode change.
  *
  * Never throws: registration failures are reported and swallowed. A demo cache is an optimisation,
@@ -47,7 +68,7 @@ export async function syncDemoServiceWorker(
   try {
     if (mode === "worker") {
       const registrations = await container.getRegistrations();
-      const ours = registrations.filter((registration) => registration.active?.scriptURL.includes(DEMO_SW_PATH));
+      const ours = registrations.filter((registration) => isOurWorker(registration, deps.basePath));
       if (ours.length === 0) return "skipped";
       await Promise.all(ours.map((registration) => registration.unregister()));
       return "unregistered";

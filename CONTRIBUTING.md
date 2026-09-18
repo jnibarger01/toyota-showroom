@@ -104,13 +104,20 @@ separate workflow from `ci.yml` so a pixel diff never blocks the fast lint/typec
 
 ### Refreshing visual snapshots
 
-Snapshots live in `tests/e2e/visual.spec.ts-snapshots/` and are Linux/Chromium specific.
+Snapshots live in `tests/e2e/visual.spec.ts-snapshots/` and are Linux/Chromium specific
+(`*-chromium-linux.png`). Baselines must match CI's Playwright Chromium on `ubuntu-latest`.
+
+**One documented command** (after a production build):
 
 ```bash
 npm run build
-npm run test:e2e:update    # rewrites snapshots from the current build
+npm run test:e2e:update-visual
 git diff --stat tests/e2e/visual.spec.ts-snapshots/
 ```
+
+`test:e2e:update-visual` is the intentional visual-only refresh (`playwright test --update-snapshots
+tests/e2e/visual.spec.ts`). Prefer it over bare `test:e2e:update`, which would also rewrite any
+other snapshot-producing specs if they appear later.
 
 **Always review the image diff before committing it.** A snapshot update is an assertion that the
 new rendering is correct; committing it unread converts the whole suite into a rubber stamp. If a
@@ -118,13 +125,20 @@ change was not meant to alter appearance and a snapshot moved anyway, that is th
 snapshot.
 
 Snapshots are generated on Linux. Updating them on macOS or Windows produces diffs from font
-hinting alone, so refresh them in an environment matching CI (a container, or a CI run) rather than
-committing local-platform renders.
+hinting alone, so refresh them in an environment matching CI rather than committing local-platform
+renders. Preferred paths, in order:
+
+1. **Labeled workflow (matches CI exactly).** On your PR, add the `update-snapshots` label.
+   `.github/workflows/update-visual-snapshots.yml` runs on `ubuntu-latest`, regenerates the PNGs,
+   commits them to the PR branch, and removes the label. Use this for intentional UI chrome/banner
+   updates.
+2. **Manual `workflow_dispatch`** of the same workflow on the target branch (Actions tab).
+3. **Local Linux / container** running the one-command sequence above (same OS family as CI).
 
 `maxDiffPixelRatio` is deliberately non-zero — see `visual.spec.ts`'s header for why zero tolerance
 would make the suite flaky for reasons unrelated to any regression.
 
-### Flakes
+### Flakes and quarantine
 
 **A failing test is not a flake until you have shown it is one.** The default assumption is that it
 found something. Before reaching for this section, run the spec in isolation and read the actual
@@ -143,10 +157,21 @@ Two established cases, both harness-level and both already handled rather than t
 - **Large asset loads.** `build-and-restore.spec.ts` loads a real ~57 MiB GLB per test and is
   serialised within its own file, with a raised assertion timeout.
 
-**Never skip, `test.fixme`, or delete a test to get green.** If a test is genuinely unreliable,
-either make it robust — wait on the condition that actually matters rather than a sleep — or open an
-issue and link it from a comment beside the test, so the gap is tracked rather than forgotten. A
-silently skipped test reads as coverage that does not exist, which is worse than a red build.
+**Never silently skip, bare-`test.fixme`, or delete a test to get green.** A silently skipped test
+reads as coverage that does not exist, which is worse than a red build.
+
+When a *visual* spec is a proven flake (reproduces on unmodified `main`, not fixed by waiting on
+the right condition):
+
+1. Open a tracking issue describing the failure mode and own it.
+2. Add an entry to `tests/e2e/visual-quarantine.json` with `testTitle` (exact Playwright title),
+   `ownerIssue` (`#N` or the issues URL), `reason`, and `quarantinedOn` (`YYYY-MM-DD`).
+3. `tests/e2e/visual.spec.ts` calls `applyVisualQuarantine` so the title is marked `fixme` with
+   the issue reference — reported as quarantined, not invisible.
+4. **Exit criteria:** fix the flake, then remove the registry entry once the spec has been green
+   for `stablePassThreshold` consecutive e2e CI runs on `main` (currently **5**). Close the owner
+   issue in the same PR. Entries older than `maxQuarantineDays` (90) fail
+   `tests/visualQuarantine.test.ts` so quarantine cannot sit forever without a deliberate refresh.
 
 ## Documentation
 

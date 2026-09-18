@@ -89,6 +89,13 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
 
     const existing = stored.configuration;
     if (patch.expectedRevision !== undefined && patch.expectedRevision !== existing.revision) {
+      // Treat an identical retry of the immediately previous mutation as a replay, not a new write.
+      // This covers the common lost-response case while preserving fail-closed conflicts for any
+      // different payload. No history row is appended, so the original revision remains the audit
+      // record for the accepted mutation.
+      if (patch.expectedRevision + 1 === existing.revision && patchMatchesStoredState(patch, existing)) {
+        return existing;
+      }
       throw revisionConflict(
         `Configuration "${configurationId}" is at revision ${existing.revision}, not ${patch.expectedRevision}. Reload before retrying.`,
       );
@@ -144,4 +151,15 @@ export function getConfigurationRepository(): ConfigurationRepository {
  */
 export function setConfigurationRepository(next: ConfigurationRepository): void {
   repository = next;
+}
+
+function patchMatchesStoredState(
+  patch: ValidatedPatch,
+  stored: Pick<VehicleConfiguration, "selections" | "cameraState" | "paintStudio">,
+): boolean {
+  return (
+    (patch.selections === undefined || JSON.stringify(patch.selections) === JSON.stringify(stored.selections)) &&
+    (patch.cameraState === undefined || JSON.stringify(patch.cameraState) === JSON.stringify(stored.cameraState)) &&
+    (patch.paintStudio === undefined || JSON.stringify(patch.paintStudio) === JSON.stringify(stored.paintStudio))
+  );
 }

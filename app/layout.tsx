@@ -1,9 +1,26 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { SITE_URL } from "../lib/site";
 
 export const metadata: Metadata = {
   title: "Toyota Showroom",
-  description: "WebGPU Toyota 4Runner configurator"
+  description: "Explore and configure Toyota vehicles in a WebGPU showroom — paint, wheels, and more.",
+  // Base for absolute OG/canonical URLs under the GitHub Pages project path (#78).
+  metadataBase: new URL(`${SITE_URL}/`),
+  openGraph: {
+    type: "website",
+    siteName: "Toyota Showroom",
+    title: "Toyota Showroom",
+    description: "Explore and configure Toyota vehicles in a WebGPU showroom — paint, wheels, and more.",
+    url: `${SITE_URL}/`,
+    images: [{ url: `${SITE_URL}/images/modsnation_7416_final_hero_tweaked.png`, alt: "Toyota Showroom hero still" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Toyota Showroom",
+    description: "Explore and configure Toyota vehicles in a WebGPU showroom — paint, wheels, and more.",
+    images: [`${SITE_URL}/images/modsnation_7416_final_hero_tweaked.png`],
+  },
 };
 
 /**

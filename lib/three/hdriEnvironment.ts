@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { withBasePath } from "../shared/basePath";
 import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
 import { getHdriPreset, type HdriLightingKey } from "../data/paintStudio";
 
@@ -94,14 +95,17 @@ const loader = new RGBELoader();
 const textureCache = new Map<string, Promise<THREE.DataTexture>>();
 
 function loadHdr(url: string): Promise<THREE.DataTexture> {
-  const cached = textureCache.get(url);
+  // Catalog `hdrUrl`s are root-relative, but Pages serves the site from a sub-path, where a
+  // root-relative request 404s. Keyed on the *resolved* URL so the cache cannot hold both forms.
+  const resolved = withBasePath(url);
+  const cached = textureCache.get(resolved);
   if (cached) return cached;
-  const pending = loader.loadAsync(url).then((texture) => {
+  const pending = loader.loadAsync(resolved).then((texture) => {
     texture.mapping = THREE.EquirectangularReflectionMapping;
     return texture;
   });
-  pending.catch(() => textureCache.delete(url));
-  textureCache.set(url, pending);
+  pending.catch(() => textureCache.delete(resolved));
+  textureCache.set(resolved, pending);
   return pending;
 }
 

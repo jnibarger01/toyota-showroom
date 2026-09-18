@@ -74,7 +74,7 @@ describe("multi-vehicle garage", () => {
     const pins = listGaragePins();
     expect(pins).toHaveLength(4);
     expect(pins.find((p) => p.configurationId === "cfg_4r_1")?.gradeId).toBe("trd-pro");
-    expect(GARAGE_VEHICLE_ORDER).toEqual(["4runner", "ae86", "tacoma", "camry"]);
+    expect(GARAGE_VEHICLE_ORDER).toEqual(["4runner", "ae86", "tacoma", "camry", "gr-supra"]);
 
     const byVehicle = new Map<string, string[]>();
     for (const pin of pins) {

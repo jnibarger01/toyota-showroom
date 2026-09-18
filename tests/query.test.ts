@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  decodeVehicleCursor,
   DEFAULT_PAGE_SIZE,
+  encodeVehicleCursor,
   MAX_PAGE_SIZE,
   matchesFilters,
   paginateAndFilter,
@@ -145,6 +147,25 @@ describe("paginateAndFilter", () => {
     expect(maximum.data).toHaveLength(MAX_PAGE_SIZE);
   });
 
+
+  it("returns an opaque cursor that continues without overlap", () => {
+    const first = paginateAndFilter(items, {}, { page: 1, pageSize: 5 });
+    const offset = decodeVehicleCursor(first.nextCursor!);
+    expect(first.nextCursor).toBe(encodeVehicleCursor(5));
+    expect(offset).toBe(5);
+    expect(paginateAndFilter(items, {}, { page: 1, pageSize: 5, cursorOffset: offset! }).data.map((item) => item.id)).toEqual([
+      "vehicle-6", "vehicle-7", "vehicle-8", "vehicle-9", "vehicle-10",
+    ]);
+  });
+
+  it("omits the cursor on the final page and never repeats records at the end", () => {
+    const final = paginateAndFilter(items.slice(0, 6), {}, { page: 1, pageSize: 5, cursorOffset: 5 });
+    const exhausted = paginateAndFilter(items.slice(0, 10), {}, { page: 1, pageSize: 5, cursorOffset: 10 });
+    expect(final.data.map((item) => item.id)).toEqual(["vehicle-6"]);
+    expect(final.nextCursor).toBeUndefined();
+    expect(exhausted.data).toEqual([]);
+  });
+
   it("returns a stable first page for an empty result set", () => {
     const result = paginateAndFilter(items, { availability: ["discontinued"] }, { page: 4, pageSize: 10 });
 
@@ -163,7 +184,7 @@ describe("queryVehicles", () => {
   it("projects full catalog records to summaries before filtering and pagination", () => {
     const result = queryVehicles(VEHICLES, { powertrainType: ["hybrid"] }, { page: 1, pageSize: 10 });
 
-    expect(result.data.map((summary) => summary.slug)).toEqual(["tacoma", "camry"]);
+    expect(result.data.map((summary) => summary.slug)).toEqual(["tacoma", "camry", "rav4-hybrid", "land-cruiser"]);
     expect(result.data[0]).toMatchObject({ model: "Tacoma", maxTowingLbs: 6_500, startingMsrp: 31_500 });
     expect(result.data[0]).not.toHaveProperty("grades");
   });

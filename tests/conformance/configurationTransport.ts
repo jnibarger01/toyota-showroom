@@ -211,7 +211,7 @@ export function describeConfigurationTransport(makeAdapter: () => TransportAdapt
         await expectApiError(
           adapter.update(
             configuration.configurationId,
-            { selections: {}, expectedRevision: 1 },
+            { selections: { paint: ["paint-070-midnight-black"] }, expectedRevision: 1 },
             ownerToken,
           ),
           409,
