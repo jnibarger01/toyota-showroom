@@ -112,7 +112,7 @@ export function subscribePersistenceMode(listener: () => void): () => void {
 
 function indicatesMissingBackend(error: unknown, method: "GET" | "WRITE"): boolean {
   if (!(error instanceof ApiError)) return false;
-  if (error.code === "network_error" || error.code === "provider_unavailable" || error.status === 405 || error.status === 501) return true;
+  if (error.status === 405 || error.status === 501) return true;
 
   if (error.status === 404) {
     // A write can only 404 on a host that has no such route.

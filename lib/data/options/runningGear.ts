@@ -20,6 +20,15 @@ import { tiresNodeName, wheelsetNodeName, TIRE_MATERIAL_NAME } from "../../three
 const PACKAGE_GROUP = "wheels";
 const TIRE_GROUP = "tire-sidewall";
 
+/**
+ * Heading for the package group.
+ *
+ * Deliberately not "Wheel & tire package": a vehicle's own catalog wheel *finishes* have no
+ * `selectionGroup`, so they default to the category and land in this same group — correctly, since
+ * choosing a package must evict a finish. The heading has to cover both.
+ */
+const WHEEL_GROUP_LABEL = "Wheels";
+
 /** Stable option id for a package on any vehicle. Packages are shared, so ids are too. */
 export function wheelPackageOptionId(packageId: string): string {
   return `wheels-package-${packageId}`;
@@ -41,8 +50,11 @@ export function getRunningGearOptions(vehicleId: string): CustomizationOption[] 
       id: "wheels-factory",
       category: "wheels",
       selectionGroup: PACKAGE_GROUP,
-      groupLabel: "Wheel & tire package",
-      label: "Factory wheels",
+      groupLabel: WHEEL_GROUP_LABEL,
+      // Not just "Factory wheels": the GR Supra's own catalog already has a *finish* by that name
+      // (`supra-wheels-stock`), and both land in this group, so two identically-labelled chips would
+      // sit side by side. This one restores the factory geometry, which is a different thing.
+      label: "Factory wheels & tires",
       operation: "mesh-visibility",
       targetNodes: [...fitment.stockRunningGearNodes],
       hidesNodes: wheelsetNodes,
@@ -57,7 +69,7 @@ export function getRunningGearOptions(vehicleId: string): CustomizationOption[] 
       id: wheelPackageOptionId(packageId),
       category: "wheels",
       selectionGroup: PACKAGE_GROUP,
-      groupLabel: "Wheel & tire package",
+      groupLabel: WHEEL_GROUP_LABEL,
       label: spec.label,
       operation: "mesh-visibility",
       targetNodes: [wheelsetNodeName(packageId)],

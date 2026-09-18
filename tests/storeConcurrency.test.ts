@@ -90,6 +90,37 @@ beforeEach(() => {
 });
 
 describe("edits made while a write is in flight", () => {
+  it("serializes overlapping scene mutations", async () => {
+    const { controller, catalog } = await attach();
+    const blue = catalog.find((option) => option.id === "paint-218-blueprint")!;
+    const red = catalog.find((option) => option.id === "paint-3u5-barcelona-red")!;
+    let releaseFirst!: () => void;
+    let markStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { markStarted = resolve; });
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const calls: string[] = [];
+
+    controller.applyOption = vi.fn(async (option) => {
+      calls.push(option.id);
+      if (option.id === blue.id) {
+        markStarted();
+        await firstGate;
+      }
+      return true;
+    });
+
+    const first = configurationStore.selectOption(blue);
+    await firstStarted;
+    const second = configurationStore.selectOption(red);
+    await Promise.resolve();
+
+    expect(calls).toEqual([blue.id]);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(calls).toEqual([blue.id, red.id]);
+    expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual([red.id]);
+  });
+
   it("does not discard the later selection when the response lands", async () => {
     const { catalog } = await attach();
     const blue = catalog.find((option) => option.id === "paint-218-blueprint")!;

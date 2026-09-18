@@ -184,7 +184,7 @@ describe("queryVehicles", () => {
   it("projects full catalog records to summaries before filtering and pagination", () => {
     const result = queryVehicles(VEHICLES, { powertrainType: ["hybrid"] }, { page: 1, pageSize: 10 });
 
-    expect(result.data.map((summary) => summary.slug)).toEqual(["tacoma", "camry"]);
+    expect(result.data.map((summary) => summary.slug)).toEqual(["tacoma", "camry", "rav4-hybrid", "land-cruiser"]);
     expect(result.data[0]).toMatchObject({ model: "Tacoma", maxTowingLbs: 6_500, startingMsrp: 31_500 });
     expect(result.data[0]).not.toHaveProperty("grades");
   });

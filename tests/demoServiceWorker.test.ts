@@ -53,7 +53,9 @@ describe("syncDemoServiceWorker", () => {
     const unregister = vi.fn(async () => true);
     const serviceWorker = makeContainer([{ scriptURL: "https://example.com/toyota-showroom/sw.js", unregister }]);
 
-    await expect(syncDemoServiceWorker("worker", { serviceWorker })).resolves.toBe("unregistered");
+    await expect(
+      syncDemoServiceWorker("worker", { serviceWorker, basePath: "/toyota-showroom/" }),
+    ).resolves.toBe("unregistered");
     expect(unregister).toHaveBeenCalled();
   });
 
@@ -62,6 +64,28 @@ describe("syncDemoServiceWorker", () => {
     const serviceWorker = makeContainer([{ scriptURL: "https://example.com/other-app/worker.js", unregister }]);
 
     await expect(syncDemoServiceWorker("worker", { serviceWorker })).resolves.toBe("skipped");
+    expect(unregister).not.toHaveBeenCalled();
+  });
+
+  it("leaves another app's worker alone even when its filename ends in sw.js", async () => {
+    const unregister = vi.fn(async () => true);
+    // A substring test on "sw.js" matches this too. Unregistering it would silently disable an
+    // unrelated application's offline support — a false positive is far worse than a stale cache.
+    const serviceWorker = makeContainer([{ scriptURL: "https://example.com/other-app/app-sw.js", unregister }]);
+
+    await expect(
+      syncDemoServiceWorker("worker", { serviceWorker, basePath: "/toyota-showroom/" }),
+    ).resolves.toBe("skipped");
+    expect(unregister).not.toHaveBeenCalled();
+  });
+
+  it("does not claim a demo worker mounted under a different base path", async () => {
+    const unregister = vi.fn(async () => true);
+    const serviceWorker = makeContainer([{ scriptURL: "https://example.com/other-deploy/sw.js", unregister }]);
+
+    await expect(
+      syncDemoServiceWorker("worker", { serviceWorker, basePath: "/toyota-showroom/" }),
+    ).resolves.toBe("skipped");
     expect(unregister).not.toHaveBeenCalled();
   });
 

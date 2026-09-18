@@ -55,10 +55,17 @@ const XR_MODE: XRSessionMode = "immersive-ar";
 
 /**
  * `local-floor` puts the origin at the viewer's floor, so a vehicle authored sitting on y=0 stands
- * on the real ground rather than floating at head height. `local` is requested as a fallback for
- * devices that cannot establish a floor level.
+ * on the real ground rather than floating at head height. It is requested **optionally**, not as a
+ * required feature.
+ *
+ * Required would defeat its own fallback: `isSessionSupported("immersive-ar")` does not account for
+ * reference-space features, so a device that supports AR without floor-level tracking would pass
+ * the support check, show the entry control, and then have `requestSession` reject — a control that
+ * fails on tap, which is exactly what the support gate exists to prevent. `local` is guaranteed for
+ * immersive sessions, so requesting both optionally means the session always starts and the best
+ * available space is chosen afterwards.
  */
-const SESSION_INIT: XRSessionInit = { requiredFeatures: ["local-floor"], optionalFeatures: ["local"] };
+const SESSION_INIT: XRSessionInit = { optionalFeatures: ["local-floor", "local"] };
 
 export class XrSessionController {
   private readonly renderer: XrCapableRenderer;
@@ -119,7 +126,17 @@ export class XrSessionController {
       this.session = session;
       session.addEventListener("end", this.handleSessionEnd);
       this.renderer.xr.enabled = true;
-      await this.renderer.xr.setSession(session);
+      try {
+        await this.renderer.xr.setSession(session);
+      } catch (handoffError) {
+        // The session is live and holding the camera even though the renderer refused it. Clearing
+        // `this.session` without ending it would strand exactly that: the UI reports failure while
+        // the camera stays on, and a later device-initiated `end` is ignored because `handleEnded`
+        // sees a null session and returns. Tear it down explicitly, through the same path.
+        this.teardownSession();
+        void session.end().catch(() => {});
+        throw handoffError;
+      }
       // Only after the renderer owns the session: this signals the caller to stop its rAF chain,
       // and doing that before the handover would leave a window with nothing driving frames.
       this.options.onPresentingChange(true);
@@ -127,8 +144,7 @@ export class XrSessionController {
     } catch (error) {
       // A declined camera permission lands here. It is an ordinary outcome, not a fault.
       this.options.onError?.(error instanceof Error ? error.message : "Could not start an AR session.");
-      this.session = null;
-      this.renderer.xr.enabled = false;
+      this.teardownSession();
       return false;
     } finally {
       this.starting = false;
@@ -153,12 +169,21 @@ export class XrSessionController {
     void this.exit();
   }
 
-  private handleEnded(): void {
-    const session = this.session;
-    if (!session) return;
-    session.removeEventListener("end", this.handleSessionEnd);
+  /**
+   * Detaches the listener and clears renderer state without announcing anything.
+   *
+   * Shared by the failure paths and `handleEnded` so there is exactly one place that knows how to
+   * let go of a session — the leak this fixes came from a catch block doing half of it inline.
+   */
+  private teardownSession(): void {
+    this.session?.removeEventListener("end", this.handleSessionEnd);
     this.session = null;
     this.renderer.xr.enabled = false;
+  }
+
+  private handleEnded(): void {
+    if (!this.session) return;
+    this.teardownSession();
     // Reported even when disposed: the caller's own teardown is idempotent, and swallowing this
     // would leave a disposed-mid-session canvas believing it is still presenting.
     this.options.onPresentingChange(false);

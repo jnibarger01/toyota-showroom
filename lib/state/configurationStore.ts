@@ -44,6 +44,7 @@ export class ConfigurationStore {
   private mutationVersion = 0;
   private lastPersisted: VehicleConfiguration | null = null;
   private batchedOptionIds = new Set<string>();
+  private sceneMutationQueue: Promise<void> | null = null;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -120,7 +121,19 @@ export class ConfigurationStore {
     for (const listener of this.listeners) listener();
   }
 
-  async selectOption(option: CustomizationOption): Promise<void> {
+  selectOption(option: CustomizationOption): Promise<void> {
+    const previous = this.sceneMutationQueue;
+    const task = previous
+      ? previous.then(() => this.selectOptionSerialized(option))
+      : this.selectOptionSerialized(option);
+    const tail = task.catch(() => undefined).finally(() => {
+      if (this.sceneMutationQueue === tail) this.sceneMutationQueue = null;
+    });
+    this.sceneMutationQueue = tail;
+    return task;
+  }
+
+  private async selectOptionSerialized(option: CustomizationOption): Promise<void> {
     const current = this.state.configuration;
     if (!current) return;
 

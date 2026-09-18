@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
+import { pageUrl } from "../lib/api/client";
 
 /**
  * Route-level error boundary.
@@ -45,7 +46,7 @@ export default function RouteError({
         <button className="primary" type="button" onClick={reset}>
           <RotateCcw size={16} /> Try again
         </button>
-        <a className="ghost" href="/">
+        <a className="ghost" href={pageUrl()}>
           Back to the showroom
         </a>
       </div>

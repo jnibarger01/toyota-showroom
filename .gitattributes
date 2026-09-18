@@ -15,6 +15,10 @@
 *.hdr      filter=lfs diff=lfs merge=lfs -text
 *.exr      filter=lfs diff=lfs merge=lfs -text
 
+# Runtime HDRs under public/renders are fetched directly by the browser and GitHub Pages.
+# Keep them as ordinary Git blobs so a checkout without Git LFS never deploys pointer text.
+public/renders/**/*.hdr -filter -diff -merge -text
+
 # Runtime GLBs are deliberately NOT routed to LFS. They are shipped to browsers, must exist in a
 # plain checkout for `npm run build`, GitHub Pages, and `tests/glbContract.test.ts`, and are kept
 # small by `scripts/compress-glb.mjs` (the hero asset is ~1.2 MiB). Putting them behind LFS would

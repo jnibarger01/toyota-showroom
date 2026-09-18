@@ -41,7 +41,7 @@ import * as THREE from "three";
 import type { Vehicle3DConfig } from "../../lib/types/vehicle";
 import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
-import { attachToMount, getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
+import { getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { resolveAssetUrl } from "../../lib/three/assetUrl";
 import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { getSceneMapForVehicle } from "../../lib/data/sceneMap";
@@ -49,6 +49,7 @@ import { pointerToNdc } from "../../lib/three/picking";
 import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
 import { installProceduralWheelPackages } from "../../lib/three/installWheels";
+import { buildRuntimeModificationKit } from "../../lib/three/proceduralMods";
 import {
   initialProgressiveState,
   reduceProgressiveLoad,
@@ -64,7 +65,7 @@ import {
 import { RenderController } from "../../lib/three/renderController";
 import { createPrefetchScheduler, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
-import { readQualityPreference, type QualityPreference } from "../../lib/three/qualityPreference";
+import { readQualityPreference, writeQualityPreference, type QualityPreference } from "../../lib/three/qualityPreference";
 import { prefetchHdriPreset } from "../../lib/three/hdriEnvironment";
 import { HDRI_PRESETS } from "../../lib/data/paintStudio";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
@@ -150,6 +151,10 @@ type Props = {
   /** Reports the stored preference once the renderer exists, so the chrome can show the real value
    * rather than assuming a default the viewer may have changed on a previous visit. */
   onQualityPreferenceLoaded?: (preference: QualityPreference) => void;
+  /** True when the live renderer cannot honour the current choice in full — `antialias` and authored
+   * running gear are construction-time only. Lets the chrome say so instead of implying the tier is
+   * fully active. */
+  onQualityNeedsReload?: (needsReload: boolean) => void;
   /** Reports whether this device can offer AR at all, so the chrome can show a disabled control
    * with unsupported-device messaging rather than one that fails on tap. */
   onXrSupported?: (supported: boolean) => void;
@@ -174,7 +179,7 @@ type Props = {
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -218,6 +223,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const onXrPresentingChangeRef = useRef(onXrPresentingChange);
   const onXrErrorRef = useRef(onXrError);
   const onQualityPreferenceLoadedRef = useRef(onQualityPreferenceLoaded);
+  const qualityPreferenceRef = useRef(qualityPreference);
+  const onQualityNeedsReloadRef = useRef(onQualityNeedsReload);
   const xrControllerRef = useRef<XrSessionController | null>(null);
   useEffect(() => {
     onReadyRef.current = onReady;
@@ -233,12 +240,15 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onXrPresentingChangeRef.current = onXrPresentingChange;
     onXrErrorRef.current = onXrError;
     onQualityPreferenceLoadedRef.current = onQualityPreferenceLoaded;
-  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded]);
+    qualityPreferenceRef.current = qualityPreference;
+    onQualityNeedsReloadRef.current = onQualityNeedsReload;
+  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     /** Declared out here so the effect's cleanup can cancel it even if setup fails part-way. */
     let prefetcher: PrefetchScheduler | null = null;
+    let prefetchResumeCleanup: (() => void) | undefined;
     let cancelled = false;
 
     void (async () => {
@@ -274,7 +284,12 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         return;
       }
       renderControllerRef.current = renderController;
-      onQualityPreferenceLoadedRef.current?.(readQualityPreference());
+      // Reported only when the chrome has not already expressed a choice. Echoing the stored value
+      // unconditionally would overwrite a selection the viewer made while the renderer was still
+      // initialising — which the effect above has by then already persisted.
+      if (qualityPreferenceRef.current === undefined) {
+        onQualityPreferenceLoadedRef.current?.(readQualityPreference());
+      }
       const canvasElement = renderController.canvas;
 
       const cameraController = new CameraController({
@@ -630,8 +645,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         contactShadow = createContactShadow(footprint);
         scene.add(contactShadow);
         buildProceduralAccessories(root);
+        buildRuntimeModificationKit(root, slug);
         // Measured off this vehicle's own running gear, so it must run after the root is prepared
-        // and before `verifyNodeContract` — the wheel-package options name these nodes.
+        // and before `verifyNodeContract` — the wheel-package options name these nodes. It runs
+        // after the runtime mod kit so its own `RUNTIME_MOD_*` meshes are already excluded from
+        // anything either builder measures.
         installProceduralWheelPackages(root, slug);
         scene.add(root);
         rootRef.current = root;
@@ -734,22 +752,53 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       prefetcher = createPrefetchScheduler({
         load: prefetchHdriPreset,
         ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl).map((preset) => preset.id),
-        tier: renderController.currentQuality.tier,
+        // Read live, not snapshotted: the governor can downgrade after this scheduler is built, and
+        // a frozen tier would keep fetching on exactly the device that just told us it is struggling.
+        tier: () => renderController.currentQuality.tier,
         saveData: (navigator as { connection?: { saveData?: boolean } }).connection?.saveData === true,
         isSuspended: () => canvasElement.dataset.idle === "1",
       });
       prefetcher.start();
+
+      // `start()` is also the resume path — the scheduler stops rather than spinning while the canvas
+      // is suspended, so something has to restart it. Without this, one backgrounded tab disabled
+      // prefetching for the rest of the session, which made the documented contract a lie.
+      const resumePrefetch = () => {
+        if (canvasElement.dataset.idle !== "1") prefetcher?.start();
+      };
+      document.addEventListener("visibilitychange", resumePrefetch);
+      prefetchResumeCleanup = () => document.removeEventListener("visibilitychange", resumePrefetch);
 
       // XR last: it needs the renderer, and there is nothing worth showing in AR until the vehicle
       // has actually settled into the scene.
       const xrController = new XrSessionController({
         renderer: renderController.renderer as unknown as ConstructorParameters<typeof XrSessionController>[0]["renderer"],
         onPresentingChange: (presenting) => {
-          // The renderer's frame source has to change hands; `CameraController` must also stop
-          // writing the camera, because in XR the device owns the pose entirely and an orbit tween
-          // fighting head tracking is motion sickness, not a camera bug.
+          if (presenting) {
+            // Stop everything that writes the camera before handing the pose to the device.
+            //
+            // `setControlsEnabled(false)` alone only refuses new *input*; it does not stop a GSAP
+            // cinematic tour still tweening position and target, auto-rotate advancing on every
+            // `update()`, or residual damping. Any of those moves the virtual origin while the
+            // headset is supplying the real pose — the scene drifts under the viewer's head, which
+            // is motion sickness rather than a camera bug. The tour also has to be cancelled rather
+            // than paused, or exiting XR would resume it mid-shot and re-enable controls it thinks
+            // it owns.
+            cameraController.cancelTour();
+            cameraController.setAutoRotate(false);
+            cameraController.setControlsEnabled(false);
+            // A renderer with `alpha: true` is necessary but not sufficient: the opaque background,
+            // fog and floor would still occlude the camera feed.
+            environmentControllerRef.current?.setPassthrough(true);
+          }
+
           renderController.setXrPresenting(presenting);
-          cameraController.setControlsEnabled(!presenting);
+
+          if (!presenting) {
+            environmentControllerRef.current?.setPassthrough(false);
+            cameraController.setControlsEnabled(true);
+          }
+
           onXrPresentingChangeRef.current?.(presenting);
         },
         onError: (message) => {
@@ -779,6 +828,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       cancelled = true;
       // Before `cleanup`: an in-flight prefetch holds no scene references, but there is no reason to
       // let speculative fetches outlive the canvas that wanted them.
+      prefetchResumeCleanup?.();
+      prefetchResumeCleanup = undefined;
       prefetcher?.dispose();
       prefetcher = null;
       // Before the renderer goes: ending the session releases the device camera, and a session
@@ -830,7 +881,18 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     // `undefined` means the chrome is not driving this; leave whatever the renderer read from
     // storage in place rather than forcing it back to a default the viewer did not choose.
     if (qualityPreference === undefined) return;
-    renderControllerRef.current?.setQualityPreference(qualityPreference);
+    const controller = renderControllerRef.current;
+    if (controller) {
+      controller.setQualityPreference(qualityPreference);
+      onQualityNeedsReloadRef.current?.(controller.qualityPreferenceNeedsReload(qualityPreference));
+      return;
+    }
+    // The renderer may not exist yet: `VehicleCanvas` is `lazy()`-imported and `RenderController
+    // .create` awaits `renderer.init()`, so the selector is interactive for a while before there is
+    // anything to apply to. Persisting here means the choice is not silently dropped — the
+    // controller reads the stored preference during construction, so it picks this up on arrival
+    // (including `antialias`, which only construction can set).
+    writeQualityPreference(qualityPreference);
   }, [qualityPreference]);
 
   useEffect(() => {
@@ -1008,7 +1070,10 @@ async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Veh
     renameMaterials(wheel, index < 2 ? "wheel.metal" : "wheel.metal.001");
 
     assembly.add(tire, wheel);
-    attachToMount(mounts[index]!, assembly, "authored-wheel-and-tire");
+    // This authored wheel+tire pair is baseline vehicle geometry, not an option attachment.
+    // Keeping it unmarked means a wheel-only replacement can hide the stock rim without
+    // detaching the sibling tire, then restore the rim when the replacement is cleared.
+    mounts[index]!.add(assembly);
     assembly.scale.setScalar(config.scale ?? 1);
   }
 }

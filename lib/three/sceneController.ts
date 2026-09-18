@@ -368,7 +368,16 @@ export class VehicleSceneController {
     this.activeByGroup.clear();
 
     for (const option of this.catalog.values()) {
-      if (isMultiSelect(option.category)) await this.removeOption(option);
+      // Mesh replacements, accumulating categories, and eagerly-attached runtime geometry all need
+      // an explicit reset before replay. This preserves stock running gear when a replacement is
+      // removed and prevents generated single-select parts from surviving a deselection.
+      if (
+        option.operation === "mesh-replacement" ||
+        isMultiSelect(option.category) ||
+        option.geometrySource === "procedural-runtime"
+      ) {
+        await this.removeOption(option);
+      }
     }
 
     for (const category of CATEGORY_APPLY_ORDER) {

@@ -101,6 +101,14 @@ const ALLOWANCES: Record<string, { bytes: number; why: string }> = {
     bytes: 5 * MiB,
     why: "Optimized Camry showroom model; loaded by the Camry vehicle route.",
   },
+  "public/models/rav4-hybrid-2023/rav4-hybrid.glb": {
+    bytes: 6 * MiB,
+    why: "Optimized RAV4 Hybrid runtime showroom model; loaded directly by the vehicle route.",
+  },
+  "public/models/land-cruiser-250-2025/land-cruiser-250.glb": {
+    bytes: 9 * MiB,
+    why: "Optimized Land Cruiser runtime showroom model; loaded directly by the vehicle route.",
+  },
   // Reviewed transfer bundle from #82 (not wired into the runtime catalog yet).
   "assets/imported/toyota-rav4-showroom.glb": {
     bytes: 4 * MiB,

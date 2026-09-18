@@ -48,8 +48,10 @@ export function resolveCorners(root: THREE.Object3D, anchors: WheelAnchorSource)
 
   switch (anchors.kind) {
     case "fixed":
-      return anchors.corners.map(([x, y, z]) =>
-        corner(new THREE.Vector3(x, y, z), anchors.radius, anchors.width),
+      return withSides(
+        anchors.corners.map(([x, y, z]) =>
+          corner(new THREE.Vector3(x, y, z), anchors.radius, anchors.width),
+        ),
       );
 
     case "mount": {
@@ -63,7 +65,7 @@ export function resolveCorners(root: THREE.Object3D, anchors: WheelAnchorSource)
         position.y = anchors.floorLocalY + anchors.radius;
         fitments.push(corner(position, anchors.radius, anchors.width));
       }
-      return fitments;
+      return withSides(fitments);
     }
 
     case "corner": {
@@ -87,13 +89,29 @@ export function resolveCorners(root: THREE.Object3D, anchors: WheelAnchorSource)
         // while leaving a cleanly-modelled wheel — the 4Runner's, at 0.41 — untouched.
         fitments.push(corner(center, radius, Math.min(measuredWidth, radius * 0.9)));
       }
-      return fitments;
+      return withSides(fitments);
     }
   }
 }
 
 function corner(position: THREE.Vector3, radius: number, width: number): WheelFitment {
-  return { position, radius, width, side: position.x >= 0 ? 1 : -1 };
+  // `side` is filled in by `withSides`, which needs the whole set. Provisional until then.
+  return { position, radius, width, side: 1 };
+}
+
+/**
+ * Assigns each corner its side of the vehicle, relative to the *track's* centre line.
+ *
+ * Not the sign of the corner's own X: a model is not obliged to be centred on its own origin, and
+ * the Land Cruiser is not — its wheels sit at x +0.591 and -1.095, so absolute X would have called
+ * both of one axle's corners the same side on a model offset just a little further. The midpoint of
+ * the measured corners is the track's centre line by construction, whatever the origin.
+ */
+function withSides(fitments: WheelFitment[]): WheelFitment[] {
+  if (fitments.length === 0) return fitments;
+  const xs = fitments.map((fitment) => fitment.position.x);
+  const centreX = (Math.min(...xs) + Math.max(...xs)) / 2;
+  return fitments.map((fitment) => ({ ...fitment, side: fitment.position.x >= centreX ? 1 : -1 }));
 }
 
 /**

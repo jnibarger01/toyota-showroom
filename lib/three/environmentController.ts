@@ -94,6 +94,8 @@ export class EnvironmentController {
    * doc comment for the race this guards. */
   private hdriGeneration = 0;
   private disposed = false;
+  /** True while the staged environment is suppressed for AR passthrough. See `setPassthrough`. */
+  private passthrough = false;
 
   constructor(options: EnvironmentControllerOptions) {
     this.scene = options.scene;
@@ -218,10 +220,60 @@ export class EnvironmentController {
     // construction and simply shown or hidden here rather than rebuilt per preset switch.
     this.stars.visible = this.preset === "Night";
     this.rocks.visible = this.terrain === "Trail";
+
+    // A preset or terrain change while presenting must not put the showroom back in front of the
+    // camera feed. This method is the single writer of background/fog/set-dressing visibility, so
+    // re-asserting here covers every caller rather than each one remembering to check.
+    if (this.passthrough) this.suppressEnvironment();
   }
 
   /** Re-applies quality-governed shadow/light settings — the environment-owned half of
    * `VehicleCanvas.tsx`'s `applyTier`, called on every `QualityGovernor` tier change. */
+  /**
+   * Gets the staged environment out of the way so an immersive-AR session can show the real room.
+   *
+   * A renderer with `alpha: true` is necessary but not sufficient: the scene still paints an opaque
+   * `scene.background`, fogs everything, and stands the vehicle on a floor plane surrounded by grid,
+   * stars and rocks. All of that is set dressing for a camera orbiting a plinth, and in AR it is
+   * exactly what occludes the passthrough the viewer is supposed to see. Without this, entering AR
+   * shows the virtual showroom — the feature looks implemented and does nothing it claims.
+   *
+   * The vehicle and the light rig stay. The lights are what make it read as a physical object in
+   * the room rather than a flat cutout; only the *environment* is suppressed.
+   *
+   * Reversible by construction: the palette is re-applied on exit rather than the previous values
+   * being cached here, because `applyPalette` is already the single source of truth for background
+   * and fog and a cached copy would drift the moment a preset changed mid-session.
+   */
+  setPassthrough(enabled: boolean): void {
+    if (this.passthrough === enabled) return;
+    this.passthrough = enabled;
+
+    if (enabled) {
+      this.suppressEnvironment();
+      return;
+    }
+
+    // Restores background, fog, and the terrain-dependent visibility of grid/stars/rocks.
+    this.floor.visible = true;
+    this.applyPalette();
+  }
+
+  /** Clears everything that would occlude camera passthrough. Idempotent. */
+  private suppressEnvironment(): void {
+    this.scene.background = null;
+    this.scene.fog = null;
+    this.floor.visible = false;
+    this.grid.visible = false;
+    this.stars.visible = false;
+    this.rocks.visible = false;
+  }
+
+  /** Whether the staged environment is currently suppressed for AR passthrough. */
+  get isPassthrough(): boolean {
+    return this.passthrough;
+  }
+
   applyQuality(quality: EnvironmentQualityInputs): void {
     this.key.castShadow = quality.shadowsEnabled;
     if (quality.shadowsEnabled) {
@@ -262,6 +314,9 @@ export class EnvironmentController {
       return;
     }
     this.hdriHandle = handle;
+    // `applyHdriPreset` writes `scene.background` for the preset's palette; same reasoning as in
+    // `applyPalette`.
+    if (this.passthrough) this.suppressEnvironment();
 
     // Reports whether image-based lighting is actually live, not merely requested. A preset with no
     // `hdrUrl` is procedural-lighting-only by design and correctly reports `ibl: "none"`; the value

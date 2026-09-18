@@ -98,13 +98,20 @@ describe("catalog vs. shipped GLB", () => {
 
     describe(vehicle.slug, () => {
       const inspection = inspectGlb(filePath);
-      const options = getOptionsForVehicle(vehicle.slug);
+      // Runtime-generated options are validated against the live Three.js kit in
+      // tests/runtimeModificationKit.test.ts. They intentionally do not exist in the raw GLB.
+      const options = getOptionsForVehicle(vehicle.slug).filter(
+        (option) => option.geometrySource !== "procedural-runtime",
+      );
+      // Wheel packages are runtime-built too, but unlike the mod kit they are checked here rather
+      // than excluded: their node names are derived per vehicle from its own fitment, so this file
+      // still catches a package offered on a vehicle whose fitment does not list it.
       const syntheticWheels = syntheticWheelNodeNames(vehicle.slug);
 
       it("has at least one customization option to check", () => {
         // An empty catalog trivially "passes" every check below; assert non-emptiness so this file
-        // can't silently stop covering a vehicle once its catalog is populated (Task 1 fills this in
-        // for tacoma/camry once their assets exist).
+        // can't silently stop covering a vehicle once its catalog is populated. This is especially
+        // important for authored assets, where an empty catalog would otherwise make the contract trivial.
         expect(options.length).toBeGreaterThan(0);
       });
 
@@ -160,6 +167,10 @@ describe("shipped GLB payload budget", () => {
     // permitting the original 68.36 MiB source payload to regress into production.
     "/models/camry/camry.glb": 5 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
+    // ~4.61 MiB optimized authored RAV4 Hybrid import; 6 MiB allows modest mesh growth.
+    "/models/rav4-hybrid-2023/rav4-hybrid.glb": 6 * 1024 * 1024,
+    // ~7.37 MiB optimized authored Land Cruiser import; 9 MiB leaves controlled headroom.
+    "/models/land-cruiser-250-2025/land-cruiser-250.glb": 9 * 1024 * 1024,
   };
 
   for (const vehicle of VEHICLES) {

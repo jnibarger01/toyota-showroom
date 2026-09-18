@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { VEHICLES } from "../lib/data/vehicles";
+import { pageUrl } from "../lib/api/client";
 
 /**
  * 404 page.
@@ -18,14 +19,14 @@ export default function NotFound() {
       <ul className="not-found-vehicles">
         {VEHICLES.map((vehicle) => (
           <li key={vehicle.slug}>
-            <Link href={`/${vehicle.slug}`}>
+            <Link href={pageUrl(vehicle.slug)}>
               {vehicle.year} {vehicle.model}
             </Link>
           </li>
         ))}
       </ul>
       <div className="route-error-actions">
-        <Link className="ghost" href="/explore">
+        <Link className="ghost" href={pageUrl("explore")}>
           Explore the full lineup
         </Link>
       </div>

@@ -28,7 +28,7 @@ let sharedDraco: DRACOLoader | null = null;
  * every other asset URL this app emits (`lib/api/client.ts`'s `withBasePath`) — required once
  * GitHub Pages serves the whole site under `/toyota-showroom/`.
  */
-export const DRACO_DECODER_PATH = `${import.meta.env.BASE_URL}draco/`;
+export const DRACO_DECODER_PATH = resolveAssetUrl("/draco/");
 
 export function getGltfLoader(): GLTFLoader {
   if (sharedLoader) return sharedLoader;

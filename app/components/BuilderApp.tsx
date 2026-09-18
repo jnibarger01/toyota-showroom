@@ -29,6 +29,7 @@ import {
   Shuffle,
   Save,
   Settings2,
+  QrCode,
   Share2,
   SlidersHorizontal,
   Truck,
@@ -90,6 +91,7 @@ import {
   readBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../../lib/showroom/deepLink";
+import { createShareQrUrl } from "../../lib/showroom/shareQr";
 import { createShareCardUrl } from "../../lib/showroom/openGraph";
 import { pinConfigurationToGarage } from "../../lib/showroom/garage";
 import {
@@ -107,6 +109,8 @@ import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/show
  * become interactive before that chunk finishes downloading.
  */
 const VehicleCanvas = lazy(() => import("./VehicleCanvas").then((module) => ({ default: module.VehicleCanvas })));
+/** QR share card (#50) — keeps `uqr` out of the BuilderApp chrome chunk. */
+const ShareQrCard = lazy(() => import("./ShareQrCard").then((module) => ({ default: module.ShareQrCard })));
 
 /** Used only when no `vehicleSlug` prop is given — the root route's implicit default vehicle. */
 const DEFAULT_VEHICLE_SLUG = "4runner";
@@ -123,14 +127,36 @@ type EnvironmentPreset = "Daytime" | "Sunset" | "Night";
 const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
   paint: "Paint",
   wheels: "Wheels",
+  tires: "Tires",
+  brakes: "Brakes",
+  exhaust: "Exhaust",
+  aero: "Aero",
+  carbon: "Carbon",
   lighting: "Lighting",
   hood: "Hood",
   panel: "Body panels",
   decal: "Decals & graphics",
-  trim: "Suspension",
+  trim: "Trim",
   accessory: "Accessories",
   interior: "Interior",
 };
+
+const BUILDER_RAIL_CATEGORIES = [
+  { category: "paint", label: "Exterior", Icon: PaintBucket },
+  { category: "wheels", label: "Wheels", Icon: CircleGauge },
+  { category: "tires", label: "Tires", Icon: CircleGauge },
+  { category: "brakes", label: "Brakes", Icon: CircleGauge },
+  { category: "exhaust", label: "Exhaust", Icon: Move3d },
+  { category: "aero", label: "Aero", Icon: Move3d },
+  { category: "carbon", label: "Carbon", Icon: Box },
+  { category: "trim", label: "Trim", Icon: SlidersHorizontal },
+  { category: "lighting", label: "Lighting", Icon: Lightbulb },
+  { category: "hood", label: "Hood", Icon: Box },
+  { category: "panel", label: "Performance", Icon: Cog },
+  { category: "decal", label: "Decals & Graphics", Icon: Box },
+  { category: "accessory", label: "Accessories", Icon: Settings2 },
+  { category: "interior", label: "Interior", Icon: Armchair },
+] as const satisfies readonly { category: CustomizationCategory; label: string; Icon: typeof PaintBucket }[];
 
 /** Categories rendered as circular colour swatches rather than text chips. */
 const SWATCH_CATEGORIES: ReadonlySet<CustomizationCategory> = new Set(["paint", "interior"]);
@@ -219,6 +245,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [tourOpen, setTourOpen] = useState(false);
   /** `?` keyboard shortcut cheat sheet (#74). */
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false);
+  /** Optional QR for the current `?c=` deep link (#50). */
+  const [shareQrOpen, setShareQrOpen] = useState(false);
   /** Cinematic camera tour (hero → wheels → interior), distinct from the onboarding tour card. */
   const [cinematicTourStatus, setCinematicTourStatus] = useState<TourStatus>("idle");
   const [cinematicTourAction, setCinematicTourAction] = useState<TourAction | null>(null);
@@ -238,6 +266,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [xrError, setXrError] = useState<string | null>(null);
   /** Mirrors the renderer's stored preference; `VehicleCanvas` reports the real value on mount. */
   const [qualityPreference, setQualityPreference] = useState<QualityPreference>("auto");
+  /** True when the chosen tier needs a reload to apply in full — see `qualityPreferenceNeedsReload`. */
+  const [qualityNeedsReload, setQualityNeedsReload] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   /** Text for the polite live region — the only channel that reports a selection to a screen reader
    * when focus is not on the control that changed (deep link, undo, grade switch). */
@@ -508,6 +538,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       // Announced explicitly rather than left to the selection diff: the grade is not a selection,
       // and its change is exactly what a screen-reader user cannot otherwise infer — a switch that
       // drops incompatible options would otherwise be heard only as options disappearing.
+      // Cancel any pending selection announcement first. `attachScene` has just published the new
+      // configuration, so the selection-diff effect already scheduled its 220 ms update — and a grade
+      // switch that drops incompatible options guarantees a diff. Left alone, that timer replaces
+      // "Grade changed to …" in the same live region before assistive technology reads it, which
+      // defeats the point of announcing the grade separately.
+      if (announcementTimerRef.current !== null) {
+        clearTimeout(announcementTimerRef.current);
+        announcementTimerRef.current = null;
+      }
       const gradeName = bootstrap.vehicle.grades.find((grade) => grade.id === gradeId)?.name ?? gradeId;
       setAnnouncement(describeGradeChange(gradeName));
     } catch (err) {
@@ -909,11 +948,27 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       })
     : "";
 
+  /** Same deep link Share copies under local/demo — always `?c=`, never Worker share-card HTML. */
+  const shareQrUrl = configuration
+    ? createShareQrUrl(window.location.origin, window.location.pathname, {
+        gradeId: configuration.gradeId,
+        selections: configuration.selections,
+        cameraState: configuration.cameraState,
+        paintStudio: configuration.paintStudio,
+      })
+    : "";
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const action = resolveBuilderShortcut(event, { cheatSheetOpen });
       if (!action) {
-        if (event.key === "Escape" && mobilePanelOpen) closeMobilePanel();
+        if (event.key === "Escape") {
+          if (shareQrOpen) {
+            setShareQrOpen(false);
+            return;
+          }
+          if (mobilePanelOpen) closeMobilePanel();
+        }
         return;
       }
       event.preventDefault();
@@ -961,6 +1016,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     restoreHistory,
     saveToGarage,
     share,
+    shareQrOpen,
     toggleCinematicTour,
   ]);
 
@@ -1012,6 +1068,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <SaveIndicator status={status} local={isLocalPersistence} />
           <button className="primary" title="Share (Ctrl/⌘ Shift L)" onClick={() => void share()}>
             <Share2 size={16} /> Share
+          </button>
+          <button
+            type="button"
+            className="ghost icon-action"
+            title="Show QR code for this build"
+            aria-label="Show QR share card"
+            aria-pressed={shareQrOpen}
+            disabled={!configuration}
+            onClick={() => setShareQrOpen((open) => !open)}
+          >
+            <QrCode size={16} />
           </button>
         </div>
       </header>
@@ -1095,6 +1162,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
       {tourOpen ? <div className="tour-card" role="dialog" aria-label="Builder tour"><button className="tour-close" aria-label="Close tour" onClick={() => { setTourOpen(false); try { window.localStorage.setItem("toyota-showroom:tour-seen", "1"); } catch { /* optional */ } }}><X size={15} /></button><strong>Build your {bootstrap?.vehicle.model ?? "Toyota"}</strong><p>Choose a system, search options, watch your budget, then save or share. Press <kbd>/</kbd> to search and <kbd>Ctrl Z</kbd> to undo. Press <kbd>?</kbd> for all shortcuts.</p></div> : null}
 
+      {shareQrOpen && shareQrUrl ? (
+        <Suspense fallback={null}>
+          <ShareQrCard url={shareQrUrl} onClose={() => setShareQrOpen(false)} />
+        </Suspense>
+      ) : null}
+
       {cheatSheetOpen ? (
         <div
           className="shortcut-sheet"
@@ -1173,14 +1246,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           </div>
 
           <div className="section-label">Systems</div>
-          <button className={`rail-item ${activeCategory === "paint" ? "active" : ""}`} onClick={() => setActiveCategory("paint")}><PaintBucket size={18} /> Exterior</button>
-          <button className={`rail-item ${activeCategory === "wheels" ? "active" : ""}`} onClick={() => setActiveCategory("wheels")}><CircleGauge size={18} /> Wheels &amp; Tires</button>
-          <button className={`rail-item ${activeCategory === "trim" ? "active" : ""}`} onClick={() => setActiveCategory("trim")}><SlidersHorizontal size={18} /> Suspension</button>
-          <button className={`rail-item ${activeCategory === "lighting" ? "active" : ""}`} onClick={() => setActiveCategory("lighting")}><Lightbulb size={18} /> Lighting</button>
-          <button className={`rail-item ${activeCategory === "panel" ? "active" : ""}`} onClick={() => setActiveCategory("panel")}><Cog size={18} /> Performance</button>
-          <button className={`rail-item ${activeCategory === "decal" ? "active" : ""}`} onClick={() => setActiveCategory("decal")}><Box size={18} /> Decals &amp; Graphics</button>
-          <button className={`rail-item ${activeCategory === "accessory" ? "active" : ""}`} onClick={() => setActiveCategory("accessory")}><Settings2 size={18} /> Accessories</button>
-          <button className={`rail-item ${activeCategory === "interior" ? "active" : ""}`} onClick={() => setActiveCategory("interior")}><Armchair size={18} /> Interior</button>
+          {BUILDER_RAIL_CATEGORIES.filter(({ category }) =>
+            catalog.some((option) => option.category === category),
+          ).map(({ category, label, Icon }) => (
+            <button
+              key={category}
+              className={`rail-item ${activeCategory === category ? "active" : ""}`}
+              onClick={() => setActiveCategory(category)}
+            >
+              <Icon size={18} /> {label}
+            </button>
+          ))}
 
           <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button type="button" onClick={() => setLeadFormOpen(true)}>Request a test drive</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={() => void exportConfigJson()}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
@@ -1286,6 +1362,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   <option value="low">Low</option>
                 </select>
               </label>
+              {qualityNeedsReload ? (
+                /* `antialias` and the authored running gear are set at construction, so the chosen
+                 * tier is only partly live until the page reloads. Saying so is the point of
+                 * `qualityPreferenceNeedsReload`, which existed and went unused — without it the
+                 * selector reports a tier it has not fully applied. */
+                <span className="quality-reload-note" role="status">
+                  Reload to apply fully
+                </span>
+              ) : null}
               <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
             </div>
           </div>
@@ -1327,6 +1412,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onXrError={setXrError}
               qualityPreference={qualityPreference}
               onQualityPreferenceLoaded={setQualityPreference}
+              onQualityNeedsReload={setQualityNeedsReload}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}

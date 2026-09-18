@@ -191,6 +191,39 @@ const WHEEL_FITMENTS: readonly VehicleWheelFitment[] = [
     stockTireMaterials: [],
     packageIds: TRUCK_PACKAGES,
   },
+  {
+    // Four `T1`–`T4` groups, each a complete 26-node wheel assembly — measured at runtime. Like the
+    // Camry and Supra this scene is authored at 0.01 scale and the catalog scales the root by 100,
+    // which the runtime measurement absorbs.
+    vehicleId: "rav4-hybrid",
+    anchors: { kind: "corner", nodeNames: ["T1", "T2", "T3", "T4"] },
+    stockRunningGearNodes: ["T1", "T2", "T3", "T4"],
+    // `Tdummy_material_0_133` is the tyre slot on each assembly (`T*_T:dummy_material_0_133_0`);
+    // `Tdummy_material_0_101` is the rim. Neither name is descriptive — both were read out of the
+    // file, not inferred from the naming.
+    stockTireNodes: ["T1", "T2", "T3", "T4"],
+    stockTireMaterials: ["Tdummy_material_0_133"],
+    packageIds: TRUCK_PACKAGES,
+  },
+  {
+    /**
+     * Four `group4`/`group6`/`group8`/`group9` corner assemblies, measured at runtime.
+     *
+     * The catalog's `wheelMountNames` names the `*_tire_0` meshes inside them, but those are the
+     * tyres only — this asset models the rim as a dozen separate `polySurface*` siblings, so hiding
+     * the tyre alone would leave a rim floating in the arch. The enclosing group is the whole wheel.
+     *
+     * This is also the asset that showed a corner's side cannot be read from the sign of its own X:
+     * its wheels sit at x +0.591 and -1.095, so the model is not centred on its own origin. See
+     * `resolveCorners`.
+     */
+    vehicleId: "land-cruiser",
+    anchors: { kind: "corner", nodeNames: ["group4", "group6", "group8", "group9"] },
+    stockRunningGearNodes: ["group4", "group6", "group8", "group9"],
+    stockTireNodes: ["group4", "group6", "group8", "group9"],
+    stockTireMaterials: ["side_tire"],
+    packageIds: TRUCK_PACKAGES,
+  },
 ];
 
 const BY_VEHICLE = new Map(WHEEL_FITMENTS.map((entry) => [entry.vehicleId, entry]));

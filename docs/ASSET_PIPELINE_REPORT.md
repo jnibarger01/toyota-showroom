@@ -25,6 +25,13 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Compression: draco
 - Semantic contract: not applicable (mounted running gear — takes on its mount point's identity at runtime)
 
+## Camry body (`camry`)
+
+- Source: `/models/camry/camry.glb` — 4000.8 KiB
+- Meshes: 692   Triangles: 1,230,401   Materials: 70   Textures: 0
+- Compression: draco
+- Semantic contract: 11 satisfied, 0 unsatisfied
+
 ## Corolla GT-S (AE86) body (`ae86`)
 
 - Source: `/models/toyota-ae86-ivofficial.glb` — 79.3 KiB
@@ -43,9 +50,7 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 
 ## GR Supra body (`gr-supra`)
 
-- Source: `/models/gr-supra-2024/toyota_gr_supra.glb` — 16398.6 KiB
-- Meshes: 94   Triangles: 193,141   Materials: 28   Textures: 34
-- Compression: none
-- Largest textures: (unnamed) (512×512, 246.1 KiB), (unnamed) (512×512, 164.5 KiB), (unnamed) (512×512, 128.2 KiB)
+- Source: `/models/gr-supra-2024/toyota_gr_supra.glb` — 701.2 KiB
+- Meshes: 88   Triangles: 178,690   Materials: 28   Textures: 0
+- Compression: draco
 - Semantic contract: 23 satisfied, 0 unsatisfied
-- Warnings: no geometry compression extension detected — this asset is shipping uncompressed.

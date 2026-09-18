@@ -37,7 +37,8 @@
  *
  * Usage:
  *   node scripts/bundle-budget.mjs            # check chunks + routes
- *   node scripts/bundle-budget.mjs --update   # rewrite both budget files from the current build
+ *   node scripts/bundle-budget.mjs --add-missing  # budget only chunks with no entry (prefer this)
+ *   node scripts/bundle-budget.mjs --update       # re-baseline both budget files from the build
  */
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
@@ -165,6 +166,29 @@ function writeChunkBudgets(sizes) {
   return budgets;
 }
 
+/**
+ * Budgets only chunks that have no entry, leaving every existing budget untouched.
+ *
+ * `--update` re-baselines *everything* from current sizes, so adopting one new chunk added by
+ * another PR also quietly raises the limits of chunks that were comfortably passing — which is the
+ * silent absorption this gate exists to prevent. That is not hypothetical: it is why PR #70 had to
+ * hand-write three entries to unbreak `main` rather than use the tooling.
+ */
+function addMissingChunkBudgets(sizes) {
+  const budgets = existsSync(CHUNK_BUDGET_FILE) ? JSON.parse(readFileSync(CHUNK_BUDGET_FILE, "utf8")) : {};
+  const added = [];
+  for (const [name, gzip] of sizes) {
+    if (budgets[name] !== undefined) continue;
+    budgets[name] = withHeadroom(gzip);
+    added.push(`${name} (${kib(gzip)} → ${kib(budgets[name])})`);
+  }
+  if (added.length > 0) {
+    const sorted = Object.fromEntries(Object.keys(budgets).sort((a, b) => a.localeCompare(b)).map((k) => [k, budgets[k]]));
+    writeFileSync(CHUNK_BUDGET_FILE, `${JSON.stringify(sorted, null, 2)}\n`);
+  }
+  return added;
+}
+
 function writeRouteBudgets(routeMeasurements) {
   const doc = {
     $comment:
@@ -281,6 +305,18 @@ function main() {
         `  ${r.route} (${r.label}): ${kib(r.entryJsGzip)} → budget ${kib(withHeadroom(r.entryJsGzip))}`,
       );
     }
+    process.exit(0);
+  }
+
+  if (process.argv.includes("--add-missing")) {
+    const added = addMissingChunkBudgets(sizes);
+    console.log(
+      added.length === 0
+        ? "Every chunk already has a budget; nothing to add."
+        : `Added ${added.length} chunk budget(s), leaving existing entries untouched:\n  ${added.join("\n  ")}`,
+    );
+    // Route budgets are a fixed, hand-curated set of critical routes rather than a discovered list,
+    // so there is no "missing" case for them — a new critical route is a deliberate `--update`.
     process.exit(0);
   }
 

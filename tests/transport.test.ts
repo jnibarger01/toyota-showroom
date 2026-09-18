@@ -131,12 +131,17 @@ describe("backend detection", () => {
     expect(created.revision).toBe(1);
   });
 
-  it("falls back when fetch itself rejects", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => {
-      throw new TypeError("Failed to fetch");
-    }));
+  it("does not latch local fallback on a transient fetch rejection", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValue(jsonResponse({}, 404));
+    vi.stubGlobal("fetch", fetchMock);
 
+    await expect(createConfiguration(validCreate)).rejects.toMatchObject({ code: "provider_unavailable" });
     const created = await createConfiguration(validCreate);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(created.configurationId).toMatch(/^cfg_/);
   });
 
@@ -277,12 +282,7 @@ describe("owner token", () => {
   });
 
   it("exposes the remembered token once for first-save reveal, then never again after mark", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("Failed to fetch");
-      }),
-    );
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({}, 404)));
 
     const created = await createConfiguration(validCreate);
     const id = created.configurationId;
