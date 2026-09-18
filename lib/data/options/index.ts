@@ -8,6 +8,7 @@ import { grSupraOptions } from "./gr-supra";
 import { rav4HybridOptions } from "./rav4-hybrid";
 import { landCruiserOptions } from "./land-cruiser";
 import { getGlobalWheelOptions } from "../wheels";
+import { getRunningGearOptions } from "./runningGear";
 import { createRuntimeModificationOptions } from "./runtimeMods";
 
 /**
@@ -26,10 +27,28 @@ const BASE_OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
   "gr-supra": grSupraOptions,
 };
 
+/**
+ * Generated layers, applied on top of each vehicle's own asset-derived catalog.
+ *
+ * `getRunningGearOptions` contributes wheel-and-tyre packages and sidewall finishes, built for every
+ * vehicle from its *measured* fitment (`lib/data/wheelFitment.ts`). They live here rather than in
+ * the per-vehicle files because the geometry is shared and generated: those files describe what is
+ * in that vehicle's GLB, and none of this is. It is also the only path by which some vehicles get a
+ * wheel configurator at all — the RAV4 capture has no wheel geometry, and the AE86 bakes rim and
+ * tyre into a single material.
+ *
+ * `createRuntimeModificationOptions` contributes the shared runtime mod kit (aero, exhaust, brakes,
+ * carbon, and its own single rim/tyre pair). Both are generated, and both are appended; see
+ * `lib/three/proceduralMods.ts` and `lib/three/proceduralWheels.ts` for how the two differ.
+ */
 const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = Object.fromEntries(
   Object.entries(BASE_OPTIONS_BY_VEHICLE).map(([vehicleId, options]) => [
     vehicleId,
-    [...options, ...createRuntimeModificationOptions(vehicleId, options)],
+    [
+      ...options,
+      ...createRuntimeModificationOptions(vehicleId, options),
+      ...getRunningGearOptions(vehicleId),
+    ],
   ]),
 );
 

@@ -440,6 +440,12 @@ button { font: inherit; color: inherit; }
 
 .panel-empty { color: #747f8d; font-size: 12px; padding: 10px 0; }
 .panel-preview-note { margin: 0 0 8px; color: #c9a227; font-size: 10px; line-height: 1.45; }
+/* Heading above one selection group's chips, for a category that carries more than one. */
+.panel-subgroup-label {
+  margin: 12px 0 6px; color: #8a93a0; font-size: 10px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+}
+.panel-subgroup-label:first-of-type { margin-top: 0; }
 
 
 .persistence-banner {

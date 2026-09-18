@@ -28,12 +28,10 @@ const WHEEL_NODES = [
 /** Front pair uses `wheel.metal`, rear pair uses `wheel.metal.001` — both slots are named. */
 const WHEEL_MATERIALS = ["wheel.metal", "wheel.metal.001"];
 
-const TIRE_NODES = [
-  "PLACED_KO3_front_left",
-  "PLACED_KO3_front_right",
-  "PLACED_KO3_rear_left",
-  "PLACED_KO3_rear_right",
-];
+/**
+ * The four positioned tyres (`PLACED_KO3_*`) are addressed by the shared running-gear catalog
+ * (`lib/data/options/runningGear.ts`) via `lib/data/wheelFitment.ts`, not from this file.
+ */
 
 function paint(
   id: string,
@@ -141,31 +139,10 @@ export const fourRunnerOptions: CustomizationOption[] = [
   },
 
   // ----------------------------------------------------------------- trim
-  // `tire.sidewall` is shared by all four KO3 nodes and by the hidden donor tyre. All four wheels
-  // are named explicitly, so clone-on-write updates every one of them while leaving the donor
-  // untouched — the correct result without relying on the sharing being incidental.
-  {
-    id: "trim-tire-letters-raised-white",
-    category: "trim",
-    selectionGroup: "trim-tire-letters",
-    label: "Raised White Letters",
-    operation: "material-update",
-    targetNodes: TIRE_NODES,
-    targetMaterials: ["tire.sidewall"],
-    materialConfig: { color: "#6f6f6c", roughness: 0.85 },
-    compatibleVehicleIds: VEHICLE,
-  },
-  {
-    id: "trim-tire-letters-blackwall",
-    category: "trim",
-    selectionGroup: "trim-tire-letters",
-    label: "Blackwall",
-    operation: "material-update",
-    targetNodes: TIRE_NODES,
-    targetMaterials: ["tire.sidewall"],
-    materialConfig: { color: "#141414", roughness: 0.94 },
-    compatibleVehicleIds: VEHICLE,
-  },
+  // Tyre sidewall finishes used to live here, under `trim`. They now come from
+  // `lib/data/options/runningGear.ts`, which serves every vehicle from one definition and targets
+  // the fitted procedural packages as well as these factory tyres — same option ids, so saved
+  // configurations are unaffected.
   {
     id: "trim-grille-blackout",
     category: "trim",

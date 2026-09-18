@@ -244,8 +244,8 @@ the model never invalidates a saved build.
   "gradeId": "trd-pro",
   "selections": {
     "paint": ["paint-0r2-solar-octane"],
-    "wheels": ["wheels-weisu-bronze"],
-    "trim": ["trim-grille-blackout", "trim-tire-letters-raised-white"],
+    "wheels": ["wheels-package-bronze-forged", "tire-sidewall-raised-white"],
+    "trim": ["trim-grille-blackout"],
     "accessory": ["accessory-roof-rack", "accessory-rock-sliders"]
   },
   "cameraState": { "presetId": "hero", "position": [7.5, 4.0, 8.5], "target": [0, 1.1, 0] },
@@ -256,10 +256,10 @@ the model never invalidates a saved build.
 }
 ```
 
-> `trim` legitimately holds two ids: single-select cardinality applies per **selection group**, not
-> per category. `trim-grille-blackout` is in group `trim-grille` and
-> `trim-tire-letters-raised-white` in `trim-tire-letters`, so they coexist — but two grilles would
-> be rejected with 422. See §5.
+> `wheels` legitimately holds two ids: single-select cardinality applies per **selection group**, not
+> per category. `wheels-package-bronze-forged` is in group `wheels` (which wheel-and-tyre package is
+> fitted) and `tire-sidewall-raised-white` in group `tire-sidewall` (how its sidewalls are
+> finished), so they coexist — but two packages would be rejected with 422. See §5.
 
 ### Database
 

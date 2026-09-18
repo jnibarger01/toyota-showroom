@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { installProceduralWheelPackages } from "../../lib/three/installWheels";
 
 /**
  * A synthetic stand-in for `modsnation_7416_assets_assembled.glb`.
@@ -89,7 +90,17 @@ export interface SceneFixture {
   };
 }
 
-export function createVehicleFixture(): SceneFixture {
+export interface VehicleFixtureOptions {
+  /**
+   * Mount the procedural wheel-and-tyre packages the real scene builds at load time
+   * (`installProceduralWheelPackages`). Off by default so the many tests that count meshes,
+   * materials or raycast hits keep seeing the asset-shaped fixture they were written against; on
+   * for tests that exercise the running-gear catalog, which names those runtime nodes.
+   */
+  wheelPackages?: boolean;
+}
+
+export function createVehicleFixture(options: VehicleFixtureOptions = {}): SceneFixture {
   const root = new THREE.Group();
   root.name = "VEHICLE_ROOT";
 
@@ -151,6 +162,8 @@ export function createVehicleFixture(): SceneFixture {
     group.add(mesh(`${name}_RAIL`, physical(`${name}_MAT`)));
     root.add(group);
   }
+
+  if (options.wheelPackages) installProceduralWheelPackages(root, "4runner");
 
   return {
     root,
