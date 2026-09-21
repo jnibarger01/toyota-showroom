@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { CanvasErrorBoundary } from "../../app/components/CanvasErrorBoundary";
+import {
+  CANVAS_ERROR_BOUNDARY_COPY,
+  CanvasErrorBoundary,
+  classifyCanvasError,
+} from "../../app/components/CanvasErrorBoundary";
 import type { MediaAsset } from "../../lib/types/vehicle";
 
 /**
@@ -12,8 +16,8 @@ import type { MediaAsset } from "../../lib/types/vehicle";
 
 const HERO: MediaAsset = { url: "/images/hero.png", alt: "2024 Toyota 4Runner" };
 
-function Boom(): never {
-  throw new Error("WebGL adapter unavailable");
+function Boom({ message = "WebGL adapter unavailable" }: { message?: string }): never {
+  throw new Error(message);
 }
 
 /** React logs caught render errors to console.error; silenced so the suite output stays readable. */
@@ -23,6 +27,33 @@ beforeEach(() => {
 });
 afterEach(() => {
   consoleError.mockRestore();
+});
+
+describe("classifyCanvasError", () => {
+  it("recognizes GPU / WebGL context-loss wording", () => {
+    expect(classifyCanvasError(new Error("WebGL context lost"))).toBe("gpu");
+    expect(classifyCanvasError(new Error("WEBGL_CONTEXT_LOST_WEBGL"))).toBe("gpu");
+    expect(classifyCanvasError(new Error("No WebGPU adapter available"))).toBe("gpu");
+    expect(classifyCanvasError(new Error("GPU device lost"))).toBe("gpu");
+  });
+
+  it("recognizes GLB / decode asset wording", () => {
+    expect(classifyCanvasError(new Error("GLB decode failed"))).toBe("asset");
+    expect(classifyCanvasError(new Error("Failed to load the model: network error"))).toBe("asset");
+    expect(classifyCanvasError(new Error("Invalid glTF: missing buffers"))).toBe("asset");
+    expect(classifyCanvasError(new Error("Draco decoder threw"))).toBe("asset");
+  });
+
+  it("falls back to generic when the cause is ambiguous", () => {
+    expect(classifyCanvasError(new Error("Loading chunk 7 failed"))).toBe("generic");
+    expect(classifyCanvasError(new Error("Cannot read properties of null"))).toBe("generic");
+    expect(classifyCanvasError(null)).toBe("generic");
+  });
+
+  it("prefers GPU classification when both GPU and asset words appear", () => {
+    // Recovery copy should blame the graphics layer when that is what failed.
+    expect(classifyCanvasError(new Error("WebGL failed to decode texture"))).toBe("gpu");
+  });
 });
 
 describe("CanvasErrorBoundary", () => {
@@ -48,15 +79,47 @@ describe("CanvasErrorBoundary", () => {
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
-  it("tells the user the rest of the page still works", () => {
+  it("explains GPU / context loss when the throw is distinguishable", () => {
+    render(
+      <CanvasErrorBoundary fallbackImage={HERO}>
+        <Boom message="WebGL context lost" />
+      </CanvasErrorBoundary>,
+    );
+    const fallback = screen.getByTestId("canvas-error-fallback");
+    expect(fallback).toHaveAttribute("data-error-kind", "gpu");
+    expect(screen.getByText(CANVAS_ERROR_BOUNDARY_COPY.gpu.title)).toBeInTheDocument();
+    expect(screen.getByText(CANVAS_ERROR_BOUNDARY_COPY.gpu.body)).toBeInTheDocument();
+  });
+
+  it("explains asset failure when the throw is distinguishable", () => {
+    render(
+      <CanvasErrorBoundary fallbackImage={HERO}>
+        <Boom message="GLB decode failed during scene mount" />
+      </CanvasErrorBoundary>,
+    );
+    const fallback = screen.getByTestId("canvas-error-fallback");
+    expect(fallback).toHaveAttribute("data-error-kind", "asset");
+    expect(screen.getByText(CANVAS_ERROR_BOUNDARY_COPY.asset.title)).toBeInTheDocument();
+    expect(screen.getByText(CANVAS_ERROR_BOUNDARY_COPY.asset.body)).toBeInTheDocument();
+  });
+
+  it("keeps generic copy when the cause is not distinguishable", () => {
     // The point of the fallback is that a 3D failure costs the viewport, not the configurator.
     // If the copy stops saying so, users reload or leave over a still-usable page.
     render(
       <CanvasErrorBoundary fallbackImage={HERO}>
-        <Boom />
+        <Boom message="Loading chunk 12 failed" />
       </CanvasErrorBoundary>,
     );
+    expect(screen.getByTestId("canvas-error-fallback")).toHaveAttribute("data-error-kind", "generic");
+    expect(screen.getByText(CANVAS_ERROR_BOUNDARY_COPY.generic.title)).toBeInTheDocument();
     expect(screen.getByText(/configuration option below still works/i)).toBeInTheDocument();
+  });
+
+  it("keeps GPU and asset titles distinct from each other and from generic", () => {
+    expect(CANVAS_ERROR_BOUNDARY_COPY.gpu.title).not.toEqual(CANVAS_ERROR_BOUNDARY_COPY.asset.title);
+    expect(CANVAS_ERROR_BOUNDARY_COPY.gpu.title).not.toEqual(CANVAS_ERROR_BOUNDARY_COPY.generic.title);
+    expect(CANVAS_ERROR_BOUNDARY_COPY.asset.title).not.toEqual(CANVAS_ERROR_BOUNDARY_COPY.generic.title);
   });
 
   it("degrades to the notice alone when a vehicle has no hero image", () => {
