@@ -151,4 +151,16 @@ describe("POST /api/v1/leads", () => {
     const body = (await response.json()) as ErrorResponseBody;
     expect(body.error.code).toBe("crm_handoff_failed");
   });
+
+  it("returns a fake 201 and does not persist when the honeypot is filled", async () => {
+    const createSpy = vi.spyOn(repository, "create");
+    const response = await post(
+      JSON.stringify({ ...validLead, companyWebsite: "https://spam.example" }),
+    );
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { data: { id: string; dropped?: boolean } };
+    expect(body.data.dropped).toBe(true);
+    expect(createSpy).not.toHaveBeenCalled();
+    createSpy.mockRestore();
+  });
 });
