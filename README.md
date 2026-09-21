@@ -51,6 +51,10 @@ identity, BVH-accelerated part picking, and the agent-authorable scene API layer
 
 ## Run
 
+Requires **Node.js `>=22.13.0`** (see `package.json` `engines` and `.nvmrc`). CI installs the same
+floor via `actions/setup-node` + `.nvmrc`. Local installs refuse other majors when
+`engine-strict=true` in `.npmrc`.
+
 ```bash
 npm install
 npm run dev -- -p 3004
