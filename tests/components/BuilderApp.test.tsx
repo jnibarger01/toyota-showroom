@@ -8,6 +8,7 @@ const fourRunnerOptions = getOptionsForVehicle("4runner");
 import type { CreateConfigurationInput, UpdateConfigurationInput } from "../../lib/api/configurations";
 import type { VehicleConfiguration } from "../../lib/types/customization";
 import { encodeBuildDeepLink } from "../../lib/showroom/deepLink";
+import { SELECTION_ANNOUNCEMENT_DEBOUNCE_MS } from "../../lib/showroom/selectionAnnouncement";
 import { estimateBuildTotal, estimateMonthlyPayment, resolveGradeMsrp } from "../../lib/showroom/buildTools";
 
 /**
@@ -470,6 +471,60 @@ describe("BuilderApp", () => {
 
     // Coalesced by a short timer, so this is the first point the text can appear.
     await waitFor(() => expect(region).toHaveTextContent("Paint: Solar Octane selected."), { timeout: 2000 });
+  });
+
+  it("announces accessory deselect with category + label", async () => {
+    await renderBuilderReady();
+
+    const region = screen.getByTestId("selection-announcement");
+    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
+    const rack = () => screen.getByRole("button", { name: /overland roof rack/i });
+    fireEvent.click(rack());
+    await waitFor(() =>
+      expect(configurationStore.getSnapshot().configuration?.selections.accessory).toEqual(["accessory-roof-rack"]),
+    );
+    await waitFor(() => expect(region).toHaveTextContent("Accessories: Overland Roof Rack selected."), {
+      timeout: 2000,
+    });
+
+    // CustomizationButton disables the chip while its option id is in `pending` (until the
+    // debounced save flush clears it). Clicking a disabled control is a no-op, so wait it out.
+    await waitFor(() => expect(rack()).toBeEnabled());
+    fireEvent.click(rack());
+    await waitFor(() =>
+      expect(configurationStore.getSnapshot().configuration?.selections.accessory ?? []).toEqual([]),
+    );
+    await waitFor(() => expect(region).toHaveTextContent("Accessories: Overland Roof Rack removed."), {
+      timeout: 2000,
+    });
+  });
+
+  it("announces the new grade name on grade switch", async () => {
+    await renderBuilderReady();
+
+    const region = screen.getByTestId("selection-announcement");
+    fireEvent.click(screen.getByRole("button", { name: /^sr5/i }));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.gradeId).toBe("sr5"));
+    // Grade is announced immediately (not behind the selection debounce) so it is not overwritten
+    // by the multi-option diff that often accompanies a grade switch.
+    await waitFor(() => expect(region).toHaveTextContent("Grade changed to SR5."));
+  });
+
+  it("coalesces rapid paint scrubbing into a single live-region update", async () => {
+    await renderBuilderReady();
+
+    const region = screen.getByTestId("selection-announcement");
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+      fireEvent.click(screen.getByRole("button", { name: /blueprint/i }));
+      // Still inside the debounce window — nothing spoken yet, so a scrub does not spam AT.
+      expect(region).toHaveTextContent("");
+      await vi.advanceTimersByTimeAsync(SELECTION_ANNOUNCEMENT_DEBOUNCE_MS);
+      expect(region).toHaveTextContent("Paint: Blueprint selected.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("cancels a running cinematic tour when the view is recentred", async () => {

@@ -48,7 +48,7 @@ import * as configurationsApi from "../../lib/api/configurations";
 import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
 import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
 import type { QualityPreference } from "../../lib/three/qualityPreference";
-import { describeGradeChange, describeSelectionChange } from "../../lib/showroom/selectionAnnouncement";
+import { describeGradeChange, describeSelectionChange, SELECTION_ANNOUNCEMENT_DEBOUNCE_MS } from "../../lib/showroom/selectionAnnouncement";
 import { describeTourScene } from "../../lib/showroom/tourAnnouncement";
 import {
   BUILDER_SHORTCUT_SHEET,
@@ -319,7 +319,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     announcementTimerRef.current = setTimeout(() => {
       announcementTimerRef.current = null;
       setAnnouncement(message);
-    }, 220);
+    }, SELECTION_ANNOUNCEMENT_DEBOUNCE_MS);
   }, [configuration, bootstrap?.catalog]);
 
   useEffect(
