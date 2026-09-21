@@ -26,9 +26,13 @@ import type { QualityTier } from "./quality";
  *     spending someone's data on a page they are not looking at.
  *   - **Not on the low tier, and not under Save-Data.** Both are explicit signals that the device or
  *     connection is constrained. `lib/three/quality.ts` already reads `saveData` to pick a tier; a
- *     prefetcher that ignored it would undo that decision.
+ *     prefetcher that ignored it would undo that decision. Medium *reduces* via `maxItems` (one
+ *     warm) rather than matching high — skip-or-reduce, not skip-or-full-blast.
  *   - **One at a time, once each.** Sequential rather than parallel, so a prefetch queue cannot
  *     saturate the connection, and already-attempted ids are never retried.
+ *   - **Resume through canvas idle, not only tab visibility.** Suspension covers hidden tabs *and*
+ *     scrolled-away canvases; `start()` is the resume path, wired from `RenderController`'s idle
+ *     gate so scrolling back into view restarts the queue the same way a foregrounded tab does.
  *
  * Deliberately free of DOM and three.js imports: the loader is injected, so the policy above is
  * testable without a GPU, a network, or a browser.
@@ -52,6 +56,12 @@ export interface PrefetchSchedulerOptions {
   saveData?: boolean;
   /** Whether the canvas is currently suspended (hidden tab / off-screen). Polled before each item. */
   isSuspended?: () => boolean;
+  /**
+   * Soft cap on how many ids this session may warm. Re-read before each schedule so a live tier
+   * change can shrink the remaining queue. `low` is already hard-disabled via `tier`; this is how
+   * `medium` *reduces* rather than matching `high` — today one HDRI, tomorrow a longer list.
+   */
+  maxItems?: () => number;
   /** Injected for tests; defaults to `requestIdleCallback`, falling back to a macrotask. */
   scheduleIdle?: (callback: () => void) => () => void;
 }
@@ -84,9 +94,17 @@ function defaultScheduleIdle(callback: () => void): () => void {
   return () => clearTimeout(timer);
 }
 
+/** Default medium budget: warm one likely-next asset, not the whole speculative queue. */
+export function prefetchBudgetForTier(tier: QualityTier): number {
+  if (tier === "low") return 0;
+  if (tier === "medium") return 1;
+  return Number.POSITIVE_INFINITY;
+}
+
 export function createPrefetchScheduler(options: PrefetchSchedulerOptions): PrefetchScheduler {
   const { load, ids, tier, saveData = false, isSuspended = () => false } = options;
   const scheduleIdle = options.scheduleIdle ?? defaultScheduleIdle;
+  const maxItems = options.maxItems ?? (() => prefetchBudgetForTier(tier()));
 
   const done: string[] = [];
   const attempted = new Set<string>();
@@ -100,6 +118,9 @@ export function createPrefetchScheduler(options: PrefetchSchedulerOptions): Pref
 
   function pump(): void {
     if (disposed || !enabled() || pending) return;
+    // Cap against attempts (not only successes) so a failed warm still consumes budget — otherwise
+    // a flaky CDN would let medium burn through the whole queue one failure at a time.
+    if (attempted.size >= maxItems()) return;
     const next = ids.find((id) => !attempted.has(id));
     if (next === undefined) return;
 
@@ -112,6 +133,12 @@ export function createPrefetchScheduler(options: PrefetchSchedulerOptions): Pref
       // Re-read here too: the tier can change between scheduling and running, and this callback is
       // the last point before bytes go over the wire.
       if (!enabled()) {
+        pending = false;
+        return;
+      }
+      // Re-read the budget here too: a governor downgrade to medium between schedule and run must
+      // not let a previously-queued second item slip through.
+      if (attempted.size >= maxItems()) {
         pending = false;
         return;
       }
