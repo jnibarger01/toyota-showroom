@@ -3,6 +3,7 @@ import { BuilderApp } from "../components/BuilderApp";
 import { PremiumViewerControls } from "../components/PremiumViewerControls";
 import { getAllVehicleSlugs, getVehicleBySlug } from "../../lib/data/vehicles";
 import { absolutePageUrl } from "../../lib/site";
+import { buildVehicleJsonLd } from "../../lib/showroom/jsonLd";
 import { buildSharePreview, sharePreviewToMetadata } from "../../lib/showroom/openGraph";
 
 export const dynamic = "force-static";
@@ -39,10 +40,18 @@ export async function generateMetadata({
 
 export default async function VehiclePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  const vehicle = getVehicleBySlug(slug);
+  const jsonLd = vehicle ? buildVehicleJsonLd(vehicle) : undefined;
   // `key` forces a clean remount on vehicle switches — see the comment on BuilderApp's bootstrap
   // effect for why that's the chosen reset strategy over clearing state imperatively in an effect.
   return (
     <>
+      {jsonLd ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+      ) : null}
       <BuilderApp key={slug} vehicleSlug={slug} />
       <PremiumViewerControls />
     </>
