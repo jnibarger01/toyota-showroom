@@ -249,14 +249,19 @@ describe("BuilderApp", () => {
 
   it("opens the test-drive form with the current build context", async () => {
     submitLeadMock.mockResolvedValue(undefined);
+    let now = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
     await renderBuilderReady();
 
     fireEvent.click(screen.getByRole("button", { name: /request a test drive/i }));
     expect(screen.getByRole("dialog", { name: /request a test drive/i })).toBeInTheDocument();
+    // Lead form mounts on dialog open; advance past soft dwell before a real submit.
+    now += 2_000;
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "Jamie Customer" } });
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "jamie@example.com" } });
     fireEvent.change(screen.getByLabelText(/how can we help/i), { target: { value: "Test drive, please." } });
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
+    nowSpy.mockRestore();
 
     await waitFor(() => expect(screen.getByText(/thanks — your request was sent/i)).toBeInTheDocument());
     expect(submitLeadMock).toHaveBeenCalledWith(expect.objectContaining({
