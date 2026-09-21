@@ -17,6 +17,16 @@ describe("formatCurrency", () => {
     expect(formatCurrency(0)).toBe("$0");
   });
 
+  it("formats USD using an explicit locale", () => {
+    const expected = new Intl.NumberFormat("de-DE", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(50_700);
+
+    expect(formatCurrency(50_700, { locale: "de-DE" })).toBe(expected);
+  });
+
   it("rounds half away from zero at the configured fraction digits", () => {
     // Default sticker display is whole dollars.
     expect(formatCurrency(579.5)).toBe("$580");
@@ -46,5 +56,17 @@ describe("formatPriceDelta", () => {
 
   it("leaves zero unsigned", () => {
     expect(formatPriceDelta(0)).toBe("$0");
+  });
+
+  it("keeps the sign when using an explicit locale", () => {
+    const expected = new Intl.NumberFormat("de-DE", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+      signDisplay: "exceptZero",
+    }).format(1_150);
+
+    expect(formatPriceDelta(1_150, { locale: "de-DE" })).toBe(expected);
+    expect(formatPriceDelta(1_150, { locale: "de-DE" })).toMatch(/^\+/);
   });
 });
