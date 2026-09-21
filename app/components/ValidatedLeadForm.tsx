@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { submitLead } from "../../lib/api/leads";
 import { shouldSilentlyDropLeadClient } from "../../lib/validation/leadHoneypot";
 import { newId } from "../../lib/shared/id";
@@ -58,7 +58,10 @@ function validateField(field: keyof FormValues, values: FormValues): string | un
 export function ValidatedLeadForm({ onSubmit, buildSnapshot }: Props) {
   const formId = useId();
   const idempotencyKey = useRef<string | null>(null);
-  const mountedAtMsRef = useRef(Date.now());
+  const mountedAtMsRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    mountedAtMsRef.current = Date.now();
+  }, []);
   const [companyWebsite, setCompanyWebsite] = useState("");
   const [values, setValues] = useState(initialValues);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -89,6 +92,7 @@ export function ValidatedLeadForm({ onSubmit, buildSnapshot }: Props) {
     }
 
     if (
+      mountedAtMsRef.current === null ||
       shouldSilentlyDropLeadClient({
         companyWebsite,
         mountedAtMs: mountedAtMsRef.current,
