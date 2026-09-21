@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPrefetchScheduler } from "../lib/three/prefetch";
+import { createPrefetchScheduler, prefetchBudgetForTier } from "../lib/three/prefetch";
 
 /**
  * The scheduler's whole value is in what it *refuses* to do, so most of these assert non-events.
@@ -176,5 +176,45 @@ describe("createPrefetchScheduler", () => {
     scheduler.start();
     scheduler.dispose();
     expect(cancel).toHaveBeenCalled();
+  });
+
+  it("reduces the queue on medium via maxItems (skip-or-reduce, not skip-or-full-blast)", async () => {
+    const { scheduler, load } = make({
+      tier: () => "medium",
+      maxItems: () => prefetchBudgetForTier("medium"),
+    });
+    scheduler.start();
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    // Medium warms one id; the remaining two must stay cold.
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(scheduler.completed()).toEqual(["a"]);
+  });
+
+  it("honours a live maxItems shrink between items", async () => {
+    let budget = 3;
+    const load = vi.fn(async () => {
+      budget = 1; // governor-style shrink after the first warm
+      return true;
+    });
+    const scheduler = createPrefetchScheduler({
+      load,
+      ids: ["a", "b", "c"],
+      tier: () => "high",
+      maxItems: () => budget,
+      scheduleIdle: immediateIdle,
+    });
+    scheduler.start();
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("prefetchBudgetForTier", () => {
+  it("skips on low, reduces on medium, and leaves high uncapped", () => {
+    expect(prefetchBudgetForTier("low")).toBe(0);
+    expect(prefetchBudgetForTier("medium")).toBe(1);
+    expect(prefetchBudgetForTier("high")).toBe(Number.POSITIVE_INFINITY);
   });
 });
