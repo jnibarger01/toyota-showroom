@@ -14,6 +14,7 @@ import {
 import type { CustomizationOption } from "../../lib/types/customization";
 import type { PaintStudioMaterialParams, PaintStudioState } from "../../lib/types/paintStudio";
 import { configurationStore } from "../../lib/state/useConfiguration";
+import { formatPriceDelta } from "../../lib/shared/currency";
 
 type Props = {
   paintStudio: PaintStudioState | undefined;
@@ -116,7 +117,7 @@ export function PaintStudioPanel({
     <section className="control-section paint-studio" data-testid="paint-studio">
       <label>
         <SlidersHorizontal size={14} /> Paint studio
-        {mode === "custom" ? <small>+${PAINT_CUSTOM_PRICE_DELTA.toLocaleString()}</small> : null}
+        {mode === "custom" ? <small>{formatPriceDelta(PAINT_CUSTOM_PRICE_DELTA)}</small> : null}
       </label>
       <div className="segmented" role="group" aria-label="Paint studio mode">
         <button
@@ -152,7 +153,7 @@ export function PaintStudioPanel({
             onClick={() => setHdri(preset.id)}
           >
             <span>{preset.label}</span>
-            {preset.priceDelta ? <small>+${preset.priceDelta.toLocaleString()}</small> : null}
+            {preset.priceDelta ? <small>{formatPriceDelta(preset.priceDelta)}</small> : null}
           </button>
         ))}
       </div>

@@ -15,6 +15,7 @@ import {
   type CreateCompareDeepLinkResult,
 } from "../../lib/showroom/compareDeepLink";
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
+import { formatCurrency } from "../../lib/shared/currency";
 import { listVehicleOptions } from "../../lib/api/configurations";
 import { getVehicle } from "../../lib/api/client";
 import { GARAGE_PERSISTENCE_NOTE_COPY } from "../components/PersistenceModeBanner";
@@ -223,7 +224,7 @@ export default function GaragePage() {
                               : build.loadError
                                 ? ` · ${build.loadError}`
                                 : ""}
-                            {typeof total === "number" ? ` · est. $${total.toLocaleString()}` : ""}
+                            {typeof total === "number" ? ` · est. ${formatCurrency(total)}` : ""}
                           </small>
                           {!build.canMutate ? (
                             <small className="garage-readonly-hint">

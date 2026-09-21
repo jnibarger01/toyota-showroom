@@ -86,6 +86,7 @@ import {
   formatBuildSummary,
   readSharedConfigurationId,
 } from "../../lib/showroom/buildTools";
+import { formatCurrency, formatPriceDelta } from "../../lib/shared/currency";
 import {
   createBuildDeepLinkUrl,
   readBuildDeepLinkParam,
@@ -1225,7 +1226,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <span>{vehicle.year} TOYOTA</span>
             <h1>{vehicle.model}</h1>
             <p>
-              {selectedGrade ? `${selectedGrade.name} · ` : ""}Estimated ${estimatedTotal.toLocaleString()}
+              {selectedGrade ? `${selectedGrade.name} · ` : ""}Estimated {formatCurrency(estimatedTotal)}
             </p>
           </div>
 
@@ -1255,7 +1256,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 onClick={() => void changeGrade(grade.id)}
               >
                 <span>{grade.name}</span>
-                <small>${grade.msrp.toLocaleString()}</small>
+                <small>{formatCurrency(grade.msrp)}</small>
               </button>
             ))}
           </div>
@@ -1582,8 +1583,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               ))}
             </div>
           </section>
-          <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>${baseMsrp.toLocaleString()}</b></p><p><span>Configured upgrades</span><b>+${(estimatedTotal - baseMsrp).toLocaleString()}</b></p><p className="total"><span>Estimated total</span><b data-testid="estimated-total">${estimatedTotal.toLocaleString()}</b></p></section>
-          <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={baseMsrp} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `$${(estimatedTotal - budget).toLocaleString()} over target` : `$${(budget - estimatedTotal).toLocaleString()} remaining`}</p></section>
+          <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>{formatCurrency(baseMsrp)}</b></p><p><span>Configured upgrades</span><b>{formatPriceDelta(estimatedTotal - baseMsrp)}</b></p><p className="total"><span>Estimated total</span><b data-testid="estimated-total">{formatCurrency(estimatedTotal)}</b></p></section>
+          <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={baseMsrp} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `${formatCurrency(estimatedTotal - budget)} over target` : `${formatCurrency(budget - estimatedTotal)} remaining`}</p></section>
           <section className="financing-card">
             <div><Landmark size={16} /><strong>Estimated financing</strong></div>
             <div className="financing-inputs">
@@ -1602,8 +1603,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 </select>
               </label>
             </div>
-            <p><span>Amount financed</span><b data-testid="amount-financed">${financedPrincipal.toLocaleString()}</b></p>
-            <p className="total"><span>Est. monthly payment</span><b data-testid="estimated-monthly-payment">${estimatedMonthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo</b></p>
+            <p><span>Amount financed</span><b data-testid="amount-financed">{formatCurrency(financedPrincipal)}</b></p>
+            <p className="total"><span>Est. monthly payment</span><b data-testid="estimated-monthly-payment">{formatCurrency(estimatedMonthlyPayment)}/mo</b></p>
             <p className="financing-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender. Payment tracks the live build total derived from your selections.</p>
           </section>
         </aside>
