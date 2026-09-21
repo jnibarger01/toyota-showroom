@@ -51,6 +51,11 @@ identity, BVH-accelerated part picking, and the agent-authorable scene API layer
 
 ## Run
 
+Requires **Node.js `>=22.13.0`** (`package.json` `engines`). `.nvmrc` pins **`22.19`**
+(the current CI/local install; some tooling such as Lighthouse needs `>=22.19`). CI reads
+`.nvmrc` via `actions/setup-node`. Local installs refuse an incompatible Node when
+`engine-strict=true` in `.npmrc`.
+
 ```bash
 npm install
 npm run dev -- -p 3004
