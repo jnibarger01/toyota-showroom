@@ -6,6 +6,10 @@ import { enforceLeadWriteRateLimit } from "../../../../lib/server/rateLimit";
 import { withRouteTelemetry } from "../../../../lib/server/apiResponse";
 import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 import { validateCreateLead } from "../../../../lib/validation/lead";
+import {
+  isLeadHoneypotTriggered,
+  stripLeadHoneypotField,
+} from "../../../../lib/validation/leadHoneypot";
 
 export const dynamic = "force-dynamic";
 
@@ -69,7 +73,28 @@ export const POST = withRouteTelemetry(
   "POST",
   async (request: NextRequest) => {
     await enforceLeadWriteRateLimit(request);
-    const input = validateCreateLead(await readBoundedJson(request));
+    const rawBody = await readBoundedJson(request);
+    // Bots that fill the honeypot get a fake 201 — no persistence, no CRM.
+    if (isLeadHoneypotTriggered(rawBody)) {
+      return NextResponse.json(
+        {
+          data: {
+            id: "lead_honeypot",
+            kind: "contact",
+            name: "",
+            email: "",
+            message: "",
+            createdAt: new Date().toISOString(),
+            dropped: true,
+          },
+        },
+        {
+          status: 201,
+          headers: withSecurityHeaders({ "Cache-Control": "no-store" }),
+        },
+      );
+    }
+    const input = validateCreateLead(stripLeadHoneypotField(rawBody));
     const { lead, created } = await getLeadRepository().create(input);
 
     // CRM secrets stay in Worker env; the client only ever sent the public build snapshot.

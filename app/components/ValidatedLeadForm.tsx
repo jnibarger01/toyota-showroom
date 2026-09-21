@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { submitLead } from "../../lib/api/leads";
+import { shouldSilentlyDropLeadClient } from "../../lib/validation/leadHoneypot";
 import { newId } from "../../lib/shared/id";
 import type { SelectionMap } from "../../lib/types/customization";
 
@@ -57,6 +58,8 @@ function validateField(field: keyof FormValues, values: FormValues): string | un
 export function ValidatedLeadForm({ onSubmit, buildSnapshot }: Props) {
   const formId = useId();
   const idempotencyKey = useRef<string | null>(null);
+  const mountedAtMsRef = useRef(Date.now());
+  const [companyWebsite, setCompanyWebsite] = useState("");
   const [values, setValues] = useState(initialValues);
   const [errors, setErrors] = useState<FormErrors>({});
   const [touched, setTouched] = useState<Partial<Record<keyof FormValues, boolean>>>({});
@@ -82,6 +85,16 @@ export function ValidatedLeadForm({ onSubmit, buildSnapshot }: Props) {
     setTouched({ name: true, email: true, message: true });
     if (Object.keys(nextErrors).length > 0) {
       document.getElementById(`${formId}-${Object.keys(nextErrors)[0]}`)?.focus();
+      return;
+    }
+
+    if (
+      shouldSilentlyDropLeadClient({
+        companyWebsite,
+        mountedAtMs: mountedAtMsRef.current,
+      })
+    ) {
+      setSubmitted(true);
       return;
     }
 
@@ -134,6 +147,8 @@ export function ValidatedLeadForm({ onSubmit, buildSnapshot }: Props) {
 
   const reset = () => {
     idempotencyKey.current = null;
+    mountedAtMsRef.current = Date.now();
+    setCompanyWebsite("");
     setValues(initialValues);
     setErrors({});
     setTouched({});
@@ -154,7 +169,32 @@ export function ValidatedLeadForm({ onSubmit, buildSnapshot }: Props) {
   }
 
   return (
-    <form className="validated-form" noValidate onSubmit={handleSubmit}>
+    <form className="relative validated-form" noValidate onSubmit={handleSubmit}>
+      <div
+        aria-hidden="true"
+        className="lead-honeypot"
+        style={{
+          position: "absolute",
+          left: "-10000px",
+          top: "auto",
+          width: "1px",
+          height: "1px",
+          overflow: "hidden",
+        }}
+      >
+        <label htmlFor={`${formId}-company-website`}>Company website</label>
+        <input
+          id={`${formId}-company-website`}
+          data-testid="lead-honeypot"
+          name="companyWebsite"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+          value={companyWebsite}
+          onChange={(event) => setCompanyWebsite(event.target.value)}
+        />
+      </div>
+
       <Field
         id={`${formId}-name`}
         label="Name"

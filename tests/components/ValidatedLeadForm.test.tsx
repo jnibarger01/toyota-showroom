@@ -4,7 +4,22 @@ import { ValidatedLeadForm } from "../../app/components/ValidatedLeadForm";
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
+
+/**
+ * Mock wall clock so mount captures t0, then bump before submit past LEAD_MIN_SUBMIT_MS.
+ * Call once before render; call advancePastLeadDwell() immediately before submit.
+ */
+function installLeadClock(): { advancePastLeadDwell: () => void } {
+  let now = 1_700_000_000_000;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  return {
+    advancePastLeadDwell: () => {
+      now += 2_000;
+    },
+  };
+}
 
 function fillValidLeadForm(): void {
   fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "Jamie Customer" } });
@@ -32,10 +47,12 @@ function acceptedLeadResponse(): Response {
 
 describe("ValidatedLeadForm", () => {
   it("does not report success when the default lead backend is unavailable", async () => {
+    const clock = installLeadClock();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network unavailable")));
 
     render(<ValidatedLeadForm />);
     fillValidLeadForm();
+    clock.advancePastLeadDwell();
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
 
     await waitFor(() => {
@@ -48,11 +65,13 @@ describe("ValidatedLeadForm", () => {
   });
 
   it("uses the real lead API by default and sends an idempotency key", async () => {
+    const clock = installLeadClock();
     const fetchMock = vi.fn().mockResolvedValue(acceptedLeadResponse());
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ValidatedLeadForm />);
     fillValidLeadForm();
+    clock.advancePastLeadDwell();
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
 
     await screen.findByText(/thanks — your request was sent/i);
@@ -73,6 +92,7 @@ describe("ValidatedLeadForm", () => {
   });
 
   it("does not show success until an injected submit authority actually resolves", async () => {
+    const clock = installLeadClock();
     let resolveSubmit: (() => void) | undefined;
     const onSubmit = vi.fn(
       () =>
@@ -83,6 +103,7 @@ describe("ValidatedLeadForm", () => {
 
     render(<ValidatedLeadForm onSubmit={onSubmit} />);
     fillValidLeadForm();
+    clock.advancePastLeadDwell();
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
 
     expect(screen.getByRole("button", { name: /sending/i })).toBeDisabled();
@@ -93,10 +114,12 @@ describe("ValidatedLeadForm", () => {
   });
 
   it("renders a safe retryable error when a configured submit authority rejects", async () => {
+    const clock = installLeadClock();
     const onSubmit = vi.fn().mockRejectedValue(new Error("provider detail must not leak"));
 
     render(<ValidatedLeadForm onSubmit={onSubmit} />);
     fillValidLeadForm();
+    clock.advancePastLeadDwell();
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
 
     const alert = await screen.findByRole("alert");
@@ -109,6 +132,7 @@ describe("ValidatedLeadForm", () => {
   });
 
   it("turns an API rejection into failure instead of treating any fetch response as accepted", async () => {
+    const clock = installLeadClock();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -121,10 +145,40 @@ describe("ValidatedLeadForm", () => {
 
     render(<ValidatedLeadForm />);
     fillValidLeadForm();
+    clock.advancePastLeadDwell();
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
 
     await screen.findByRole("alert");
     expect(screen.queryByText(/thanks — your request was sent/i)).not.toBeInTheDocument();
+  });
+
+  it("shows success without calling fetch when the honeypot is filled", async () => {
+    const clock = installLeadClock();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ValidatedLeadForm />);
+    fillValidLeadForm();
+    fireEvent.change(screen.getByTestId("lead-honeypot"), {
+      target: { value: "https://spam.example" },
+    });
+    clock.advancePastLeadDwell();
+    fireEvent.click(screen.getByRole("button", { name: /send request/i }));
+
+    await screen.findByText(/thanks — your request was sent/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("shows success without calling fetch when submit is suspiciously fast", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    // Do not advance dwell — mount and submit in the same instant.
+    render(<ValidatedLeadForm />);
+    fillValidLeadForm();
+    fireEvent.click(screen.getByRole("button", { name: /send request/i }));
+
+    await screen.findByText(/thanks — your request was sent/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -139,11 +193,13 @@ describe("ValidatedLeadForm CRM build snapshot", () => {
   };
 
   it("forwards vehicle, selections, share URL, and owner-token metadata to the lead API", async () => {
+    const clock = installLeadClock();
     const fetchMock = vi.fn().mockResolvedValue(acceptedLeadResponse());
     vi.stubGlobal("fetch", fetchMock);
 
     render(<ValidatedLeadForm buildSnapshot={buildSnapshot} />);
     fillValidLeadForm();
+    clock.advancePastLeadDwell();
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
 
     await screen.findByText(/thanks — your request was sent/i);
@@ -164,6 +220,7 @@ describe("ValidatedLeadForm CRM build snapshot", () => {
   });
 
   it("keeps failure UX honest when the lead/CRM API rejects the handoff", async () => {
+    const clock = installLeadClock();
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -178,6 +235,7 @@ describe("ValidatedLeadForm CRM build snapshot", () => {
 
     render(<ValidatedLeadForm buildSnapshot={buildSnapshot} />);
     fillValidLeadForm();
+    clock.advancePastLeadDwell();
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
 
     const alert = await screen.findByRole("alert");
