@@ -25,6 +25,7 @@ vi.mock("../../lib/api/configurations", () => ({
       updatedAt: new Date().toISOString(),
     };
   },
+  getPersistenceMode: () => "local" as const,
 }));
 
 const { configurationStore } = await import("../../lib/state/configurationStore");

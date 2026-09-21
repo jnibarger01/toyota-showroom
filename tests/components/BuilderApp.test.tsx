@@ -119,6 +119,18 @@ vi.mock("../../lib/api/client", () => ({
 
 let revision = 1;
 
+const { persistenceMode, conflictOnUpdate, serverRevisionOnGet } = vi.hoisted(() => ({
+  persistenceMode: { value: "local" as "local" | "worker" },
+  conflictOnUpdate: { value: false },
+  serverRevisionOnGet: {
+    value: null as null | {
+      configurationId: string;
+      selections: Record<string, string[]>;
+      revision: number;
+    },
+  },
+}));
+
 vi.mock("../../lib/api/configurations", () => ({
   async listVehicleOptions() {
     // Ungraded, matching the real signature since Task 6 — BuilderApp itself filters by grade.
@@ -134,16 +146,35 @@ vi.mock("../../lib/api/configurations", () => ({
       gradeId: input.gradeId,
       selections: input.selections ?? {},
       cameraState: input.cameraState,
+      paintStudio: input.paintStudio,
       revision,
       schemaVersion: "1.0.0",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
   },
-  async getConfiguration(): Promise<VehicleConfiguration> {
+  async getConfiguration(configurationId: string): Promise<VehicleConfiguration> {
+    if (serverRevisionOnGet.value && serverRevisionOnGet.value.configurationId === configurationId) {
+      return {
+        configurationId,
+        vehicleId: fourRunner.slug,
+        modelYear: fourRunner.year,
+        model: fourRunner.model,
+        gradeId: "trd-pro",
+        selections: serverRevisionOnGet.value.selections,
+        revision: serverRevisionOnGet.value.revision,
+        schemaVersion: "1.0.0",
+        createdAt: "",
+        updatedAt: new Date().toISOString(),
+      };
+    }
     throw new Error("no stored configuration in these tests");
   },
   async updateConfiguration(configurationId: string, input: UpdateConfigurationInput): Promise<VehicleConfiguration> {
+    if (conflictOnUpdate.value) {
+      const { ApiError } = await import("../../lib/api/errors");
+      throw new ApiError(409, "revision_conflict", "stale revision for test");
+    }
     revision += 1;
     return {
       configurationId,
@@ -153,6 +184,7 @@ vi.mock("../../lib/api/configurations", () => ({
       gradeId: "trd-pro",
       selections: input.selections ?? {},
       cameraState: input.cameraState,
+      paintStudio: input.paintStudio,
       revision,
       schemaVersion: "1.0.0",
       createdAt: "",
@@ -160,12 +192,16 @@ vi.mock("../../lib/api/configurations", () => ({
     };
   },
   getPersistenceMode() {
-    return "local";
+    return persistenceMode.value;
   },
   subscribePersistenceMode() {
     return () => {};
   },
   resetTransportDetection() {},
+  takeOwnerTokenForFirstSaveReveal() {
+    return null;
+  },
+  markOwnerTokenShown() {},
 }));
 
 const { submitLeadMock } = vi.hoisted(() => ({ submitLeadMock: vi.fn() }));
@@ -176,6 +212,9 @@ const { configurationStore } = await import("../../lib/state/configurationStore"
 
 beforeEach(() => {
   revision = 1;
+  persistenceMode.value = "local";
+  conflictOnUpdate.value = false;
+  serverRevisionOnGet.value = null;
   window.localStorage.clear();
   configurationStore.reset();
   fakeController.selectedPartId = undefined; // fakeController is hoisted/shared across tests
@@ -622,3 +661,64 @@ describe("BuilderApp", () => {
     expect(control).toHaveAccessibleName(/view in ar/i);
   });
 });
+
+describe("BuilderApp stale-revision conflict UX (#52)", () => {
+  it("shows reload / overwrite / fork actions in Worker mode with confirm on overwrite", async () => {
+    persistenceMode.value = "worker";
+    conflictOnUpdate.value = true;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    await renderBuilderReady();
+
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+    await waitFor(() => expect(screen.getByTestId("revision-conflict-banner")).toBeInTheDocument());
+
+    expect(screen.getByTestId("revision-conflict-banner")).toHaveTextContent(/stale revision/i);
+    expect(screen.getByTestId("conflict-reload")).toBeInTheDocument();
+    expect(screen.getByTestId("conflict-overwrite")).toBeInTheDocument();
+    expect(screen.getByTestId("conflict-fork")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("conflict-overwrite"));
+    expect(confirmSpy).toHaveBeenCalled();
+    // Declined confirm — still in conflict state.
+    expect(screen.getByTestId("revision-conflict-banner")).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
+
+  it("does not show conflict recovery actions in local mode", async () => {
+    persistenceMode.value = "local";
+    conflictOnUpdate.value = true;
+
+    await renderBuilderReady();
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+
+    await waitFor(() => expect(screen.getByTestId("save-failure-conflict")).toBeInTheDocument());
+    expect(screen.queryByTestId("revision-conflict-banner")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("conflict-reload")).not.toBeInTheDocument();
+  });
+
+  it("reload saved fetches the server revision into the builder", async () => {
+    persistenceMode.value = "worker";
+    conflictOnUpdate.value = true;
+
+    await renderBuilderReady();
+    const cfgId = configurationStore.getSnapshot().configuration!.configurationId;
+    serverRevisionOnGet.value = {
+      configurationId: cfgId,
+      selections: { paint: ["paint-1j9-ice-cap"] },
+      revision: 9,
+    };
+
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+    await waitFor(() => expect(screen.getByTestId("revision-conflict-banner")).toBeInTheDocument());
+
+    conflictOnUpdate.value = false;
+    fireEvent.click(screen.getByTestId("conflict-reload"));
+
+    await waitFor(() => expect(screen.queryByTestId("revision-conflict-banner")).not.toBeInTheDocument());
+    expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual(["paint-1j9-ice-cap"]);
+    expect(configurationStore.getSnapshot().configuration?.revision).toBe(9);
+  });
+});
+

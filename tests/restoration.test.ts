@@ -42,7 +42,8 @@ vi.mock("../lib/api/configurations", async () => {
     async updateConfiguration(id: string, patch: Record<string, unknown>) {
       if (failNextUpdate.value) {
         failNextUpdate.value = false;
-        throw new Error("Simulated network failure.");
+        const { ApiError } = await import("../lib/api/errors");
+        throw new ApiError(0, "network_error", "Could not reach the configuration service.");
       }
       const existing = await repo.get(id);
       if (!existing) throw new Error("missing");
@@ -55,6 +56,7 @@ vi.mock("../lib/api/configurations", async () => {
     async listVehicleOptions() {
       return fourRunnerOptions;
     },
+    getPersistenceMode: () => "local" as const,
   };
 });
 
@@ -158,7 +160,8 @@ describe("failure handling", () => {
 
     const state = configurationStore.getSnapshot();
     expect(state.status).toBe("error");
-    expect(state.error).toMatch(/Simulated network failure/);
+    expect(state.error).toMatch(/Could not reach the cloud save service/);
+    expect(state.saveFailure).toBe("network");
     // Both the state and the viewport are back on the last server-confirmed selection.
     expect(state.configuration?.selections.paint).toEqual([blue.id]);
     expect(colorHexAt(fixture.root, "BODY", "body.carmain")).toBe("1558d6");
@@ -266,7 +269,8 @@ describe("patch validation reaches the store", () => {
 
     const state = configurationStore.getSnapshot();
     expect(state.status).toBe("error");
-    expect(state.error).toMatch(/not available on grade "sr5"/);
+    expect(state.error).toMatch(/could not be saved/i);
+    expect(state.saveFailure).toBe("validation");
     expect(state.configuration?.selections.paint ?? []).toEqual([]);
     expect(colorHexAt(fixture.root, "BODY", "body.carmain")).toBe("1558d6");
   });
