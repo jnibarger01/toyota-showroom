@@ -45,6 +45,7 @@ import { PaintStudioPanel } from "./PaintStudioPanel";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
+import { OVERWRITE_CONFIRM } from "../../lib/api/saveFailure";
 import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
 import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
 import type { QualityPreference } from "../../lib/three/qualityPreference";
@@ -267,7 +268,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
    * viewport, surfaced here so the configurator chrome can react without touching Three.js. */
   const [selectedPart, setSelectedPart] = useState<SceneRegistryEntry | undefined>(undefined);
 
-  const { configuration, catalog, status, error } = useConfiguration();
+  const { configuration, catalog, status, error, saveFailure } = useConfiguration();
   const persistenceMode = usePersistenceMode();
 
   useEffect(() => {
@@ -1158,10 +1159,63 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       ) : null}
 
       {error ? (
-        <div className="config-error" role="alert">
-          <AlertTriangle size={15} />
+        <div
+          className={
+            saveFailure === "conflict" && persistenceMode === "worker"
+              ? "config-error config-error-conflict"
+              : "config-error"
+          }
+          role="alert"
+          data-testid={
+            saveFailure === "conflict" && persistenceMode === "worker"
+              ? "revision-conflict-banner"
+              : saveFailure
+                ? `save-failure-${saveFailure}`
+                : "config-error"
+          }
+        >
+          <AlertTriangle size={15} aria-hidden />
           <span>{error}</span>
-          <button onClick={() => configurationStore.clearError()}>Dismiss</button>
+          {saveFailure === "conflict" && persistenceMode === "worker" ? (
+            <div className="config-error-actions">
+              <button
+                type="button"
+                data-testid="conflict-reload"
+                onClick={() => void configurationStore.reloadServerRevision()}
+              >
+                Reload saved
+              </button>
+              <button
+                type="button"
+                data-testid="conflict-overwrite"
+                onClick={() => {
+                  if (!window.confirm(OVERWRITE_CONFIRM)) return;
+                  void configurationStore.forceOverwrite();
+                }}
+              >
+                Overwrite
+              </button>
+              <button
+                type="button"
+                data-testid="conflict-fork"
+                onClick={() => {
+                  void (async () => {
+                    const fresh = await configurationStore.forkLocalDraft();
+                    if (fresh) rememberConfigurationId(vehicleSlug, fresh.configurationId);
+                  })();
+                }}
+              >
+                Keep as new draft
+              </button>
+              <button type="button" onClick={() => configurationStore.clearError()}>
+                Dismiss
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => configurationStore.clearError()}>
+              Dismiss
+            </button>
+          )}
         </div>
       ) : null}
 

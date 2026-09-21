@@ -12,7 +12,12 @@ import { DEFAULT_HDRI_PRESET_ID, PAINT_CUSTOM_OPTION_ID } from "../data/paintStu
 import type { VehicleSceneController } from "../three/sceneController";
 import * as configurationsApi from "../api/configurations";
 import {
-  classifySaveFailure,
+  isRevisionConflict,
+  messageForSaveFailure,
+  saveFailureReason,
+  type SaveFailureReason,
+} from "../api/saveFailure";
+import {
   trackOptionChanged,
   trackSaveFailed,
   trackSaveSucceeded,
@@ -25,13 +30,26 @@ export interface ConfigurationState {
   catalog: CustomizationOption[];
   status: SaveStatus;
   error: string | null;
+  /**
+   * Classified save failure when `status === "error"` after a persist attempt.
+   * `conflict` in Worker mode unlocks reload / overwrite / fork recovery (#52).
+   * Null for scene-apply failures and after dismiss.
+   */
+  saveFailure: SaveFailureReason | null;
   pending: Set<string>;
 }
 
 const PERSIST_DEBOUNCE_MS = 400;
 
 function emptyState(): ConfigurationState {
-  return { configuration: null, catalog: [], status: "idle", error: null, pending: new Set() };
+  return {
+    configuration: null,
+    catalog: [],
+    status: "idle",
+    error: null,
+    saveFailure: null,
+    pending: new Set(),
+  };
 }
 
 export class ConfigurationStore {
@@ -45,6 +63,8 @@ export class ConfigurationStore {
   private lastPersisted: VehicleConfiguration | null = null;
   private batchedOptionIds = new Set<string>();
   private sceneMutationQueue: Promise<void> | null = null;
+  /** Local edits retained across a Worker revision conflict until reload / overwrite / fork. */
+  private conflictDraft: VehicleConfiguration | null = null;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -66,12 +86,20 @@ export class ConfigurationStore {
   hydrate(configuration: VehicleConfiguration, catalog: CustomizationOption[]): void {
     this.controller = null;
     this.lastPersisted = configuration;
+    this.conflictDraft = null;
     this.mutationVersion = 0;
     this.batchedOptionIds.clear();
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
     this.flushRequested = false;
-    this.setState({ configuration, catalog, status: "idle", error: null, pending: new Set() });
+    this.setState({
+      configuration,
+      catalog,
+      status: "idle",
+      error: null,
+      saveFailure: null,
+      pending: new Set(),
+    });
   }
 
   async attachScene(
@@ -86,9 +114,17 @@ export class ConfigurationStore {
     if (!sameBuild) {
       // Different record (reset / grade switch): reset persistence bookkeeping.
       this.lastPersisted = configuration;
+      this.conflictDraft = null;
       this.mutationVersion = 0;
       this.batchedOptionIds.clear();
-      this.setState({ configuration, catalog, status: "idle", error: null, pending: new Set() });
+      this.setState({
+        configuration,
+        catalog,
+        status: "idle",
+        error: null,
+        saveFailure: null,
+        pending: new Set(),
+      });
     } else {
       // Same build after early `hydrate` (and any pre-settle edits): keep save status / pending
       // flushes, publish the caller's configuration snapshot, and narrow the catalog to what the
@@ -102,7 +138,11 @@ export class ConfigurationStore {
       this.state.configuration?.paintStudio ?? configuration.paintStudio,
     );
     if (failed.length > 0) {
-      this.setState({ status: "error", error: `Could not apply saved options: ${failed.join(", ")}` });
+      this.setState({
+        status: "error",
+        error: `Could not apply saved options: ${failed.join(", ")}`,
+        saveFailure: null,
+      });
     }
   }
 
@@ -116,6 +156,7 @@ export class ConfigurationStore {
     this.flushRequested = false;
     this.batchedOptionIds.clear();
     this.lastPersisted = null;
+    this.conflictDraft = null;
     this.mutationVersion = 0;
     this.state = emptyState();
     for (const listener of this.listeners) listener();
@@ -163,8 +204,15 @@ export class ConfigurationStore {
     };
 
     this.mutationVersion += 1;
+    this.conflictDraft = null;
     const pending = new Set(this.state.pending).add(option.id);
-    this.setState({ configuration: next, pending, status: "saving", error: null });
+    this.setState({
+      configuration: next,
+      pending,
+      status: "saving",
+      error: null,
+      saveFailure: null,
+    });
     this.batchedOptionIds.add(option.id);
     trackOptionChanged({ category: option.category });
 
@@ -182,7 +230,14 @@ export class ConfigurationStore {
       updatedAt: new Date().toISOString(),
     };
     this.mutationVersion += 1;
-    this.setState({ configuration: next, status: "saving", error: null, pending: new Set() });
+    this.conflictDraft = null;
+    this.setState({
+      configuration: next,
+      status: "saving",
+      error: null,
+      saveFailure: null,
+      pending: new Set(),
+    });
 
     if (this.controller) {
       const { failed } = await this.controller.applyConfiguration(
@@ -212,7 +267,8 @@ export class ConfigurationStore {
       updatedAt: new Date().toISOString(),
     };
     this.mutationVersion += 1;
-    this.setState({ configuration: next, status: "saving", error: null });
+    this.conflictDraft = null;
+    this.setState({ configuration: next, status: "saving", error: null, saveFailure: null });
 
     if (this.controller) {
       const { failed } = await this.controller.applyConfiguration(next.selections, paintStudio);
@@ -240,7 +296,8 @@ export class ConfigurationStore {
     const current = this.state.configuration;
     if (!current) return;
     this.mutationVersion += 1;
-    this.setState({ configuration: { ...current, cameraState }, status: "saving" });
+    this.conflictDraft = null;
+    this.setState({ configuration: { ...current, cameraState }, status: "saving", saveFailure: null });
     this.queueFlush();
   }
 
@@ -300,6 +357,7 @@ export class ConfigurationStore {
           options,
         );
         this.lastPersisted = saved;
+        this.conflictDraft = null;
         trackSaveSucceeded({ surface: "auto" });
 
         if (this.mutationVersion === sentVersion) {
@@ -307,6 +365,7 @@ export class ConfigurationStore {
             configuration: saved,
             status: "saved",
             error: null,
+            saveFailure: null,
             pending: withoutIds(this.state.pending, batched),
           });
         } else {
@@ -317,13 +376,21 @@ export class ConfigurationStore {
               : saved,
             status: "saving",
             error: null,
+            saveFailure: null,
             pending: withoutIds(this.state.pending, batched),
           });
           this.flushRequested = true;
         }
       } catch (error) {
-        trackSaveFailed({ reason: classifySaveFailure(error) });
-        await this.rollback(error instanceof Error ? error.message : String(error), batched);
+        const reason = saveFailureReason(error);
+        trackSaveFailed({ reason });
+        // Worker-only conflict UX (#52): keep local edits visible and offer recovery. Local /
+        // unknown mode keeps the historic rollback path so Pages demo behaviour is unchanged.
+        if (isRevisionConflict(error) && configurationsApi.getPersistenceMode() === "worker") {
+          await this.enterRevisionConflict(error, batched);
+          return;
+        }
+        await this.rollback(messageForSaveFailure(error), batched, reason);
         return;
       }
     } while (this.flushRequested || this.batchedOptionIds.size > 0);
@@ -340,8 +407,31 @@ export class ConfigurationStore {
     );
   }
 
-  private async rollback(message: string, batched: string[] = []): Promise<void> {
+  /**
+   * Stale-revision path (Worker mode only). Keeps the user's local edits on screen so reload /
+   * overwrite / fork can use them; does not replay `lastPersisted` into the scene.
+   */
+  private async enterRevisionConflict(error: unknown, batched: string[]): Promise<void> {
+    const draft = this.state.configuration;
+    this.conflictDraft = draft;
+    this.mutationVersion += 1;
+    this.batchedOptionIds.clear();
+    this.flushRequested = false;
+    this.setState({
+      status: "error",
+      error: messageForSaveFailure(error),
+      saveFailure: "conflict",
+      pending: withoutIds(this.state.pending, batched.length ? batched : [...this.state.pending]),
+    });
+  }
+
+  private async rollback(
+    message: string,
+    batched: string[] = [],
+    saveFailure: SaveFailureReason | null = null,
+  ): Promise<void> {
     const restored = this.lastPersisted;
+    this.conflictDraft = null;
     this.mutationVersion += 1;
     this.batchedOptionIds.clear();
     this.flushRequested = false;
@@ -349,6 +439,7 @@ export class ConfigurationStore {
       configuration: restored ?? this.state.configuration,
       status: "error",
       error: message,
+      saveFailure,
       pending: withoutIds(this.state.pending, batched.length ? batched : [...this.state.pending]),
     });
     if (restored && this.controller) {
@@ -357,7 +448,130 @@ export class ConfigurationStore {
   }
 
   clearError(): void {
-    if (this.state.status === "error") this.setState({ status: "idle", error: null });
+    if (this.state.status === "error") {
+      this.conflictDraft = null;
+      this.setState({ status: "idle", error: null, saveFailure: null });
+    }
+  }
+
+  /** Whether the builder should offer Worker conflict recovery actions. */
+  hasRevisionConflict(): boolean {
+    return this.state.saveFailure === "conflict" && configurationsApi.getPersistenceMode() === "worker";
+  }
+
+  /**
+   * One-click reload: fetch the server revision into the builder and clear the conflict.
+   * Worker conflict recovery only.
+   */
+  async reloadServerRevision(): Promise<void> {
+    const current = this.state.configuration;
+    if (!current || !this.hasRevisionConflict()) return;
+
+    const server = await configurationsApi.getConfiguration(current.configurationId);
+    this.lastPersisted = server;
+    this.conflictDraft = null;
+    this.mutationVersion += 1;
+    this.batchedOptionIds.clear();
+    this.flushRequested = false;
+    this.setState({
+      configuration: server,
+      status: "idle",
+      error: null,
+      saveFailure: null,
+      pending: new Set(),
+    });
+    if (this.controller) {
+      await this.controller.applyConfiguration(server.selections, server.paintStudio);
+    }
+  }
+
+  /**
+   * Force-overwrite the server copy with the retained local draft (omits `expectedRevision`).
+   * Caller must confirm in the UI before invoking. Worker conflict recovery only.
+   */
+  async forceOverwrite(): Promise<void> {
+    const draft = this.conflictDraft ?? this.state.configuration;
+    if (!draft || !this.hasRevisionConflict()) return;
+
+    this.setState({ status: "saving", error: null, saveFailure: null });
+    try {
+      const saved = await configurationsApi.updateConfiguration(draft.configurationId, {
+        selections: draft.selections,
+        cameraState: draft.cameraState,
+        paintStudio: draft.paintStudio,
+        // Intentionally omit expectedRevision — last-write-wins force overwrite (#52).
+      });
+      this.lastPersisted = saved;
+      this.conflictDraft = null;
+      this.mutationVersion += 1;
+      trackSaveSucceeded({ surface: "auto" });
+      this.setState({
+        configuration: saved,
+        status: "saved",
+        error: null,
+        saveFailure: null,
+        pending: new Set(),
+      });
+    } catch (error) {
+      const reason = saveFailureReason(error);
+      trackSaveFailed({ reason });
+      this.setState({
+        configuration: draft,
+        status: "error",
+        error: messageForSaveFailure(error),
+        saveFailure: reason === "conflict" ? "conflict" : reason,
+      });
+      if (reason === "conflict") this.conflictDraft = draft;
+    }
+  }
+
+  /**
+   * Fork the retained local edits into a brand-new configuration (new id), leaving the
+   * conflicting server revision untouched. Worker conflict recovery only.
+   */
+  async forkLocalDraft(): Promise<VehicleConfiguration | null> {
+    const draft = this.conflictDraft ?? this.state.configuration;
+    if (!draft || !this.hasRevisionConflict()) return null;
+
+    this.setState({ status: "saving", error: null, saveFailure: null });
+    try {
+      const fresh = await configurationsApi.createConfiguration({
+        vehicleId: draft.vehicleId,
+        modelYear: draft.modelYear,
+        gradeId: draft.gradeId,
+        selections: draft.selections,
+        cameraState: draft.cameraState,
+        paintStudio: draft.paintStudio,
+      });
+      this.lastPersisted = fresh;
+      this.conflictDraft = null;
+      this.mutationVersion += 1;
+      this.batchedOptionIds.clear();
+      this.flushRequested = false;
+      this.setState({
+        configuration: fresh,
+        status: "saved",
+        error: null,
+        saveFailure: null,
+        pending: new Set(),
+      });
+      trackSaveSucceeded({ surface: "auto" });
+      if (this.controller) {
+        await this.controller.applyConfiguration(fresh.selections, fresh.paintStudio);
+      }
+      return fresh;
+    } catch (error) {
+      const reason = saveFailureReason(error);
+      trackSaveFailed({ reason });
+      this.conflictDraft = draft;
+      this.setState({
+        configuration: draft,
+        status: "error",
+        error: messageForSaveFailure(error),
+        saveFailure: "conflict",
+      });
+      return null;
+    }
   }
 }
 
