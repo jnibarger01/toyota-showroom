@@ -2,9 +2,10 @@
 
 ## Setup
 
-Node `>=22.13.0` (`package.json`'s `engines`). The repo pins the same floor in `.nvmrc` (`22.13`)
-so nvm / fnm / asdf (`nodejs` plugin) / Volta contributors land on a matching toolchain; CI reads
-that file via `actions/setup-node`'s `node-version-file`. `.npmrc` sets `engine-strict=true` so
+Node `>=22.13.0` (`package.json`'s `engines`). The repo pins **`22.19`** in `.nvmrc` (within
+that range) so nvm / fnm / asdf (`nodejs` plugin) / Volta contributors land on a matching
+toolchain — Lighthouse and a few other deps already require `>=22.19`, and CI reads `.nvmrc`
+via `actions/setup-node`'s `node-version-file`. `.npmrc` sets `engine-strict=true` so
 `npm ci` / `npm install` fail loudly on an older Node instead of silently diverging from
 Playwright and the rest of the tooling.
 

@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
 const ENGINES_FLOOR = ">=22.13.0";
-const NVMRC_FLOOR = "22.13";
+const NVMRC_FLOOR = "22.19";
 
 function read(relative: string): string {
   return readFileSync(path.join(ROOT, relative), "utf8");
@@ -46,7 +46,9 @@ describe("package engines alignment (#54)", () => {
     expect(pkg.engines?.node).toBe(ENGINES_FLOOR);
   });
 
-  it("pins the same floor in .nvmrc for nvm/fnm/asdf/volta-friendly local use", () => {
+  it("pins a Node 22.19+ .nvmrc for nvm/fnm/asdf/volta-friendly local use", () => {
+    // Engines floor is >=22.13.0; .nvmrc pins 22.19 because transitive tooling
+    // (lighthouse) declares engines.node >=22.19 and engine-strict enforces it.
     const nvmrc = read(".nvmrc").trim();
     expect(nvmrc).toBe(NVMRC_FLOOR);
     expect(satisfiesEnginesFloor(nvmrc)).toBe(true);
