@@ -89,3 +89,9 @@ export function describeSelectionChange(
 export function describeGradeChange(gradeName: string): string {
   return `Grade changed to ${gradeName}.`;
 }
+
+/**
+ * How long BuilderApp waits after the last selection delta before writing the live region (#51).
+ * Long enough to absorb a paint-chip scrub; short enough that a deliberate pick still feels instant.
+ */
+export const SELECTION_ANNOUNCEMENT_DEBOUNCE_MS = 220;

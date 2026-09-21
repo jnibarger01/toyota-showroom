@@ -48,6 +48,22 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Largest textures: T_glass.light_B (512×512, 5.7 KiB), T_metal.chrome_B (512×512, 4.9 KiB), T_metal.chrome_M-T_metal.chrome_R (512×512, 4.8 KiB)
 - Semantic contract: 10 satisfied, 17 unsatisfied
 
+## RAV4 Hybrid body (`rav4-hybrid`)
+
+- Source: `/models/rav4-hybrid-2023/rav4-hybrid.glb` — 4714.9 KiB
+- Meshes: 205   Triangles: 368,950   Materials: 21   Textures: 32
+- Compression: draco
+- Largest textures: (unnamed) (512×512, 266.4 KiB), (unnamed) (512×512, 215.1 KiB), (unnamed) (512×512, 193.4 KiB)
+- Semantic contract: 11 satisfied, 0 unsatisfied
+
+## Land Cruiser body (`land-cruiser`)
+
+- Source: `/models/land-cruiser-250-2025/land-cruiser-250.glb` — 7549.2 KiB
+- Meshes: 293   Triangles: 1,557,462   Materials: 36   Textures: 9
+- Compression: draco
+- Largest textures: (unnamed) (1024×1024, 642.5 KiB), (unnamed) (2048×1024, 404.2 KiB), (unnamed) (512×512, 354.8 KiB)
+- Semantic contract: 10 satisfied, 0 unsatisfied
+
 ## GR Supra body (`gr-supra`)
 
 - Source: `/models/gr-supra-2024/toyota_gr_supra.glb` — 701.2 KiB

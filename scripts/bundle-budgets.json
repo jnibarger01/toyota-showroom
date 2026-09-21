@@ -25,6 +25,7 @@
   "router": 4096,
   "ShareQrCard": 1024,
   "triangle-alert": 1024,
+  "truck": 1024,
   "ValidatedLeadForm": 3072,
   "VehicleCanvas": 278528,
   "viewerControlEvents": 1024
