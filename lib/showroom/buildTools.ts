@@ -7,6 +7,7 @@ import {
 } from "../types/customization";
 import type { Vehicle } from "../types/vehicle";
 import { paintStudioPriceDelta, PAINT_CUSTOM_OPTION_ID } from "../data/paintStudio";
+import { formatCurrency, formatPriceDelta } from "../shared/currency";
 
 /**
  * Grade sticker price for a build total. Falls back to the vehicle's cheapest published MSRP when
@@ -114,13 +115,13 @@ export function formatBuildSummary(
   const selected = new Set(Object.values(configuration.selections).flat());
   const lines = catalog
     .filter((option) => selected.has(option.id))
-    .map((option) => `- ${option.label}${option.priceDelta ? ` (+$${option.priceDelta.toLocaleString()})` : ""}`);
+    .map((option) => `- ${option.label}${option.priceDelta ? ` (${formatPriceDelta(option.priceDelta)})` : ""}`);
   return [
     `${vehicleLabel} build`,
     `Configuration: ${configuration.configurationId}`,
     `Grade: ${configuration.gradeId}`,
-    `Base MSRP: $${baseMsrp.toLocaleString()}`,
-    `Estimated total: $${estimateBuildTotal(baseMsrp, catalog, configuration).toLocaleString()}`,
+    `Base MSRP: ${formatCurrency(baseMsrp)}`,
+    `Estimated total: ${formatCurrency(estimateBuildTotal(baseMsrp, catalog, configuration))}`,
     "",
     "Selected options:",
     ...(lines.length ? lines : ["- No upgrades selected"]),

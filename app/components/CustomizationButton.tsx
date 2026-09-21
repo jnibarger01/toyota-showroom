@@ -2,6 +2,7 @@
 
 import { Check, Loader2 } from "lucide-react";
 import { isProceduralPreview, type CustomizationOption } from "../../lib/types/customization";
+import { formatPriceDelta } from "../../lib/shared/currency";
 import { configurationStore, useConfiguration } from "../../lib/state/useConfiguration";
 
 /**
@@ -35,7 +36,7 @@ export function CustomizationButton({ option, variant = "chip", onBeforeSelect }
         type="button"
         aria-label={option.label}
         aria-pressed={selected}
-        title={option.priceDelta ? `${option.label} (+$${option.priceDelta})` : option.label}
+        title={option.priceDelta ? `${option.label} (${formatPriceDelta(option.priceDelta)})` : option.label}
         className={selected ? "active" : ""}
         style={{ background: option.materialConfig?.color ?? "#333" }}
         disabled={busy}
@@ -63,7 +64,7 @@ export function CustomizationButton({ option, variant = "chip", onBeforeSelect }
           Preview
         </small>
       ) : null}
-      {option.priceDelta ? <small>+${option.priceDelta.toLocaleString()}</small> : null}
+      {option.priceDelta ? <small>{formatPriceDelta(option.priceDelta)}</small> : null}
       {busy ? <Loader2 size={13} className="spin" /> : selected ? <Check size={13} /> : null}
     </button>
   );

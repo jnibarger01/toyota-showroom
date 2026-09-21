@@ -427,7 +427,7 @@ export function CustomizationButton({ option, variant = "chip" }: Props) {
       onClick={() => void configurationStore.selectOption(option)}
     >
       <span>{option.label}</span>
-      {option.priceDelta ? <small>+${option.priceDelta.toLocaleString()}</small> : null}
+      {option.priceDelta ? <small>{formatPriceDelta(option.priceDelta)}</small> : null}
       {busy ? <Loader2 size={13} className="spin" /> : selected ? <Check size={13} /> : null}
     </button>
   );

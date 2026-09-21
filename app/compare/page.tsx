@@ -19,6 +19,7 @@ import {
   validateCompareDeepLink,
 } from "../../lib/showroom/compareDeepLink";
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
+import { formatCurrency } from "../../lib/shared/currency";
 import { getVehicle } from "../../lib/api/client";
 
 const SPEC_CATEGORY_ORDER: SpecCategory[] = [
@@ -384,7 +385,7 @@ export default function ComparePage() {
                 <tbody>
                   <tr>
                     <th>Starting MSRP</th>
-                    {vehicles.map((vehicle) => <td key={vehicle.slug}>${startingMsrp(vehicle).toLocaleString()}</td>)}
+                    {vehicles.map((vehicle) => <td key={vehicle.slug}>{formatCurrency(startingMsrp(vehicle))}</td>)}
                   </tr>
                   <tr>
                     <th>Body style</th>
@@ -492,7 +493,7 @@ export default function ComparePage() {
                     {builds.map((build) => (
                       <td key={build.configurationId}>
                         {typeof buildTotals[build.configurationId] === "number"
-                          ? `$${buildTotals[build.configurationId].toLocaleString()}`
+                          ? formatCurrency(buildTotals[build.configurationId])
                           : "—"}
                       </td>
                     ))}

@@ -10,6 +10,7 @@ import type { VehicleConfiguration } from "../../lib/types/customization";
 import { encodeBuildDeepLink } from "../../lib/showroom/deepLink";
 import { SELECTION_ANNOUNCEMENT_DEBOUNCE_MS } from "../../lib/showroom/selectionAnnouncement";
 import { estimateBuildTotal, estimateMonthlyPayment, resolveGradeMsrp } from "../../lib/showroom/buildTools";
+import { formatCurrency } from "../../lib/shared/currency";
 
 /**
  * `VehicleCanvas` renders a real WebGPU/WebGL scene, which jsdom cannot run. It is replaced with a
@@ -412,8 +413,8 @@ describe("BuilderApp", () => {
     await renderBuilderReady();
 
     const base = resolveGradeMsrp(fourRunner, "trd-pro");
-    expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${base.toLocaleString()}`);
-    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${base.toLocaleString()}`);
+    expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(base));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(base));
 
     fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
     await waitFor(() =>
@@ -421,13 +422,11 @@ describe("BuilderApp", () => {
     );
 
     const expectedTotal = base + 425;
-    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expectedTotal.toLocaleString()}`));
-    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expectedTotal.toLocaleString()}`);
+    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(expectedTotal)));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(expectedTotal));
 
-    const expectedMonthly = estimateMonthlyPayment(expectedTotal, 6.9, 60).toLocaleString(undefined, {
-      maximumFractionDigits: 0,
-    });
-    expect(screen.getByTestId("estimated-monthly-payment")).toHaveTextContent(`$${expectedMonthly}/mo`);
+    const expectedMonthly = formatCurrency(estimateMonthlyPayment(expectedTotal, 6.9, 60));
+    expect(screen.getByTestId("estimated-monthly-payment")).toHaveTextContent(`${expectedMonthly}/mo`);
   });
 
   it("re-derives the same estimated total after restoring selections from a deep link", async () => {
@@ -453,8 +452,8 @@ describe("BuilderApp", () => {
       configurationStore.getSnapshot().configuration,
     );
     expect(expected).toBe(53_900 + 425 + 1_150);
-    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expected.toLocaleString()}`));
-    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expected.toLocaleString()}`);
+    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(expected)));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(expected));
   });
 
   it("plays and pauses the cinematic tour from builder chrome", async () => {
