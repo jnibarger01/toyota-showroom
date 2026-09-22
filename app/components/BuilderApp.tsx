@@ -249,6 +249,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const configJsonFileRef = useRef<HTMLInputElement>(null);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
   const mobilePanelRef = useRef<HTMLElement>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
   const undoStack = useRef<SelectionMap[]>([]);
   const redoStack = useRef<SelectionMap[]>([]);
   /** Paint Studio undo/redo (#73) — distinct from selection-map stacks above. */
@@ -1107,6 +1108,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         <OwnerTokenDialog
           configurationId={ownerTokenReveal.configurationId}
           ownerToken={ownerTokenReveal.ownerToken}
+          returnFocusRef={saveButtonRef}
           onDismiss={() => {
             configurationsApi.markOwnerTokenShown(ownerTokenReveal.configurationId);
             setOwnerTokenReveal(null);
@@ -1274,7 +1276,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             </button>
           ))}
 
-          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button type="button" onClick={() => setLeadFormOpen(true)}>Request a test drive</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button ref={saveButtonRef} type="button" data-testid="save-build" title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button type="button" onClick={() => setLeadFormOpen(true)}>Request a test drive</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={() => void exportConfigJson()}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">

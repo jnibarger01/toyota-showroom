@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { OWNER_TOKEN_DIALOG_COPY, OwnerTokenDialog } from "../../app/components/OwnerTokenDialog";
 
 /**
@@ -48,6 +48,70 @@ describe("OwnerTokenDialog", () => {
 
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByTestId("owner-token-dismiss"));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+
+    confirm.mockRestore();
+  });
+});
+
+
+describe("OwnerTokenDialog focus management", () => {
+  it("focuses Copy first and wraps Tab and Shift+Tab within the dialog", () => {
+    render(
+      <OwnerTokenDialog configurationId="cfg-1" ownerToken="secret-token-value" onDismiss={() => undefined} />,
+    );
+
+    const close = screen.getByRole("button", { name: "Close owner token dialog" });
+    const copy = screen.getByTestId("owner-token-copy");
+    const download = screen.getByTestId("owner-token-download");
+    const dismiss = screen.getByTestId("owner-token-dismiss");
+
+    expect(document.activeElement).toBe(copy);
+
+    dismiss.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+
+    close.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(dismiss);
+
+    expect(download).toBeInTheDocument();
+  });
+
+  it("dismisses on Escape after the token is secured", async () => {
+    const onDismiss = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(
+      <OwnerTokenDialog configurationId="cfg-1" ownerToken="secret-token-value" onDismiss={onDismiss} />,
+    );
+
+    fireEvent.click(screen.getByTestId("owner-token-copy"));
+    await waitFor(() => expect(screen.getByTestId("owner-token-copy")).toHaveTextContent(OWNER_TOKEN_DIALOG_COPY.copiedLabel));
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the dismiss confirmation on Escape when the token is unsecured", () => {
+    const onDismiss = vi.fn();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    render(
+      <OwnerTokenDialog configurationId="cfg-1" ownerToken="secret-token-value" onDismiss={onDismiss} />,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(confirm).toHaveBeenCalledWith(OWNER_TOKEN_DIALOG_COPY.dismissWarn);
+    expect(onDismiss).not.toHaveBeenCalled();
+
+    confirm.mockReturnValue(true);
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(onDismiss).toHaveBeenCalledTimes(1);
 
     confirm.mockRestore();
