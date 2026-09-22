@@ -8,8 +8,9 @@
  * dismisses it. `markOwnerTokenShown` then prevents refresh / re-save from re-showing the raw value.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState, type RefObject } from "react";
 import { AlertTriangle, Check, Copy, Download, KeyRound, X } from "lucide-react";
+import { useFocusTrap } from "./hooks/useFocusTrap";
 
 export const OWNER_TOKEN_DIALOG_COPY = {
   title: "Save your owner token",
@@ -28,9 +29,12 @@ type Props = {
   configurationId: string;
   ownerToken: string;
   onDismiss: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 };
 
-export function OwnerTokenDialog({ configurationId, ownerToken, onDismiss }: Props) {
+export function OwnerTokenDialog({ configurationId, ownerToken, onDismiss, returnFocusRef }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const copyButtonRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
   const [secured, setSecured] = useState(false);
 
@@ -76,8 +80,15 @@ export function OwnerTokenDialog({ configurationId, ownerToken, onDismiss }: Pro
     onDismiss();
   }, [onDismiss, secured]);
 
+  useFocusTrap(dialogRef, {
+    initialFocusRef: copyButtonRef,
+    onEscape: dismiss,
+    returnFocusRef,
+  });
+
   return (
     <div
+      ref={dialogRef}
       className="owner-token-dialog"
       role="dialog"
       aria-modal="true"
@@ -99,7 +110,7 @@ export function OwnerTokenDialog({ configurationId, ownerToken, onDismiss }: Pro
         <AlertTriangle size={13} aria-hidden /> {OWNER_TOKEN_DIALOG_COPY.recoveryHint}
       </p>
       <div className="owner-token-actions">
-        <button type="button" className="primary" data-testid="owner-token-copy" onClick={() => void copyToken()}>
+        <button ref={copyButtonRef} type="button" className="primary" data-testid="owner-token-copy" onClick={() => void copyToken()}>
           {copied ? <Check size={14} /> : <Copy size={14} />}
           {copied ? OWNER_TOKEN_DIALOG_COPY.copiedLabel : OWNER_TOKEN_DIALOG_COPY.copyLabel}
         </button>
