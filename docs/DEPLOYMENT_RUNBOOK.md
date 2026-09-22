@@ -385,6 +385,7 @@ stay aligned**:
 | `CONFIG_WRITE_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.configWrite` | **20 / 60s** | `PATCH`/`DELETE` per IP **and** independently per owner-token hash |
 | `LEAD_WRITE_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.leadWrite` | **5 / 60s** | `POST /api/v1/leads` per IP |
 | `CATALOG_READ_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.catalogRead` | **300 / 60s** | Catalog `GET`s per IP |
+| `SHARE_CARD_READ_LIMITER` | `wrangler.jsonc` → `ratelimits` / `RATE_LIMIT_BUDGETS.shareCardRead` | **60 / 60s** | `GET /api/v1/share-card` per IP; separate from catalog reads |
 | Period | `ratelimits[].simple.period` / `RATE_LIMIT_PERIOD_SECONDS` | **60** | Sliding window length (also the `Retry-After` hint) |
 
 Namespace ids (account-scoped, not Worker-scoped):
@@ -395,6 +396,7 @@ Namespace ids (account-scoped, not Worker-scoped):
 | `CONFIG_WRITE_LIMITER` | `1001` | `1002` |
 | `LEAD_WRITE_LIMITER` | `1005` | `1006` |
 | `CATALOG_READ_LIMITER` | `1003` | `1004` |
+| `SHARE_CARD_READ_LIMITER` | `1009` | `1010` |
 
 ### Raising a limit
 
