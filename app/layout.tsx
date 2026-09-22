@@ -1,12 +1,21 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { SITE_URL } from "../lib/site";
+import { PAGES_BASE_PATH, SITE_URL } from "../lib/site";
 
 export const metadata: Metadata = {
   title: "Toyota Showroom",
   description: "Explore and configure Toyota vehicles in a WebGPU showroom — paint, wheels, and more.",
   // Base for absolute OG/canonical URLs under the GitHub Pages project path (#78).
   metadataBase: new URL(`${SITE_URL}/`),
+  manifest: `${PAGES_BASE_PATH}/site.webmanifest`,
+  icons: {
+    icon: [
+      { url: `${PAGES_BASE_PATH}/favicon.png`, type: "image/png", sizes: "64x64" },
+      { url: `${PAGES_BASE_PATH}/icon-192.png`, type: "image/png", sizes: "192x192" },
+      { url: `${PAGES_BASE_PATH}/icon-512.png`, type: "image/png", sizes: "512x512" },
+    ],
+    apple: [{ url: `${PAGES_BASE_PATH}/apple-touch-icon.png`, type: "image/png", sizes: "180x180" }],
+  },
   openGraph: {
     type: "website",
     siteName: "Toyota Showroom",

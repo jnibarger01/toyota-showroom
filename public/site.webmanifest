@@ -1,0 +1,24 @@
+{
+  "name": "Toyota Showroom",
+  "short_name": "Showroom",
+  "description": "Explore and configure vehicles in the Toyota Showroom.",
+  "start_url": "/toyota-showroom/",
+  "scope": "/toyota-showroom/",
+  "display": "standalone",
+  "theme_color": "#090c10",
+  "background_color": "#11161c",
+  "icons": [
+    {
+      "src": "/toyota-showroom/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/toyota-showroom/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
