@@ -51,6 +51,7 @@ export default function ExplorePage() {
   // Inventory badges load independently of the catalog so a slow/failed dealer feed never blocks
   // the lineup (#20). `null` = still pending or skipped; empty object = loaded with no matches.
   const [inventoryBadges, setInventoryBadges] = useState<ReadonlyMap<string, InventoryBadge[]> | null>(null);
+  const [inventoryError, setInventoryError] = useState(false);
   const [leadVehicle, setLeadVehicle] = useState<VehicleSummary | null>(null);
 
   useEffect(() => {
@@ -77,10 +78,16 @@ export default function ExplorePage() {
     let cancelled = false;
     void loadExploreInventoryBadges(allSummaries.map((summary) => summary.slug))
       .then((badges) => {
-        if (!cancelled) setInventoryBadges(badges);
+        if (!cancelled) {
+          setInventoryBadges(badges);
+          setInventoryError(false);
+        }
       })
       .catch(() => {
-        if (!cancelled) setInventoryBadges(new Map());
+        if (!cancelled) {
+          setInventoryBadges(new Map());
+          setInventoryError(true);
+        }
       });
     return () => {
       cancelled = true;
@@ -281,6 +288,14 @@ export default function ExplorePage() {
 
       {allSummaries !== null && filtered.length === 0 ? (
         <p className="panel-empty">No vehicles match that filter.</p>
+      ) : null}
+
+      {allSummaries !== null && inventoryBadges !== null && (inventoryError || inventoryBadges.size === 0) ? (
+        <div className="sr-only" aria-live="polite" role="status">
+          {inventoryError
+            ? "Dealer inventory is unavailable right now."
+            : "No matching dealer inventory is available for these vehicles."}
+        </div>
       ) : null}
 
       <div className="vehicle-grid">

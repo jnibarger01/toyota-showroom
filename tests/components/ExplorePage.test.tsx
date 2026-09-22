@@ -193,14 +193,28 @@ describe("ExplorePage inventory badges", () => {
     expect(screen.getByText(/^Buildable$/i)).toBeInTheDocument();
   });
 
-  it("keeps the lineup visible when the inventory feed rejects", async () => {
+  it("announces when the inventory feed rejects while keeping the lineup visible", async () => {
     inventoryBadgesMock.mockRejectedValue(new Error("feed down"));
 
     render(<ExplorePage />);
     await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(DEFAULT_PAGE_SIZE));
-    // Rejection is swallowed — no inventory error banner, no badges.
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Dealer inventory is unavailable right now."),
+    );
     expect(screen.queryByText(/feed down/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Near me$/i)).not.toBeInTheDocument();
+  });
+
+  it("announces when the inventory feed has no matching vehicles", async () => {
+    inventoryBadgesMock.mockResolvedValue(new Map());
+
+    render(<ExplorePage />);
+    await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(DEFAULT_PAGE_SIZE));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "No matching dealer inventory is available for these vehicles.",
+      ),
+    );
   });
 });
 
