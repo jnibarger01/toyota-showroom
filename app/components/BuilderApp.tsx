@@ -1222,6 +1222,26 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </div>
       ) : null}
 
+      <section className="print-summary" data-print="summary" aria-label="Printable build summary">
+        <p className="print-summary-meta">
+          <span>{vehicle.year} TOYOTA</span>
+          <span>{selectedGrade?.name ?? "Configured build"}</span>
+        </p>
+        <h1>{vehicle.model} build summary</h1>
+        <p className="print-summary-pricing">
+          <span>Base MSRP <strong>{formatCurrency(baseMsrp)}</strong></span>
+          <span>Estimated total <strong>{formatCurrency(estimatedTotal)}</strong></span>
+        </p>
+        <h2>Selected options</h2>
+        <ul className="print-summary-options">
+          {catalog.filter((option) => selectedIds.has(option.id)).map((option) => (
+            <li key={option.id}>{option.label}{option.priceDelta ? ` (${formatPriceDelta(option.priceDelta)})` : ""}</li>
+          ))}
+          {selectedIds.size === 0 ? <li>No upgrades selected</li> : null}
+        </ul>
+        <p className="print-summary-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender.</p>
+      </section>
+
       <section className="workspace">
         <aside className="left-rail">
           <div className="vehicle-title">
