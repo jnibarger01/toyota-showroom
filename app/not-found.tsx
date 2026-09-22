@@ -13,7 +13,7 @@ import { pageUrl } from "../lib/api/client";
  */
 export default function NotFound() {
   return (
-    <main className="route-error">
+    <main id="main-content" className="route-error" tabIndex={-1}>
       <h1>Page not found</h1>
       <p>That page does not exist. These vehicles do:</p>
       <ul className="not-found-vehicles">

@@ -5,6 +5,7 @@
   "compareDeepLink": 2048,
   "configJson": 2048,
   "createLucideIcon": 1024,
+  "currency": 1024,
   "draco_decoder": 172032,
   "draco_wasm_wrapper": 27648,
   "error": 1024,
@@ -25,6 +26,7 @@
   "router": 4096,
   "ShareQrCard": 1024,
   "triangle-alert": 1024,
+  "truck": 1024,
   "ValidatedLeadForm": 3072,
   "VehicleCanvas": 278528,
   "viewerControlEvents": 1024

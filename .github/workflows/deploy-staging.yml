@@ -46,7 +46,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.creds.outputs.skip != 'true'
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies

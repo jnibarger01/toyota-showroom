@@ -92,15 +92,17 @@ Budget, enforced by construction rather than by a number:
 | `requestIdleCallback` (4s timeout) | Yields to rendering and interaction; the timeout stops a never-idle page from never prefetching |
 | Stops while `data-idle="1"` | A backgrounded tab must not spend someone's data |
 | Off on the `low` tier and under Save-Data | Both are explicit constraint signals `quality.ts` already respects |
+| Medium caps at one warm (`prefetchBudgetForTier`) | Skip on low, *reduce* on medium — not a full queue on a mid-tier device |
 | Sequential, one attempt per id | A queue cannot saturate the connection it is staying out of the way of |
 
 `window.__vehiclePrefetch()` lists warmed ids in DEV.
 
 The tier is read through a predicate on every item, not snapshotted at construction: a governor
 downgrade after the scheduler is built must stop queued fetches, or the policy protects the wrong
-devices. `start()` is also the resume path — the scheduler stops rather than spins while suspended,
-so `visibilitychange` restarts it; without that wiring one backgrounded tab disabled prefetching for
-the rest of the session.
+devices. `start()` is also the resume path — the scheduler stops rather than spins while suspended.
+Resume is wired through `RenderController`'s `onIdleChange` (visibility *and* intersection), not only
+`visibilitychange`; listening only to tab visibility left a scrolled-away canvas unable to restart
+prefetch when it came back on screen.
 
 HDRI URLs are resolved through `lib/shared/basePath.ts`. Catalog `hdrUrl`s are root-relative and the
 Pages deployment is served from a sub-path, so an unresolved request hits the domain root and 404s —

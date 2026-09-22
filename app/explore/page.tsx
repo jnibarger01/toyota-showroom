@@ -8,6 +8,7 @@ import { ValidatedLeadForm } from "../components/ValidatedLeadForm";
 import { matchesFilters, paginateAndFilter, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, type VehicleFilters } from "../../lib/api/query";
 import type { InventoryBadge } from "../../lib/dealerInventory";
 import type { BodyStyle, PowertrainType, VehicleSummary } from "../../lib/types/vehicle";
+import { formatCurrency } from "../../lib/shared/currency";
 
 const INVENTORY_BADGE_LABELS: Record<InventoryBadge, string> = {
   near_me: "Near me",
@@ -161,7 +162,7 @@ export default function ExplorePage() {
   };
 
   return (
-    <main className="explore-shell">
+    <main id="main-content" className="explore-shell" tabIndex={-1}>
       <header className="explore-header">
         <a className="brand" href={pageUrl()}>
           <Truck size={24} />
@@ -311,7 +312,7 @@ export default function ExplorePage() {
                   <span>Seats {summary.maxSeating}</span>
                   {summary.maxTowingLbs > 0 ? <span>{summary.maxTowingLbs.toLocaleString()} lb tow</span> : null}
                 </div>
-                <p className="vehicle-card-price">Starting at ${summary.startingMsrp.toLocaleString()}</p>
+                <p className="vehicle-card-price">Starting at {formatCurrency(summary.startingMsrp)}</p>
                 <span className="vehicle-card-action">{summary.hasModel ? "Configure 3D build" : "View details"}</span>
                 <button
                   type="button"

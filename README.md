@@ -49,7 +49,28 @@ identity, BVH-accelerated part picking, and the agent-authorable scene API layer
 (`docs/ASSET_PIPELINE_REPORT.md`, `docs/COMPRESSION_BENCHMARK.md`, `docs/KTX2_EVALUATION.md`,
 `docs/POSTPROCESSING_EVALUATION.md`).
 
+## Pricing display (locale / currency)
+
+Catalog MSRP, option `priceDelta`s, and financing totals are formatted with a shared helper —
+`formatCurrency` / `formatPriceDelta` in [`lib/shared/currency.ts`](lib/shared/currency.ts) —
+backed by `Intl.NumberFormat`.
+
+| Assumption | Value |
+|---|---|
+| **Currency** | **USD** (matches `Vehicle.pricing.currency`; no FX conversion) |
+| **Default locale** | **`en-US`** (grouping + `$` symbol stay consistent regardless of browser UI locale) |
+| **Fraction digits** | Whole dollars by default (`maximumFractionDigits: 0`); pass options for cents |
+
+Builder financing, comparison cards, garage/compare totals, and option chips all go through this
+helper so sticker math and display stay aligned. See `tests/currency.test.ts` for rounding and
+negative-delta coverage.
+
 ## Run
+
+Requires **Node.js `>=22.13.0`** (`package.json` `engines`). `.nvmrc` pins **`22.19`**
+(the current CI/local install; some tooling such as Lighthouse needs `>=22.19`). CI reads
+`.nvmrc` via `actions/setup-node`. Local installs refuse an incompatible Node when
+`engine-strict=true` in `.npmrc`.
 
 ```bash
 npm install

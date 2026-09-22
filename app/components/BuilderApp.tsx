@@ -45,10 +45,11 @@ import { PaintStudioPanel } from "./PaintStudioPanel";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
+import { OVERWRITE_CONFIRM } from "../../lib/api/saveFailure";
 import { configurationStore, useConfiguration, usePersistenceMode } from "../../lib/state/useConfiguration";
 import { syncDemoServiceWorker } from "../../lib/pwa/demoServiceWorker";
 import type { QualityPreference } from "../../lib/three/qualityPreference";
-import { describeGradeChange, describeSelectionChange } from "../../lib/showroom/selectionAnnouncement";
+import { describeGradeChange, describeSelectionChange, SELECTION_ANNOUNCEMENT_DEBOUNCE_MS } from "../../lib/showroom/selectionAnnouncement";
 import { describeTourScene } from "../../lib/showroom/tourAnnouncement";
 import {
   BUILDER_SHORTCUT_SHEET,
@@ -85,6 +86,7 @@ import {
   formatBuildSummary,
   readSharedConfigurationId,
 } from "../../lib/showroom/buildTools";
+import { formatCurrency, formatPriceDelta } from "../../lib/shared/currency";
 import {
   createBuildDeepLinkUrl,
   readBuildDeepLinkParam,
@@ -247,6 +249,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const configJsonFileRef = useRef<HTMLInputElement>(null);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
   const mobilePanelRef = useRef<HTMLElement>(null);
+  const saveButtonRef = useRef<HTMLButtonElement>(null);
   const undoStack = useRef<SelectionMap[]>([]);
   const redoStack = useRef<SelectionMap[]>([]);
   /** Paint Studio undo/redo (#73) — distinct from selection-map stacks above. */
@@ -267,7 +270,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
    * viewport, surfaced here so the configurator chrome can react without touching Three.js. */
   const [selectedPart, setSelectedPart] = useState<SceneRegistryEntry | undefined>(undefined);
 
-  const { configuration, catalog, status, error } = useConfiguration();
+  const { configuration, catalog, status, error, saveFailure } = useConfiguration();
   const persistenceMode = usePersistenceMode();
 
   useEffect(() => {
@@ -319,7 +322,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     announcementTimerRef.current = setTimeout(() => {
       announcementTimerRef.current = null;
       setAnnouncement(message);
-    }, 220);
+    }, SELECTION_ANNOUNCEMENT_DEBOUNCE_MS);
   }, [configuration, bootstrap?.catalog]);
 
   useEffect(
@@ -988,7 +991,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   if (loadError && !bootstrap) {
     return (
-      <main className="builder-shell builder-status">
+      <main id="main-content" className="builder-shell builder-status" tabIndex={-1}>
         <p>Couldn&rsquo;t load the builder: {loadError}</p>
       </main>
     );
@@ -996,7 +999,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   if (!bootstrap || !preset) {
     return (
-      <main className="builder-shell builder-status">
+      <main id="main-content" className="builder-shell builder-status" tabIndex={-1}>
         <p>Loading {vehicleSlug}&hellip;</p>
       </main>
     );
@@ -1006,7 +1009,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const cameraPresets = vehicle.threeDConfig.cameraPresets;
 
   return (
-    <main className="builder-shell">
+    <main id="main-content" className="builder-shell" tabIndex={-1}>
       <header className="topbar">
         <div className="brand">
           <Truck size={24} />
@@ -1105,6 +1108,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         <OwnerTokenDialog
           configurationId={ownerTokenReveal.configurationId}
           ownerToken={ownerTokenReveal.ownerToken}
+          returnFocusRef={saveButtonRef}
           onDismiss={() => {
             configurationsApi.markOwnerTokenShown(ownerTokenReveal.configurationId);
             setOwnerTokenReveal(null);
@@ -1158,12 +1162,85 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       ) : null}
 
       {error ? (
-        <div className="config-error" role="alert">
-          <AlertTriangle size={15} />
+        <div
+          className={
+            saveFailure === "conflict" && persistenceMode === "worker"
+              ? "config-error config-error-conflict"
+              : "config-error"
+          }
+          role="alert"
+          data-testid={
+            saveFailure === "conflict" && persistenceMode === "worker"
+              ? "revision-conflict-banner"
+              : saveFailure
+                ? `save-failure-${saveFailure}`
+                : "config-error"
+          }
+        >
+          <AlertTriangle size={15} aria-hidden />
           <span>{error}</span>
-          <button onClick={() => configurationStore.clearError()}>Dismiss</button>
+          {saveFailure === "conflict" && persistenceMode === "worker" ? (
+            <div className="config-error-actions">
+              <button
+                type="button"
+                data-testid="conflict-reload"
+                onClick={() => void configurationStore.reloadServerRevision()}
+              >
+                Reload saved
+              </button>
+              <button
+                type="button"
+                data-testid="conflict-overwrite"
+                onClick={() => {
+                  if (!window.confirm(OVERWRITE_CONFIRM)) return;
+                  void configurationStore.forceOverwrite();
+                }}
+              >
+                Overwrite
+              </button>
+              <button
+                type="button"
+                data-testid="conflict-fork"
+                onClick={() => {
+                  void (async () => {
+                    const fresh = await configurationStore.forkLocalDraft();
+                    if (fresh) rememberConfigurationId(vehicleSlug, fresh.configurationId);
+                  })();
+                }}
+              >
+                Keep as new draft
+              </button>
+              <button type="button" onClick={() => configurationStore.clearError()}>
+                Dismiss
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => configurationStore.clearError()}>
+              Dismiss
+            </button>
+          )}
         </div>
       ) : null}
+
+      <section className="print-summary" data-print="summary" aria-label="Printable build summary">
+        <p className="print-summary-meta">
+          <span>{vehicle.year} TOYOTA</span>
+          <span>{selectedGrade?.name ?? "Configured build"}</span>
+        </p>
+        <h1>{vehicle.model} build summary</h1>
+        <p className="print-summary-pricing">
+          <span>Base MSRP <strong>{formatCurrency(baseMsrp)}</strong></span>
+          <span>Estimated total <strong>{formatCurrency(estimatedTotal)}</strong></span>
+        </p>
+        <h2>Selected options</h2>
+        <ul className="print-summary-options">
+          {catalog.filter((option) => selectedIds.has(option.id)).map((option) => (
+            <li key={option.id}>{option.label}{option.priceDelta ? ` (${formatPriceDelta(option.priceDelta)})` : ""}</li>
+          ))}
+          {selectedIds.size === 0 ? <li>No upgrades selected</li> : null}
+        </ul>
+        <p className="print-summary-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender.</p>
+      </section>
 
       <section className="workspace">
         <aside className="left-rail">
@@ -1171,7 +1248,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <span>{vehicle.year} TOYOTA</span>
             <h1>{vehicle.model}</h1>
             <p>
-              {selectedGrade ? `${selectedGrade.name} · ` : ""}Estimated ${estimatedTotal.toLocaleString()}
+              {selectedGrade ? `${selectedGrade.name} · ` : ""}Estimated {formatCurrency(estimatedTotal)}
             </p>
           </div>
 
@@ -1201,7 +1278,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 onClick={() => void changeGrade(grade.id)}
               >
                 <span>{grade.name}</span>
-                <small>${grade.msrp.toLocaleString()}</small>
+                <small>{formatCurrency(grade.msrp)}</small>
               </button>
             ))}
           </div>
@@ -1219,7 +1296,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             </button>
           ))}
 
-          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button type="button" onClick={() => setLeadFormOpen(true)}>Request a test drive</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
+          <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button ref={saveButtonRef} type="button" data-testid="save-build" title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button type="button" onClick={() => setLeadFormOpen(true)}>Request a test drive</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={() => void exportConfigJson()}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
 
           <div className="tech-stack">
@@ -1528,8 +1605,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               ))}
             </div>
           </section>
-          <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>${baseMsrp.toLocaleString()}</b></p><p><span>Configured upgrades</span><b>+${(estimatedTotal - baseMsrp).toLocaleString()}</b></p><p className="total"><span>Estimated total</span><b data-testid="estimated-total">${estimatedTotal.toLocaleString()}</b></p></section>
-          <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={baseMsrp} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `$${(estimatedTotal - budget).toLocaleString()} over target` : `$${(budget - estimatedTotal).toLocaleString()} remaining`}</p></section>
+          <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>{formatCurrency(baseMsrp)}</b></p><p><span>Configured upgrades</span><b>{formatPriceDelta(estimatedTotal - baseMsrp)}</b></p><p className="total"><span>Estimated total</span><b data-testid="estimated-total">{formatCurrency(estimatedTotal)}</b></p></section>
+          <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={baseMsrp} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `${formatCurrency(estimatedTotal - budget)} over target` : `${formatCurrency(budget - estimatedTotal)} remaining`}</p></section>
           <section className="financing-card">
             <div><Landmark size={16} /><strong>Estimated financing</strong></div>
             <div className="financing-inputs">
@@ -1548,8 +1625,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 </select>
               </label>
             </div>
-            <p><span>Amount financed</span><b data-testid="amount-financed">${financedPrincipal.toLocaleString()}</b></p>
-            <p className="total"><span>Est. monthly payment</span><b data-testid="estimated-monthly-payment">${estimatedMonthlyPayment.toLocaleString(undefined, { maximumFractionDigits: 0 })}/mo</b></p>
+            <p><span>Amount financed</span><b data-testid="amount-financed">{formatCurrency(financedPrincipal)}</b></p>
+            <p className="total"><span>Est. monthly payment</span><b data-testid="estimated-monthly-payment">{formatCurrency(estimatedMonthlyPayment)}/mo</b></p>
             <p className="financing-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender. Payment tracks the live build total derived from your selections.</p>
           </section>
         </aside>

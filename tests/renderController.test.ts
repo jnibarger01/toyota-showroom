@@ -141,6 +141,62 @@ describe("RenderController", () => {
     });
   });
 
+
+  describe("onIdleChange", () => {
+    it("fires when the idle gate flips suspended, so prefetch can resume on intersection too", async () => {
+      const callbacks: IntersectionObserverCallback[] = [];
+      class FakeObserver implements IntersectionObserver {
+        readonly root = null;
+        readonly rootMargin = "0px";
+        readonly thresholds = [0];
+        constructor(cb: IntersectionObserverCallback) {
+          callbacks.push(cb);
+        }
+        observe(): void {}
+        disconnect(): void {}
+        unobserve(): void {}
+        takeRecords(): IntersectionObserverEntry[] {
+          return [];
+        }
+      }
+      const previous = globalThis.IntersectionObserver;
+      globalThis.IntersectionObserver = FakeObserver as unknown as typeof IntersectionObserver;
+      try {
+        const onIdleChange = vi.fn();
+        const { controller, host } = await makeController({ onIdleChange });
+        expect(controller.canvas.dataset.idle).toBe("0");
+
+        callbacks[0]!(
+          [
+            {
+              isIntersecting: false,
+              intersectionRatio: 0,
+              target: host,
+            } as unknown as IntersectionObserverEntry,
+          ],
+          {} as IntersectionObserver,
+        );
+        expect(onIdleChange).toHaveBeenCalledWith(true);
+        expect(controller.canvas.dataset.idle).toBe("1");
+
+        callbacks[0]!(
+          [
+            {
+              isIntersecting: true,
+              intersectionRatio: 0.5,
+              target: host,
+            } as unknown as IntersectionObserverEntry,
+          ],
+          {} as IntersectionObserver,
+        );
+        expect(onIdleChange).toHaveBeenCalledWith(false);
+        expect(controller.canvas.dataset.idle).toBe("0");
+      } finally {
+        globalThis.IntersectionObserver = previous;
+      }
+    });
+  });
+
   describe("resize", () => {
     it("sizes the renderer to the host's client box and notifies onResize", async () => {
       const onResize = vi.fn();

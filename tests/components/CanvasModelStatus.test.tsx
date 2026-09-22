@@ -37,7 +37,7 @@ describe("CanvasModelStatus", () => {
   });
 
   it("keeps empty and error titles distinct from the React error-boundary copy", () => {
-    // Guard against collapsing #75 into #58: the boundary says "Interactive view unavailable".
+    // Guard against collapsing #75 into #58: the boundary's generic title stays out of this overlay.
     render(
       <>
         <CanvasModelStatus kind="empty" />
@@ -45,6 +45,7 @@ describe("CanvasModelStatus", () => {
       </>,
     );
     expect(screen.queryByText(/interactive view unavailable/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/graphics view interrupted/i)).not.toBeInTheDocument();
     expect(CANVAS_MODEL_STATUS_COPY.empty.title).not.toEqual(CANVAS_MODEL_STATUS_COPY.error.title);
   });
 });

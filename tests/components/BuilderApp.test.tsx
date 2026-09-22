@@ -8,7 +8,9 @@ const fourRunnerOptions = getOptionsForVehicle("4runner");
 import type { CreateConfigurationInput, UpdateConfigurationInput } from "../../lib/api/configurations";
 import type { VehicleConfiguration } from "../../lib/types/customization";
 import { encodeBuildDeepLink } from "../../lib/showroom/deepLink";
+import { SELECTION_ANNOUNCEMENT_DEBOUNCE_MS } from "../../lib/showroom/selectionAnnouncement";
 import { estimateBuildTotal, estimateMonthlyPayment, resolveGradeMsrp } from "../../lib/showroom/buildTools";
+import { formatCurrency } from "../../lib/shared/currency";
 
 /**
  * `VehicleCanvas` renders a real WebGPU/WebGL scene, which jsdom cannot run. It is replaced with a
@@ -118,6 +120,18 @@ vi.mock("../../lib/api/client", () => ({
 
 let revision = 1;
 
+const { persistenceMode, conflictOnUpdate, serverRevisionOnGet } = vi.hoisted(() => ({
+  persistenceMode: { value: "local" as "local" | "worker" },
+  conflictOnUpdate: { value: false },
+  serverRevisionOnGet: {
+    value: null as null | {
+      configurationId: string;
+      selections: Record<string, string[]>;
+      revision: number;
+    },
+  },
+}));
+
 vi.mock("../../lib/api/configurations", () => ({
   async listVehicleOptions() {
     // Ungraded, matching the real signature since Task 6 — BuilderApp itself filters by grade.
@@ -133,16 +147,35 @@ vi.mock("../../lib/api/configurations", () => ({
       gradeId: input.gradeId,
       selections: input.selections ?? {},
       cameraState: input.cameraState,
+      paintStudio: input.paintStudio,
       revision,
       schemaVersion: "1.0.0",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
   },
-  async getConfiguration(): Promise<VehicleConfiguration> {
+  async getConfiguration(configurationId: string): Promise<VehicleConfiguration> {
+    if (serverRevisionOnGet.value && serverRevisionOnGet.value.configurationId === configurationId) {
+      return {
+        configurationId,
+        vehicleId: fourRunner.slug,
+        modelYear: fourRunner.year,
+        model: fourRunner.model,
+        gradeId: "trd-pro",
+        selections: serverRevisionOnGet.value.selections,
+        revision: serverRevisionOnGet.value.revision,
+        schemaVersion: "1.0.0",
+        createdAt: "",
+        updatedAt: new Date().toISOString(),
+      };
+    }
     throw new Error("no stored configuration in these tests");
   },
   async updateConfiguration(configurationId: string, input: UpdateConfigurationInput): Promise<VehicleConfiguration> {
+    if (conflictOnUpdate.value) {
+      const { ApiError } = await import("../../lib/api/errors");
+      throw new ApiError(409, "revision_conflict", "stale revision for test");
+    }
     revision += 1;
     return {
       configurationId,
@@ -152,6 +185,7 @@ vi.mock("../../lib/api/configurations", () => ({
       gradeId: "trd-pro",
       selections: input.selections ?? {},
       cameraState: input.cameraState,
+      paintStudio: input.paintStudio,
       revision,
       schemaVersion: "1.0.0",
       createdAt: "",
@@ -159,12 +193,16 @@ vi.mock("../../lib/api/configurations", () => ({
     };
   },
   getPersistenceMode() {
-    return "local";
+    return persistenceMode.value;
   },
   subscribePersistenceMode() {
     return () => {};
   },
   resetTransportDetection() {},
+  takeOwnerTokenForFirstSaveReveal() {
+    return null;
+  },
+  markOwnerTokenShown() {},
 }));
 
 const { submitLeadMock } = vi.hoisted(() => ({ submitLeadMock: vi.fn() }));
@@ -175,6 +213,9 @@ const { configurationStore } = await import("../../lib/state/configurationStore"
 
 beforeEach(() => {
   revision = 1;
+  persistenceMode.value = "local";
+  conflictOnUpdate.value = false;
+  serverRevisionOnGet.value = null;
   window.localStorage.clear();
   configurationStore.reset();
   fakeController.selectedPartId = undefined; // fakeController is hoisted/shared across tests
@@ -208,14 +249,19 @@ describe("BuilderApp", () => {
 
   it("opens the test-drive form with the current build context", async () => {
     submitLeadMock.mockResolvedValue(undefined);
+    let now = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
     await renderBuilderReady();
 
     fireEvent.click(screen.getByRole("button", { name: /request a test drive/i }));
     expect(screen.getByRole("dialog", { name: /request a test drive/i })).toBeInTheDocument();
+    // Lead form mounts on dialog open; advance past soft dwell before a real submit.
+    now += 2_000;
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: "Jamie Customer" } });
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "jamie@example.com" } });
     fireEvent.change(screen.getByLabelText(/how can we help/i), { target: { value: "Test drive, please." } });
     fireEvent.click(screen.getByRole("button", { name: /send request/i }));
+    nowSpy.mockRestore();
 
     await waitFor(() => expect(screen.getByText(/thanks — your request was sent/i)).toBeInTheDocument());
     expect(submitLeadMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -372,8 +418,8 @@ describe("BuilderApp", () => {
     await renderBuilderReady();
 
     const base = resolveGradeMsrp(fourRunner, "trd-pro");
-    expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${base.toLocaleString()}`);
-    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${base.toLocaleString()}`);
+    expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(base));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(base));
 
     fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
     await waitFor(() =>
@@ -381,13 +427,11 @@ describe("BuilderApp", () => {
     );
 
     const expectedTotal = base + 425;
-    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expectedTotal.toLocaleString()}`));
-    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expectedTotal.toLocaleString()}`);
+    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(expectedTotal)));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(expectedTotal));
 
-    const expectedMonthly = estimateMonthlyPayment(expectedTotal, 6.9, 60).toLocaleString(undefined, {
-      maximumFractionDigits: 0,
-    });
-    expect(screen.getByTestId("estimated-monthly-payment")).toHaveTextContent(`$${expectedMonthly}/mo`);
+    const expectedMonthly = formatCurrency(estimateMonthlyPayment(expectedTotal, 6.9, 60));
+    expect(screen.getByTestId("estimated-monthly-payment")).toHaveTextContent(`${expectedMonthly}/mo`);
   });
 
   it("re-derives the same estimated total after restoring selections from a deep link", async () => {
@@ -413,8 +457,8 @@ describe("BuilderApp", () => {
       configurationStore.getSnapshot().configuration,
     );
     expect(expected).toBe(53_900 + 425 + 1_150);
-    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(`$${expected.toLocaleString()}`));
-    expect(screen.getByTestId("amount-financed")).toHaveTextContent(`$${expected.toLocaleString()}`);
+    await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(expected)));
+    expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(expected));
   });
 
   it("plays and pauses the cinematic tour from builder chrome", async () => {
@@ -470,6 +514,60 @@ describe("BuilderApp", () => {
 
     // Coalesced by a short timer, so this is the first point the text can appear.
     await waitFor(() => expect(region).toHaveTextContent("Paint: Solar Octane selected."), { timeout: 2000 });
+  });
+
+  it("announces accessory deselect with category + label", async () => {
+    await renderBuilderReady();
+
+    const region = screen.getByTestId("selection-announcement");
+    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
+    const rack = () => screen.getByRole("button", { name: /overland roof rack/i });
+    fireEvent.click(rack());
+    await waitFor(() =>
+      expect(configurationStore.getSnapshot().configuration?.selections.accessory).toEqual(["accessory-roof-rack"]),
+    );
+    await waitFor(() => expect(region).toHaveTextContent("Accessories: Overland Roof Rack selected."), {
+      timeout: 2000,
+    });
+
+    // CustomizationButton disables the chip while its option id is in `pending` (until the
+    // debounced save flush clears it). Clicking a disabled control is a no-op, so wait it out.
+    await waitFor(() => expect(rack()).toBeEnabled());
+    fireEvent.click(rack());
+    await waitFor(() =>
+      expect(configurationStore.getSnapshot().configuration?.selections.accessory ?? []).toEqual([]),
+    );
+    await waitFor(() => expect(region).toHaveTextContent("Accessories: Overland Roof Rack removed."), {
+      timeout: 2000,
+    });
+  });
+
+  it("announces the new grade name on grade switch", async () => {
+    await renderBuilderReady();
+
+    const region = screen.getByTestId("selection-announcement");
+    fireEvent.click(screen.getByRole("button", { name: /^sr5/i }));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.gradeId).toBe("sr5"));
+    // Grade is announced immediately (not behind the selection debounce) so it is not overwritten
+    // by the multi-option diff that often accompanies a grade switch.
+    await waitFor(() => expect(region).toHaveTextContent("Grade changed to SR5."));
+  });
+
+  it("coalesces rapid paint scrubbing into a single live-region update", async () => {
+    await renderBuilderReady();
+
+    const region = screen.getByTestId("selection-announcement");
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+      fireEvent.click(screen.getByRole("button", { name: /blueprint/i }));
+      // Still inside the debounce window — nothing spoken yet, so a scrub does not spam AT.
+      expect(region).toHaveTextContent("");
+      await vi.advanceTimersByTimeAsync(SELECTION_ANNOUNCEMENT_DEBOUNCE_MS);
+      expect(region).toHaveTextContent("Paint: Blueprint selected.");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("cancels a running cinematic tour when the view is recentred", async () => {
@@ -567,3 +665,64 @@ describe("BuilderApp", () => {
     expect(control).toHaveAccessibleName(/view in ar/i);
   });
 });
+
+describe("BuilderApp stale-revision conflict UX (#52)", () => {
+  it("shows reload / overwrite / fork actions in Worker mode with confirm on overwrite", async () => {
+    persistenceMode.value = "worker";
+    conflictOnUpdate.value = true;
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    await renderBuilderReady();
+
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+    await waitFor(() => expect(screen.getByTestId("revision-conflict-banner")).toBeInTheDocument());
+
+    expect(screen.getByTestId("revision-conflict-banner")).toHaveTextContent(/stale revision/i);
+    expect(screen.getByTestId("conflict-reload")).toBeInTheDocument();
+    expect(screen.getByTestId("conflict-overwrite")).toBeInTheDocument();
+    expect(screen.getByTestId("conflict-fork")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("conflict-overwrite"));
+    expect(confirmSpy).toHaveBeenCalled();
+    // Declined confirm — still in conflict state.
+    expect(screen.getByTestId("revision-conflict-banner")).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
+
+  it("does not show conflict recovery actions in local mode", async () => {
+    persistenceMode.value = "local";
+    conflictOnUpdate.value = true;
+
+    await renderBuilderReady();
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+
+    await waitFor(() => expect(screen.getByTestId("save-failure-conflict")).toBeInTheDocument());
+    expect(screen.queryByTestId("revision-conflict-banner")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("conflict-reload")).not.toBeInTheDocument();
+  });
+
+  it("reload saved fetches the server revision into the builder", async () => {
+    persistenceMode.value = "worker";
+    conflictOnUpdate.value = true;
+
+    await renderBuilderReady();
+    const cfgId = configurationStore.getSnapshot().configuration!.configurationId;
+    serverRevisionOnGet.value = {
+      configurationId: cfgId,
+      selections: { paint: ["paint-1j9-ice-cap"] },
+      revision: 9,
+    };
+
+    fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
+    await waitFor(() => expect(screen.getByTestId("revision-conflict-banner")).toBeInTheDocument());
+
+    conflictOnUpdate.value = false;
+    fireEvent.click(screen.getByTestId("conflict-reload"));
+
+    await waitFor(() => expect(screen.queryByTestId("revision-conflict-banner")).not.toBeInTheDocument());
+    expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual(["paint-1j9-ice-cap"]);
+    expect(configurationStore.getSnapshot().configuration?.revision).toBe(9);
+  });
+});
+

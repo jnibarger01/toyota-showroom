@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeGradeChange, describeSelectionChange } from "../lib/showroom/selectionAnnouncement";
+import { describeGradeChange, describeSelectionChange, SELECTION_ANNOUNCEMENT_DEBOUNCE_MS } from "../lib/showroom/selectionAnnouncement";
 import type { CustomizationOption, SelectionMap } from "../lib/types/customization";
 
 const catalog = [
@@ -59,5 +59,12 @@ describe("describeSelectionChange", () => {
 describe("describeGradeChange", () => {
   it("names the grade, which selections alone cannot convey", () => {
     expect(describeGradeChange("TRD Pro")).toBe("Grade changed to TRD Pro.");
+  });
+});
+
+describe("SELECTION_ANNOUNCEMENT_DEBOUNCE_MS", () => {
+  it("stays short enough to feel instant but long enough to absorb a scrub", () => {
+    expect(SELECTION_ANNOUNCEMENT_DEBOUNCE_MS).toBeGreaterThanOrEqual(150);
+    expect(SELECTION_ANNOUNCEMENT_DEBOUNCE_MS).toBeLessThanOrEqual(400);
   });
 });

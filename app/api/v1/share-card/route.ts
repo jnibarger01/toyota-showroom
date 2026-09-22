@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { invalidBody, notFound } from "../../../../lib/api/errors";
 import { getVehicleBySlug } from "../../../../lib/data/vehicles";
 import { withRouteTelemetry } from "../../../../lib/server/apiResponse";
+import { enforceShareCardRateLimit } from "../../../../lib/server/rateLimit";
 import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 import {
   createBuildDeepLinkUrl,
@@ -84,6 +85,7 @@ export const GET = withRouteTelemetry(
   "/api/v1/share-card",
   "GET",
   async (request: NextRequest) => {
+    await enforceShareCardRateLimit(request);
     const slug = request.nextUrl.searchParams.get("slug")?.trim() ?? "";
     if (!slug) throw invalidBody(`"slug" query parameter is required.`);
 

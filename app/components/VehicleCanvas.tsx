@@ -62,7 +62,7 @@ import {
   type EnvironmentPreset,
 } from "../../lib/three/environmentController";
 import { RenderController } from "../../lib/three/renderController";
-import { createPrefetchScheduler, type PrefetchScheduler } from "../../lib/three/prefetch";
+import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
 import { readQualityPreference, writeQualityPreference, type QualityPreference } from "../../lib/three/qualityPreference";
 import { prefetchHdriPreset } from "../../lib/three/hdriEnvironment";
@@ -247,7 +247,6 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     let cleanup: (() => void) | undefined;
     /** Declared out here so the effect's cleanup can cancel it even if setup fails part-way. */
     let prefetcher: PrefetchScheduler | null = null;
-    let prefetchResumeCleanup: (() => void) | undefined;
     let cancelled = false;
 
     void (async () => {
@@ -276,6 +275,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         },
         onContextLost: () => {
           onErrorRef.current("Rendering was interrupted. Attempting to recover the 3D view.");
+        },
+        // Prefetch (and anything else that stops while data-idle=1) must resume when the canvas
+        // leaves idle — including scrolled-back-on-screen, not only visibilitychange.
+        onIdleChange: (suspended) => {
+          if (!suspended) prefetcher?.start();
         },
       });
       if (cancelled) {
@@ -751,17 +755,15 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         tier: () => renderController.currentQuality.tier,
         saveData: (navigator as { connection?: { saveData?: boolean } }).connection?.saveData === true,
         isSuspended: () => canvasElement.dataset.idle === "1",
+        // Medium reduces (one warm); low is already hard-disabled via tier().
+        maxItems: () => prefetchBudgetForTier(renderController.currentQuality.tier),
       });
       prefetcher.start();
 
-      // `start()` is also the resume path — the scheduler stops rather than spinning while the canvas
-      // is suspended, so something has to restart it. Without this, one backgrounded tab disabled
-      // prefetching for the rest of the session, which made the documented contract a lie.
-      const resumePrefetch = () => {
-        if (canvasElement.dataset.idle !== "1") prefetcher?.start();
-      };
-      document.addEventListener("visibilitychange", resumePrefetch);
-      prefetchResumeCleanup = () => document.removeEventListener("visibilitychange", resumePrefetch);
+      // `start()` is also the resume path — the scheduler stops rather than spinning while suspended.
+      // Resume is wired through `RenderController`'s `onIdleChange` (above), which covers both
+      // visibilitychange and IntersectionObserver — listening only to visibility left scrolled-away
+      // canvases unable to restart prefetch when they came back on screen.
 
       // XR last: it needs the renderer, and there is nothing worth showing in AR until the vehicle
       // has actually settled into the scene.
@@ -822,8 +824,6 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       cancelled = true;
       // Before `cleanup`: an in-flight prefetch holds no scene references, but there is no reason to
       // let speculative fetches outlive the canvas that wanted them.
-      prefetchResumeCleanup?.();
-      prefetchResumeCleanup = undefined;
       prefetcher?.dispose();
       prefetcher = null;
       // Before the renderer goes: ending the session releases the device camera, and a session

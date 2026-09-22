@@ -34,7 +34,7 @@ export default function RouteError({
   }, [error]);
 
   return (
-    <main className="route-error" role="alert">
+    <main id="main-content" className="route-error" role="alert" tabIndex={-1}>
       <AlertTriangle size={28} />
       <h1>Something went wrong</h1>
       <p>

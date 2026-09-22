@@ -59,6 +59,8 @@ vi.mock("../lib/api/configurations", () => ({
   async listVehicleOptions() {
     return fourRunnerOptions;
   },
+  // Local mode: conflict UX must not activate — historic rollback path stays covered here.
+  getPersistenceMode: () => "local" as const,
 }));
 
 const { configurationStore } = await import("../lib/state/configurationStore");

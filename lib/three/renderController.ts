@@ -86,6 +86,12 @@ export interface RenderControllerOptions {
   /** WebGL context lost — rendering has stopped until `webglcontextrestored` fires. */
   onContextLost?: () => void;
   onContextRestored?: () => void;
+  /**
+   * Called when canvas idle suspension flips — hidden tab *or* scrolled off-screen.
+   * Prefetch (and anything else that stops while `data-idle="1"`) should resume from here
+   * rather than listening only to `visibilitychange`, which misses intersection resumes.
+   */
+  onIdleChange?: (suspended: boolean) => void;
 }
 
 export class RenderController {
@@ -169,6 +175,7 @@ export class RenderController {
     this.idleGate = createCanvasIdleGate(options.host, (next) => {
       this.suspended = next;
       this.canvas.dataset.idle = next ? "1" : "0";
+      this.options.onIdleChange?.(next);
       if (next) {
         this.cancelPendingRaf();
         return;

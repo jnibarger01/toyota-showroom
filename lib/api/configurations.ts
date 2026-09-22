@@ -164,7 +164,11 @@ export interface UpdateConfigurationInput {
   selections?: SelectionMap;
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
-  /** Optimistic concurrency: the revision the client believes it is editing. */
+  /**
+   * Optimistic concurrency: the revision the client believes it is editing.
+   * Omit deliberately for a confirmed force-overwrite after a Worker revision conflict (#52);
+   * the server then applies last-write-wins.
+   */
   expectedRevision?: number;
 }
 

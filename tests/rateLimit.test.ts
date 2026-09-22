@@ -7,6 +7,7 @@ import {
   enforceCatalogReadRateLimit,
   enforceConfigCreateRateLimit,
   enforceConfigWriteRateLimit,
+  enforceShareCardRateLimit,
   type RateLimitBinding,
 } from "../lib/server/rateLimit";
 import { ApiError } from "../lib/api/errors";
@@ -245,6 +246,36 @@ describe("enforceCatalogReadRateLimit (fake binding)", () => {
 
     expect(writeKeys).toEqual(["ip:5.5.5.5"]);
     expect(readKeys).toEqual(["ip:5.5.5.5"]);
+  });
+});
+
+describe("enforceShareCardRateLimit (fake binding)", () => {
+  const shareCardRequest = (ip: string) =>
+    new Request("https://example.com/api/v1/share-card?slug=4runner", {
+      headers: { "cf-connecting-ip": ip },
+    });
+
+  it("allows share-card requests through when under the limit", async () => {
+    const limiter: RateLimitBinding = { limit: async () => ({ success: true }) };
+    await expect(enforceShareCardRateLimit(shareCardRequest("1.2.3.4"), limiter)).resolves.toBeUndefined();
+  });
+
+  it("throws a 429 once the share-card limit is exceeded", async () => {
+    const limiter: RateLimitBinding = { limit: async () => ({ success: false }) };
+    await expect(enforceShareCardRateLimit(shareCardRequest("1.2.3.4"), limiter)).rejects.toMatchObject({
+      status: 429,
+      code: "rate_limited",
+      details: {
+        scope: "share_card",
+        limit: RATE_LIMIT_BUDGETS.shareCardRead,
+        periodSeconds: RATE_LIMIT_PERIOD_SECONDS,
+        retryAfterSeconds: RATE_LIMIT_PERIOD_SECONDS,
+      },
+    });
+  });
+
+  it("does not call a null binding", async () => {
+    await expect(enforceShareCardRateLimit(shareCardRequest("1.2.3.4"), null)).resolves.toBeUndefined();
   });
 });
 
