@@ -717,11 +717,205 @@ button { font: inherit; color: inherit; }
   .explore-shell { padding: 24px 18px 48px; }
 }
 
+.print-summary { display: none; }
+
 @media print {
-  body { overflow: visible; }
-  .topbar nav, .top-actions, .left-rail .rail-item, .garage-card, .quick-tools, .stage-toolbar, .gpu-status, .option-tools, .tour-card, .shortcut-sheet, .share-qr-card, .persistence-banner, .owner-token-dialog, .xr-capability-status { display: none !important; }
-  .workspace { grid-template-columns: 180px 1fr 280px; height: auto; }
-  .builder-shell { background: #fff; color: #111; }
+  @page { margin: 0.5in; }
+
+  html, body {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .builder-shell {
+    min-height: 0 !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  /* Printing is a build summary, not a screenshot of the showroom. */
+  .topbar,
+  .config-error,
+  .persistence-banner,
+  .owner-token-dialog,
+  .tour-card,
+  .shortcut-sheet,
+  .share-qr-card,
+  .mobile-panel-backdrop,
+  .mobile-config-trigger,
+  .vehicle-canvas,
+  .vehicle-canvas > canvas,
+  .canvas-fallback,
+  .canvas-model-status,
+  .stage-toolbar,
+  .selected-part-badge,
+  .model-progress,
+  .gpu-status,
+  .xr-capability-status,
+  .installed-strip,
+  .left-rail .section-label,
+  .left-rail .grade-row,
+  .left-rail .rail-item,
+  .left-rail .build-progress,
+  .garage-card,
+  .quick-tools,
+  .tech-stack {
+    display: none !important;
+  }
+
+  .workspace {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .stage {
+    display: none !important;
+  }
+
+  .left-rail,
+  .right-panel {
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    border: 0 !important;
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  .left-rail {
+    margin-bottom: 18px;
+  }
+
+  .vehicle-title h1 {
+    color: #111 !important;
+    font-size: 24px;
+  }
+
+  .vehicle-title span,
+  .vehicle-title p,
+  .summary span {
+    color: #444 !important;
+  }
+
+  .summary {
+    background: #fff !important;
+    border-color: #bbb !important;
+  }
+
+  .summary div {
+    border-color: #ddd !important;
+    color: #111 !important;
+  }
+
+  /* Keep the price and financing cards, but remove the interactive option controls. */
+  .right-panel > :not(.comparison-card):not(.budget-card):not(.financing-card) {
+    display: none !important;
+  }
+
+  .comparison-card,
+  .budget-card,
+  .financing-card {
+    break-inside: avoid;
+    background: #fff !important;
+    border-color: #bbb !important;
+    color: #111 !important;
+  }
+
+  .comparison-card p,
+  .comparison-card .total,
+  .financing-card .total,
+  .financing-card p,
+  .budget-card > label,
+  .budget-card > div,
+  .budget-card p,
+  .financing-inputs label {
+    color: #333 !important;
+  }
+
+  .comparison-card p b,
+  .comparison-card .total b,
+  .financing-card .total b {
+    color: #111 !important;
+  }
+
+  .budget-card input,
+  .financing-inputs input,
+  .financing-inputs select {
+    background: #fff !important;
+    color: #111 !important;
+    border-color: #999 !important;
+  }
+
+  .financing-disclaimer {
+    color: #444 !important;
+  }
+
+  .print-summary {
+    display: block !important;
+    margin-bottom: 18px;
+    color: #111 !important;
+  }
+
+  .print-summary h1,
+  .print-summary h2,
+  .print-summary p {
+    color: #111 !important;
+  }
+
+  .print-summary h1 {
+    margin: 4px 0 2px;
+    font-size: 24px;
+  }
+
+  .print-summary h2 {
+    margin: 18px 0 8px;
+    font-size: 15px;
+  }
+
+  .print-summary-meta,
+  .print-summary-pricing {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin: 0;
+  }
+
+  .print-summary-meta span,
+  .print-summary-pricing span {
+    color: #444 !important;
+    font-size: 12px;
+  }
+
+  .print-summary-pricing strong {
+    color: #111 !important;
+    font-size: 14px;
+  }
+
+  .print-summary-options {
+    margin: 0;
+    padding: 0 0 0 18px;
+  }
+
+  .print-summary-options li {
+    padding: 2px 0;
+    color: #111 !important;
+    font-size: 12px;
+  }
+
+  .print-summary-disclaimer {
+    margin: 16px 0 0;
+    color: #444 !important;
+    font-size: 10px;
+    line-height: 1.4;
+  }
 }
 
 /* ---------------------------------------------------------------- failure states
