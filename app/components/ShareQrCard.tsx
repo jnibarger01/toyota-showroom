@@ -7,18 +7,28 @@
  * deep-link URL Share copies under local/demo persistence — phones open the build without paste.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { X } from "lucide-react";
+import { useFocusTrap } from "./hooks/useFocusTrap";
 
 type Props = {
   /** Absolute `?c=` deep-link URL (from `createShareQrUrl`). */
   url: string;
   onClose: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 };
 
-export function ShareQrCard({ url, onClose }: Props) {
+export function ShareQrCard({ url, onClose, returnFocusRef }: Props) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useFocusTrap(dialogRef, {
+    initialFocusRef: closeButtonRef,
+    onEscape: onClose,
+    returnFocusRef,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -38,13 +48,14 @@ export function ShareQrCard({ url, onClose }: Props) {
 
   return (
     <div
+      ref={dialogRef}
       className="share-qr-card"
       role="dialog"
       aria-modal="true"
       aria-label="Share QR code"
       data-testid="share-qr-card"
     >
-      <button type="button" className="tour-close" aria-label="Close QR share card" onClick={onClose}>
+      <button ref={closeButtonRef} type="button" className="tour-close" aria-label="Close QR share card" onClick={onClose}>
         <X size={15} />
       </button>
       <strong>Scan to open this build</strong>
