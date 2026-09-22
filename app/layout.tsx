@@ -79,7 +79,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
       </head>
-      <body>{children}</body>
+      <body>
+        <a className="skip-link" href="#main-content">
+          Skip to content
+        </a>
+        {children}
+      </body>
     </html>
   );
 }

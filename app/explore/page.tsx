@@ -162,7 +162,7 @@ export default function ExplorePage() {
   };
 
   return (
-    <main className="explore-shell">
+    <main id="main-content" className="explore-shell" tabIndex={-1}>
       <header className="explore-header">
         <a className="brand" href={pageUrl()}>
           <Truck size={24} />

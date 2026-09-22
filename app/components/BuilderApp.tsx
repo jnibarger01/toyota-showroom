@@ -991,7 +991,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   if (loadError && !bootstrap) {
     return (
-      <main className="builder-shell builder-status">
+      <main id="main-content" className="builder-shell builder-status" tabIndex={-1}>
         <p>Couldn&rsquo;t load the builder: {loadError}</p>
       </main>
     );
@@ -999,7 +999,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   if (!bootstrap || !preset) {
     return (
-      <main className="builder-shell builder-status">
+      <main id="main-content" className="builder-shell builder-status" tabIndex={-1}>
         <p>Loading {vehicleSlug}&hellip;</p>
       </main>
     );
@@ -1009,7 +1009,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const cameraPresets = vehicle.threeDConfig.cameraPresets;
 
   return (
-    <main className="builder-shell">
+    <main id="main-content" className="builder-shell" tabIndex={-1}>
       <header className="topbar">
         <div className="brand">
           <Truck size={24} />
