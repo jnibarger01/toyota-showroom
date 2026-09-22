@@ -5,9 +5,10 @@ import { tooManyRequests } from "../api/errors";
 import { hashOwnerToken } from "../shared/ownerToken";
 
 /**
- * Cloudflare rate-limit binding surface used by configuration writes, lead writes, and catalog
- * reads. Each traffic class has its own binding/budget so public browsing cannot consume a user's
- * ability to save a build or submit a legitimate inquiry.
+ * Cloudflare rate-limit binding surface used by configuration writes, lead writes, catalog reads,
+ * and share-card unfurls. Each traffic class has its own binding/budget so public browsing cannot
+ * consume a user's ability to save a build or submit a legitimate inquiry, and crawler bursts do
+ * not consume the catalog-read allowance.
  *
  * Create traffic is metered separately from PATCH/DELETE: unbounded POSTs are what fill D1;
  * interactive editing needs a slightly higher per-IP (and per-owner-token) ceiling.
@@ -40,16 +41,19 @@ export const RATE_LIMIT_BUDGETS = {
   leadWrite: 5,
   /** GET catalog routes. */
   catalogRead: 300,
+  /** GET /api/v1/share-card — tighter because unfurls can be triggered by third-party crawlers. */
+  shareCardRead: 60,
 } as const;
 
-export type RateLimitScope = "ip" | "owner_token" | "create" | "lead" | "catalog";
+export type RateLimitScope = "ip" | "owner_token" | "create" | "lead" | "catalog" | "share_card";
 
 /** Binding names in `wrangler.jsonc`; each traffic class is metered independently. */
 type LimiterName =
   | "CONFIG_CREATE_LIMITER"
   | "CONFIG_WRITE_LIMITER"
   | "LEAD_WRITE_LIMITER"
-  | "CATALOG_READ_LIMITER";
+  | "CATALOG_READ_LIMITER"
+  | "SHARE_CARD_READ_LIMITER";
 
 async function getAmbientLimiter(name: LimiterName): Promise<RateLimitBinding | null> {
   try {
@@ -206,6 +210,22 @@ export async function enforceCatalogReadRateLimit(
     "Too many catalog requests from this client. Please retry shortly.",
     "catalog",
     RATE_LIMIT_BUDGETS.catalogRead,
+  );
+}
+
+/** Share-card unfurl budget; intentionally separate from high-volume catalog reads. */
+export async function enforceShareCardRateLimit(
+  request: Request,
+  limiterOverride?: RateLimitBinding | null,
+): Promise<void> {
+  const limiter =
+    limiterOverride !== undefined ? limiterOverride : await getAmbientLimiter("SHARE_CARD_READ_LIMITER");
+  await enforceIp(
+    request,
+    limiter,
+    "Too many share-card requests from this client. Please retry shortly.",
+    "share_card",
+    RATE_LIMIT_BUDGETS.shareCardRead,
   );
 }
 

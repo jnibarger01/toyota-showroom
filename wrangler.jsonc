@@ -23,7 +23,8 @@
   // Cloudflare rate-limit namespaces are account-scoped, so production/staging and each traffic
   // class use distinct ids. Configuration *creates* are the D1-fill guard (tight); PATCH/DELETE
   // stay slightly higher for interactive editing and are also keyed per owner-token in code;
-  // customer lead intake stays anti-spam tight; catalog reads remain high-volume.
+  // customer lead intake stays anti-spam tight; catalog reads remain high-volume; share-card
+  // unfurls use their own tighter crawler budget so they cannot consume catalog capacity.
   // Budgets MUST stay aligned with `RATE_LIMIT_BUDGETS` in lib/server/rateLimit.ts — see
   // docs/DEPLOYMENT_RUNBOOK.md §9 for how to raise them.
   "ratelimits": [
@@ -46,6 +47,11 @@
       "name": "CATALOG_READ_LIMITER",
       "namespace_id": "1003",
       "simple": { "limit": 300, "period": 60 }
+    },
+    {
+      "name": "SHARE_CARD_READ_LIMITER",
+      "namespace_id": "1009",
+      "simple": { "limit": 60, "period": 60 }
     }
   ],
 
@@ -97,6 +103,11 @@
           "name": "CATALOG_READ_LIMITER",
           "namespace_id": "1004",
           "simple": { "limit": 300, "period": 60 }
+        },
+        {
+          "name": "SHARE_CARD_READ_LIMITER",
+          "namespace_id": "1010",
+          "simple": { "limit": 60, "period": 60 }
         }
       ]
     }
