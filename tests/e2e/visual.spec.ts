@@ -16,7 +16,14 @@ import { applyVisualQuarantine } from "./visualQuarantine";
  * differently. Zero-tolerance diffing would make this suite flaky for reasons that have nothing
  * to do with an actual visual regression.
  */
-const SCREENSHOT_OPTIONS = { maxDiffPixelRatio: 0.02, animations: "disabled" as const };
+const SCREENSHOT_OPTIONS = {
+  maxDiffPixelRatio: 0.02,
+  animations: "disabled" as const,
+  // `system-ui` resolves to different installed fonts on developer machines and
+  // GitHub runners, changing line wrapping and full-page image heights. Pin the
+  // test-only stylesheet to the cross-environment Arial/Liberation Sans family.
+  stylePath: "tests/e2e/visual-deterministic.css",
+};
 
 /**
  * Collects uncaught page errors (thrown exceptions, React hydration mismatches surfaced as

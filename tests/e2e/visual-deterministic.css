@@ -1,0 +1,10 @@
+/*
+ * Visual snapshots must not depend on the host's system-ui font fallback.
+ * Chromium's Playwright dependency install provides Arial via Liberation Sans on
+ * both the Linux CI image and our local browser test environment.
+ */
+*,
+*::before,
+*::after {
+  font-family: Arial, sans-serif !important;
+}
