@@ -282,7 +282,7 @@ export default function ComparePage() {
   };
 
   return (
-    <main className="explore-shell compare-shell">
+    <main id="main-content" className="explore-shell compare-shell" tabIndex={-1}>
       <header className="explore-header">
         <a className="brand" href={pageUrl()}>
           <Truck size={24} />

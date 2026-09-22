@@ -98,6 +98,27 @@ async function scan(page: Page) {
   expect(blocking, `serious/critical accessibility violations:\n\n${formatViolations(blocking)}`).toEqual([]);
 }
 
+async function assertSkipLink(page: Page) {
+  const skipLink = page.getByRole("link", { name: "Skip to content" });
+
+  await page.keyboard.press("Tab");
+  await expect(skipLink).toBeFocused();
+  await expect(skipLink).toBeVisible();
+
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#main-content")).toBeFocused();
+}
+
+test("explore and builder shells expose a keyboard skip link", async ({ page }) => {
+  await page.goto("explore/");
+  await page.waitForSelector(".vehicle-card");
+  await assertSkipLink(page);
+
+  await page.goto("4runner/");
+  await page.waitForSelector(".vehicle-title h1");
+  await assertSkipLink(page);
+});
+
 test("explore lineup has no serious accessibility violations", async ({ page }) => {
   await page.goto("explore/");
   await page.waitForSelector(".vehicle-card");

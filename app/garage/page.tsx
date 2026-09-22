@@ -139,7 +139,7 @@ export default function GaragePage() {
   };
 
   return (
-    <main className="explore-shell garage-shell">
+    <main id="main-content" className="explore-shell garage-shell" tabIndex={-1}>
       <header className="explore-header">
         <a className="brand" href={pageUrl()}>
           <Truck size={24} />
