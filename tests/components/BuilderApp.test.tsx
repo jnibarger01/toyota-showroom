@@ -624,16 +624,19 @@ describe("BuilderApp", () => {
     await renderBuilderReady();
 
     expect(screen.queryByTestId("share-qr-card")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /show qr share card/i }));
+    const opener = screen.getByRole("button", { name: /show qr share card/i });
+    fireEvent.click(opener);
 
     const card = await screen.findByTestId("share-qr-card");
     expect(card).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close QR share card" }));
     const urlEl = await screen.findByTestId("share-qr-url");
     expect(urlEl.textContent).toMatch(/[?&]c=/);
     expect(urlEl.textContent).not.toMatch(/share-card/);
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByTestId("share-qr-card")).toBeNull());
+    expect(document.activeElement).toBe(opener);
   });
 
   it("shows graceful unsupported-device messaging when WebXR immersive-ar is unavailable", async () => {

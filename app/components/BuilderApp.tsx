@@ -247,6 +247,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const fullApplicableRef = useRef<CustomizationOption[]>([]);
   const searchRef = useRef<HTMLInputElement>(null);
   const configJsonFileRef = useRef<HTMLInputElement>(null);
+  const shareQrTriggerRef = useRef<HTMLButtonElement>(null);
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
   const mobilePanelRef = useRef<HTMLElement>(null);
   const saveButtonRef = useRef<HTMLButtonElement>(null);
@@ -926,13 +927,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     const onKeyDown = (event: KeyboardEvent) => {
       const action = resolveBuilderShortcut(event, { cheatSheetOpen });
       if (!action) {
-        if (event.key === "Escape") {
-          if (shareQrOpen) {
-            setShareQrOpen(false);
-            return;
-          }
-          if (mobilePanelOpen) closeMobilePanel();
-        }
+        if (event.key === "Escape" && mobilePanelOpen) closeMobilePanel();
         return;
       }
       event.preventDefault();
@@ -980,7 +975,6 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     restoreHistory,
     saveToGarage,
     share,
-    shareQrOpen,
     toggleCinematicTour,
   ]);
 
@@ -1034,6 +1028,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <Share2 size={16} /> Share
           </button>
           <button
+            ref={shareQrTriggerRef}
             type="button"
             className="ghost icon-action"
             title="Show QR code for this build"
@@ -1129,7 +1124,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
       {shareQrOpen && shareQrUrl ? (
         <Suspense fallback={null}>
-          <ShareQrCard url={shareQrUrl} onClose={() => setShareQrOpen(false)} />
+          <ShareQrCard
+            url={shareQrUrl}
+            returnFocusRef={shareQrTriggerRef}
+            onClose={() => setShareQrOpen(false)}
+          />
         </Suspense>
       ) : null}
 
