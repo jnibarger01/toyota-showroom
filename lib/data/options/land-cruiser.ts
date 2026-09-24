@@ -35,6 +35,27 @@ export const landCruiserOptions: CustomizationOption[] = [
   paint("lc-paint-meteor-shower", "Meteor Shower", "#666a6c"),
   paint("lc-paint-trail-dust", "Trail Dust", "#b8a47d", 350),
   paint("lc-paint-heritage-blue", "Heritage Blue", "#4e738f", 350),
+
+  // Custom paint studio sentinel — material numbers persist on VehicleConfiguration.paintStudio,
+  // not as GLB material names. Targets stay catalog-owned (this asset's CarPaint nodes/materials),
+  // matching the 4Runner's sentinel shape (lib/data/options/4runner.ts).
+  {
+    id: "paint-custom",
+    category: "paint",
+    label: "Custom Paint Studio",
+    operation: "material-update",
+    targetNodes: PAINT_NODES,
+    targetMaterials: ["CarPaint", "CarPaint_N2"],
+    materialConfig: {
+      color: "#1558d6",
+      metalness: 0.42,
+      roughness: 0.22,
+      clearcoat: 1,
+      clearcoatRoughness: 0.07,
+    },
+    priceDelta: 595,
+    compatibleVehicleIds: V,
+  },
   option("lc-wheel-machined", "wheels", "Machined Alloy Wheels", WHEELS, ["black_metal", "chrome"], { color: "#9aa0a6", metalness: 0.9, roughness: 0.22 }, 0, "wheels"),
   option("lc-wheel-black", "wheels", "Black Alloy Wheels", WHEELS, ["black_metal", "chrome"], { color: "#141619", metalness: 0.82, roughness: 0.25 }, 750, "wheels"),
   option("lc-wheel-bronze", "wheels", "Bronze Off-Road Wheels", WHEELS, ["black_metal", "chrome"], { color: "#7a5d3c", metalness: 0.84, roughness: 0.3 }, 950, "wheels"),

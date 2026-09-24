@@ -66,6 +66,27 @@ export const rav4Options: CustomizationOption[] = [
     compatibleGradeIds: ["xle", "limited"],
   },
 
+  // Custom paint studio sentinel — material numbers persist on VehicleConfiguration.paintStudio,
+  // not as GLB material names. Targets stay catalog-owned (BODY / body.carmain), matching the
+  // 4Runner's sentinel shape (lib/data/options/4runner.ts).
+  {
+    id: "paint-custom",
+    category: "paint",
+    label: "Custom Paint Studio",
+    operation: "material-update",
+    targetNodes: PAINT_NODES,
+    targetMaterials: PAINT_MATERIALS,
+    materialConfig: {
+      color: "#1558d6",
+      metalness: 0.65,
+      roughness: 0.28,
+      clearcoat: 1,
+      clearcoatRoughness: 0.06,
+    },
+    priceDelta: 595,
+    compatibleVehicleIds: VEHICLE,
+  },
+
   // ----------------------------------------------------------------- trim
   {
     id: "trim-chrome-bright",

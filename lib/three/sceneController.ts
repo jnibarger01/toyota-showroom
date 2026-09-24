@@ -11,6 +11,7 @@ import { attachToMount, detachFromMount, disposeSubtree, instantiateAsset, loadA
 import type { PaintStudioState } from "../types/paintStudio";
 import {
   materialConfigFromPaintStudio,
+  PAINT_CUSTOM_OPTION_ID,
   PAINT_STUDIO_TARGET_MATERIALS,
   PAINT_STUDIO_TARGET_NODES,
 } from "../data/paintStudio";
@@ -184,13 +185,19 @@ export class VehicleSceneController {
   /**
    * Applies custom paint-studio material params to the catalog paint slot.
    * Targets are resolved from the trusted catalog constants — never from the persisted payload.
+   * When the active vehicle's catalog ships its own `paint-custom` sentinel, its catalog-owned
+   * targets win: not every asset paints through `BODY`/`body.carmain` (e.g. the Land Cruiser's
+   * `*_CarPaint_0` meshes), and the sentinel already carries the right node/material names.
    */
   applyPaintStudio(paintStudio: PaintStudioState | undefined): boolean {
     if (!paintStudio || paintStudio.mode !== "custom" || !paintStudio.material) return false;
-    const meshes = resolveMeshes(this.root, [...PAINT_STUDIO_TARGET_NODES]);
+    const sentinel = this.catalog.get(PAINT_CUSTOM_OPTION_ID);
+    const targetNodes = sentinel?.targetNodes?.length ? sentinel.targetNodes : [...PAINT_STUDIO_TARGET_NODES];
+    const targetMaterials = sentinel?.targetMaterials?.length ? sentinel.targetMaterials : [...PAINT_STUDIO_TARGET_MATERIALS];
+    const meshes = resolveMeshes(this.root, targetNodes);
     if (meshes.length === 0) return false;
     const config = materialConfigFromPaintStudio(paintStudio.material);
-    return this.writer.applyMaterialConfig(meshes, [...PAINT_STUDIO_TARGET_MATERIALS], config) > 0;
+    return this.writer.applyMaterialConfig(meshes, targetMaterials, config) > 0;
   }
 
   private applyMaterialUpdate(option: CustomizationOption): boolean {
