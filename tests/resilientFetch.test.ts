@@ -75,6 +75,22 @@ describe("resilientFetch", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps caller cancellation connected after fetch resolves", async () => {
+    let requestSignal: AbortSignal | null | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url, init: RequestInit) => {
+      requestSignal = init.signal;
+      return Promise.resolve(new Response("ok", { status: 200 }));
+    }));
+    const controller = new AbortController();
+
+    await resilientFetch("https://provider.example/catalog", { signal: controller.signal });
+
+    expect(requestSignal?.aborted).toBe(false);
+    controller.abort(new DOMException("cancelled", "AbortError"));
+    expect(requestSignal?.aborted).toBe(true);
+    expect(requestSignal?.reason).toMatchObject({ name: "AbortError" });
+  });
+
   it("cancels retry backoff when the caller aborts", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
