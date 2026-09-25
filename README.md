@@ -53,6 +53,23 @@ authored Toyota accessory wheels. They are distinct from the shared runtime mod 
 (`lib/three/proceduralMods.ts`), which estimates its single rim and tyre from the body's bounding box
 rather than measuring the vehicle's own running gear.
 
+## Paint
+
+Every vehicle offers its own OEM colours, five shared **finishes** (Gloss, Metallic, Pearl, Satin,
+Matte), and the **Paint Studio** for a fully custom colour.
+
+Colour and finish are two independent choices in the same panel, not one list of swatches: a finish
+(`lib/data/paintFinishes.ts`) writes only surface properties — metalness, roughness, clearcoat — and
+carries no colour of its own, so it composes with whichever colour is selected. Across the lineup
+that is 235 colour-and-finish combinations from 47 colours and 5 finishes.
+
+Both the finishes and the Paint Studio borrow each vehicle's *own* paint targets from its catalog
+colours rather than assuming a shared slot name (`lib/data/options/paintProgram.ts`). That matters
+because no two of these assets agree: `BODY`/`body.carmain` on the 4Runner, Tacoma and RAV4,
+`CarPaint` on the Camry and Land Cruiser, `Body` on the AE86, `Paint` on the Supra. The Paint Studio
+previously wrote the 4Runner's names unconditionally, which is why it was offered on one vehicle —
+on the others it resolved no meshes and silently did nothing.
+
 ## Customization integration
 
 Customization options, the Three.js scene, and configuration persistence are wired through a single

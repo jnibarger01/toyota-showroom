@@ -102,6 +102,7 @@ import {
   trackShareCopied,
 } from "../../lib/observability/funnelTelemetry";
 import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/paintStudio";
+import { PAINT_FINISH_GROUP } from "../../lib/data/paintFinishes";
 import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/showroom/paintStudioHistory";
 
 /**
@@ -581,6 +582,20 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const visibleCatalog = useMemo(
     () => filterBuildOptions(catalog, optionQuery, selectedIds, selectedOnly),
     [catalog, optionQuery, selectedIds, selectedOnly],
+  );
+  /**
+   * The vehicle's OEM body colours: the `paint` category minus the studio sentinel and minus the
+   * finish group, which shares the category but carries no colour of its own.
+   */
+  const oemPaintColourOptions = useMemo(
+    () =>
+      catalog.filter(
+        (option) =>
+          option.category === "paint" &&
+          option.id !== PAINT_CUSTOM_OPTION_ID &&
+          selectionGroupOf(option) !== PAINT_FINISH_GROUP,
+      ),
+    [catalog],
   );
   const visibleGrouped = useMemo(
     () => grouped.map((group) => ({ ...group, options: group.options.filter((option) => visibleCatalog.includes(option)) })),
@@ -1566,10 +1581,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           {activeCategory === "paint" ? (
             <PaintStudioPanel
               paintStudio={configuration?.paintStudio}
-              oemPaintOptions={catalog.filter(
-                (option) => option.category === "paint" && option.id !== PAINT_CUSTOM_OPTION_ID,
-              )}
-              selectedPaintId={(configuration?.selections.paint ?? [])[0]}
+              // Colours only. `paint` also carries the finish group now, and the studio treats this
+              // list as "the OEM colours": it seeds custom mode from one and falls back to one when
+              // leaving custom mode, both of which would pick a colourless finish otherwise.
+              oemPaintOptions={oemPaintColourOptions}
+              // For the same reason this is the selected *colour*, not `selections.paint[0]` —
+              // selecting a finish before a colour puts the finish first in that array.
+              selectedPaintId={
+                (configuration?.selections.paint ?? []).find((id) =>
+                  oemPaintColourOptions.some((option) => option.id === id),
+                )
+              }
               catalog={catalog}
               onBeforeChange={rememberPaintHistory}
             />
@@ -1597,26 +1619,35 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   Preview geometry — generated at runtime and fitted to this vehicle, not an authored catalog mesh. Selections still save by option id.
                 </p>
               ) : null}
-              {subGroupsOf(visibleOptions).map(({ key, heading, options: groupOptions }) => (
-                // A category with one sub-group renders exactly the markup it always has — no
-                // wrapper, no heading — so only the Wheels & Tires panel changes shape.
-                <Fragment key={key}>
-                  {heading ? <p className="panel-subgroup-label">{heading}</p> : null}
-                  <div
-                    className={SWATCH_CATEGORIES.has(category) ? "paint-row" : "chip-row"}
-                    data-testid={category === "paint" ? "oem-paint-swatches" : undefined}
-                  >
-                    {groupOptions.map((option) => (
-                      <CustomizationButton
-                        key={option.id}
-                        option={option}
-                        variant={SWATCH_CATEGORIES.has(category) ? "swatch" : "chip"}
-                        onBeforeSelect={category === "paint" ? rememberPaintHistory : rememberHistory}
-                      />
-                    ))}
-                  </div>
-                </Fragment>
-              ))}
+              {subGroupsOf(visibleOptions).map(({ key, heading, options: groupOptions }) => {
+                // Swatches are decided per group, not per category: a paint *finish* carries no
+                // colour of its own (that is what lets it compose with any colour), so rendering it
+                // as a colour circle would draw an empty one. The colour group still renders
+                // exactly as it always has, `oem-paint-swatches` included.
+                const asSwatches =
+                  SWATCH_CATEGORIES.has(category) &&
+                  groupOptions.every((option) => option.materialConfig?.color);
+                return (
+                  // A category with one sub-group renders exactly the markup it always has — no
+                  // wrapper, no heading — so only a panel that gained a second group changes shape.
+                  <Fragment key={key}>
+                    {heading ? <p className="panel-subgroup-label">{heading}</p> : null}
+                    <div
+                      className={asSwatches ? "paint-row" : "chip-row"}
+                      data-testid={category === "paint" && asSwatches ? "oem-paint-swatches" : undefined}
+                    >
+                      {groupOptions.map((option) => (
+                        <CustomizationButton
+                          key={option.id}
+                          option={option}
+                          variant={asSwatches ? "swatch" : "chip"}
+                          onBeforeSelect={category === "paint" ? rememberPaintHistory : rememberHistory}
+                        />
+                      ))}
+                    </div>
+                  </Fragment>
+                );
+              })}
               {visibleOptions.length === 0 ? <p className="panel-empty">No matching options in this system.</p> : null}
             </section>
             );
