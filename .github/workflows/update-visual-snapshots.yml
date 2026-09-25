@@ -1,6 +1,7 @@
 name: Update visual snapshots
 
-# Intentional Linux/Chromium snapshot refresh for tests/e2e/visual.spec.ts (#48).
+# Intentional Linux/Chromium snapshot refresh for tests/e2e/visual.spec.ts (#48) and the 3D scene
+# snapshots in tests/e2e/visual-3d.spec.ts.
 #
 # Prefer this over regenerating snapshots on macOS/Windows: font hinting differs enough
 # that a local update commits platform noise as if it were an intentional UI change.
@@ -71,17 +72,18 @@ jobs:
       - run: npm run build
 
       - name: Regenerate Linux Chromium visual snapshots
-        # Scope to visual.spec.ts only — other e2e specs do not own PNG baselines.
+        # Scope to the two visual specs only — other e2e specs do not own PNG baselines.
         run: npm run test:e2e:update-visual
 
       - name: Commit and push snapshot updates
         shell: bash
         run: |
-          if git diff --quiet -- tests/e2e/visual.spec.ts-snapshots/; then
+          if git diff --quiet -- tests/e2e/visual.spec.ts-snapshots/ tests/e2e/visual-3d.spec.ts-snapshots/ \
+            && [ -z "$(git ls-files --others --exclude-standard -- tests/e2e/visual-3d.spec.ts-snapshots/)" ]; then
             echo "No snapshot changes; baselines already match this Linux Chromium build."
             exit 0
           fi
-          git add tests/e2e/visual.spec.ts-snapshots/
+          git add tests/e2e/visual.spec.ts-snapshots/ tests/e2e/visual-3d.spec.ts-snapshots/
           git -c user.name="github-actions[bot]" \
               -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
               commit -m "$(cat <<'EOF'

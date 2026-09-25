@@ -17,7 +17,13 @@
  * The one thing it does not survive on its own is ordering — a colour option carries its own
  * metalness/roughness, so a colour applied *after* a finish would overwrite it.
  * `VehicleSceneController` handles that by re-applying later selection groups in the same category,
- * so the pair composes whichever order the two were clicked in.
+ * so the pair composes whichever order the two were clicked in. *
+ * ## The base layer (`finish`)
+ *
+ * Surface numbers alone make every finish the same smooth enamel with a different sheen. `finish`
+ * adds what actually distinguishes them under the clearcoat — a flake normal map for metallic, thin-
+ * film iridescence plus a finer flake for pearl (`lib/three/paintFinish.ts`). Gloss, satin and matte
+ * are `solid`: they clear any flake a previous finish installed.
  */
 
 import type { MaterialConfig } from "../types/customization";
@@ -38,7 +44,7 @@ export const PAINT_FINISHES: readonly PaintFinishSpec[] = [
     label: "Gloss",
     // The reference finish: full clearcoat over a low-metalness base, which is what a standard
     // solid or metallic factory paint looks like under the showroom lights.
-    surface: { metalness: 0.45, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.05 },
+    surface: { metalness: 0.45, roughness: 0.22, clearcoat: 1, clearcoatRoughness: 0.05, finish: "solid" },
     priceDelta: 0,
     description: "Standard factory clearcoat",
   },
@@ -46,7 +52,7 @@ export const PAINT_FINISHES: readonly PaintFinishSpec[] = [
     id: "metallic",
     label: "Metallic",
     // Higher metalness is what makes the flake read; the clearcoat stays sharp over it.
-    surface: { metalness: 0.85, roughness: 0.26, clearcoat: 1, clearcoatRoughness: 0.06 },
+    surface: { metalness: 0.85, roughness: 0.26, clearcoat: 1, clearcoatRoughness: 0.06, finish: "metallic" },
     priceDelta: 395,
     description: "Suspended flake, sharp clearcoat",
   },
@@ -55,14 +61,14 @@ export const PAINT_FINISHES: readonly PaintFinishSpec[] = [
     label: "Pearl",
     // A pearl's depth comes from a soft, slightly diffuse clearcoat over a mid-metalness base —
     // the opposite of metallic's hard reflection.
-    surface: { metalness: 0.6, roughness: 0.16, clearcoat: 1, clearcoatRoughness: 0.18 },
+    surface: { metalness: 0.6, roughness: 0.16, clearcoat: 1, clearcoatRoughness: 0.18, finish: "pearl" },
     priceDelta: 695,
     description: "Deep, soft-focus reflection",
   },
   {
     id: "satin",
     label: "Satin",
-    surface: { metalness: 0.5, roughness: 0.52, clearcoat: 0.45, clearcoatRoughness: 0.4 },
+    surface: { metalness: 0.5, roughness: 0.52, clearcoat: 0.45, clearcoatRoughness: 0.4, finish: "solid" },
     priceDelta: 1295,
     description: "Low sheen, wrapped look",
   },
@@ -71,7 +77,7 @@ export const PAINT_FINISHES: readonly PaintFinishSpec[] = [
     label: "Matte",
     // Clearcoat is dropped entirely rather than merely roughened: a matte finish has no gloss layer
     // to catch a highlight, and leaving one at any strength reads as dirty gloss instead.
-    surface: { metalness: 0.32, roughness: 0.82, clearcoat: 0, clearcoatRoughness: 1 },
+    surface: { metalness: 0.32, roughness: 0.82, clearcoat: 0, clearcoatRoughness: 1, finish: "solid" },
     priceDelta: 1895,
     description: "No clearcoat, full diffuse",
   },

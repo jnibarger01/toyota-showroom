@@ -556,6 +556,7 @@ components:
             roughness: { type: number }
             clearcoat: { type: number }
             clearcoatRoughness: { type: number }
+            finish: { type: string, enum: [solid, metallic, pearl], description: "Paint-finish options only (lib/data/paintFinishes.ts): the flake / iridescence base layer." }
             textureUrl: { type: string }
         hidesNodes: { type: array, items: { type: string } }
         mountNodes: { type: array, items: { type: string } }

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { applyHdriPreset, type HdriEnvironmentHandle, type HdriLightRefs } from "./hdriEnvironment";
 import { recordMetric } from "../observability/clientMetrics";
+import { FLOOR_REFLECTION_STRENGTH } from "./floorReflection";
 
 /**
  * Owns the runtime environment/lighting-rig authority `VehicleCanvas.tsx` used to keep as inline
@@ -269,6 +270,20 @@ export class EnvironmentController {
     this.rocks.visible = false;
   }
 
+  /**
+   * Makes the floor partly transparent so a `FloorReflection` mirrored beneath it shows through as
+   * a polished-floor reflection. Only ever on together with that mirror: a transparent floor with
+   * nothing under it would just look washed out.
+   */
+  setFloorReflective(reflective: boolean): void {
+    const material = this.floor.material;
+    if (material.transparent === reflective) return;
+    material.transparent = reflective;
+    material.opacity = reflective ? 1 - FLOOR_REFLECTION_STRENGTH : 1;
+    // `transparent` changes blending state and program defines; three only rebuilds on this flag.
+    material.needsUpdate = true;
+  }
+
   /** Whether the staged environment is currently suppressed for AR passthrough. */
   get isPassthrough(): boolean {
     return this.passthrough;
@@ -308,7 +323,13 @@ export class EnvironmentController {
   ): Promise<void> {
     const generation = (this.hdriGeneration += 1);
     const refs: HdriLightRefs = { scene: this.scene, hemi: this.hemi, key: this.key, rim: this.rim, fill: this.fill };
-    const handle = await applyHdriPreset(refs, renderer, hdriPresetId, this.hdriHandle);
+    const handle = await applyHdriPreset(
+      refs,
+      renderer,
+      hdriPresetId,
+      this.hdriHandle,
+      () => generation === this.hdriGeneration && !this.disposed,
+    );
     if (generation !== this.hdriGeneration || this.disposed) {
       handle?.dispose();
       return;

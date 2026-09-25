@@ -80,8 +80,13 @@ export type CustomizationOperation =
  */
 export type GeometrySource = "glb" | "procedural-preview" | "procedural-runtime";
 
+/** Base-layer character under the clearcoat — see `lib/three/paintFinish.ts`. */
+export type PaintFinish = "solid" | "metallic" | "pearl";
+
 export interface MaterialConfig {
   color?: string;
+  /** Paint only. Omitted on catalog paints, where it is inferred from the label ("… Metallic"). */
+  finish?: PaintFinish;
   metalness?: number;
   roughness?: number;
   clearcoat?: number;

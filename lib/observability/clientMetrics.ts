@@ -44,6 +44,7 @@ export type MetricName =
   | "first_frame"
   | "quality_changed"
   | "environment_applied"
+  | "shaders_precompiled"
   // Share / save funnel (#46) — see lib/observability/funnelTelemetry.ts
   | "build_started"
   | "option_changed"

@@ -145,12 +145,19 @@ function isWebGLRenderer(
 /**
  * Applies lighting + optional env map for a catalog HDRI preset id.
  * Returns a dispose handle for any PMREM target created for this application.
+ *
+ * `isCurrent` is consulted after the (async) texture load and before anything is written to the
+ * scene. A caller that can issue overlapping requests — picking two presets in quick succession —
+ * must pass it: without it a superseded request lands late, assigns its own map, and the caller's
+ * only recourse is disposing that handle, which clears `scene.environment` out from under the newer
+ * request that had already committed. Returns `null` without side effects when it reports false.
  */
 export async function applyHdriPreset(
   refs: HdriLightRefs,
   renderer: THREE.WebGLRenderer | { isWebGLRenderer?: boolean },
   hdriPresetId: string | undefined,
   previous?: HdriEnvironmentHandle | null,
+  isCurrent: () => boolean = () => true,
 ): Promise<HdriEnvironmentHandle | null> {
   previous?.dispose();
 
@@ -179,6 +186,7 @@ export async function applyHdriPreset(
 
   try {
     const hdr = await loadHdr(preset.hdrUrl);
+    if (!isCurrent()) return null;
 
     // `PMREMGenerator` prefilters the equirectangular map into a roughness-matched mip chain, which
     // is what makes a rough material's reflection blur correctly instead of mirroring. It is a
@@ -219,7 +227,7 @@ export async function applyHdriPreset(
       },
     };
   } catch {
-    refs.scene.environment = null;
+    if (isCurrent()) refs.scene.environment = null;
     return null;
   }
 }

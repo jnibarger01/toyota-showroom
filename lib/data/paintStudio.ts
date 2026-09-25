@@ -34,16 +34,21 @@ export interface HdriPreset {
   hdrUrl?: string;
 }
 
+/**
+ * Every preset carries a real environment map (CC0, Poly Haven — `scripts/fetch-hdri.mjs`,
+ * `docs/HDRI_PROVENANCE.md`). Reflections are the dominant shading cue on clearcoat paint; before
+ * these, the default preset had none and the vehicle read as flat under analytic lights alone.
+ */
 export const HDRI_PRESETS: readonly HdriPreset[] = [
-  { id: "hdri-studio", label: "Studio Soft", lightingKey: "studio" },
-  { id: "hdri-showroom", label: "Showroom Cool", lightingKey: "showroom" },
-  { id: "hdri-overcast", label: "Overcast", lightingKey: "overcast" },
+  { id: "hdri-studio", label: "Studio Soft", lightingKey: "studio", hdrUrl: "/hdri/studio_small_09_512.hdr" },
+  { id: "hdri-showroom", label: "Showroom Cool", lightingKey: "showroom", hdrUrl: "/hdri/photo_studio_loft_hall_512.hdr" },
+  { id: "hdri-overcast", label: "Overcast", lightingKey: "overcast", hdrUrl: "/hdri/kloofendal_overcast_puresky_512.hdr" },
   {
     id: "hdri-sunset",
     label: "Golden Hour",
     lightingKey: "sunset",
     priceDelta: 175,
-    hdrUrl: "/hdri/cold_photography_studio_1k.hdr",
+    hdrUrl: "/hdri/venice_sunset_512.hdr",
   },
 ];
 

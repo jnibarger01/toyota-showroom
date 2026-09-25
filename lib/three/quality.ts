@@ -28,6 +28,10 @@ export type QualitySettings = {
    * download, decode, and vertex cost on the devices that feel all three.
    */
   modelDetail: "full" | "lod1";
+  /** Mirrored vehicle under a semi-transparent floor (`lib/three/floorReflection.ts`). Doubles the
+   * vehicle's draw calls, so only `high` has it — which also makes it the first cost a downgrade
+   * sheds. A live knob: toggling it is a visibility change, not a reload. */
+  floorReflection: boolean;
   /** Point count for the Night starfield. */
   starfieldCount: number;
   /** Scales rim + fill intensity (key/hemi stay at their preset values). */
@@ -53,6 +57,7 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, "tier">> = {
     shadowMapSize: 2048,
     loadAuthoredRunningGear: true,
     modelDetail: "full",
+    floorReflection: true,
     starfieldCount: 400,
     secondaryLightScale: 1,
   },
@@ -63,6 +68,7 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, "tier">> = {
     shadowMapSize: 1024,
     loadAuthoredRunningGear: true,
     modelDetail: "full",
+    floorReflection: false,
     starfieldCount: 200,
     secondaryLightScale: 0.85,
   },
@@ -73,6 +79,7 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, "tier">> = {
     shadowMapSize: 512,
     loadAuthoredRunningGear: false,
     modelDetail: "lod1",
+    floorReflection: false,
     starfieldCount: 80,
     secondaryLightScale: 0.6,
   },
