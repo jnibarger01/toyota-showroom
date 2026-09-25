@@ -42,8 +42,39 @@ function retryDelay(response: Response | null, attempt: number, baseDelayMs: num
   return baseDelayMs * 2 ** attempt;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+}
+
+function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", onAbort);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function forwardAbort(source: AbortSignal | null | undefined, target: AbortController): () => void {
+  if (!source) return () => {};
+
+  const onAbort = () => target.abort(abortReason(source));
+  if (source.aborted) {
+    onAbort();
+    return () => {};
+  }
+
+  source.addEventListener("abort", onAbort, { once: true });
+  return () => source.removeEventListener("abort", onAbort);
 }
 
 export async function resilientFetch(
@@ -70,6 +101,7 @@ export async function resilientFetch(
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
+    const stopForwardingAbort = forwardAbort(init.signal, controller);
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
     let response: Response | null = null;
     try {
@@ -81,11 +113,13 @@ export async function resilientFetch(
       }
     } catch (error) {
       lastError = error;
+      if (init.signal?.aborted) throw error;
       if (attempt === attempts - 1) break;
     } finally {
       clearTimeout(timer);
+      stopForwardingAbort();
     }
-    await sleep(retryDelay(response, attempt, config.baseDelayMs));
+    await sleep(retryDelay(response, attempt, config.baseDelayMs), init.signal);
   }
 
   circuit.failures += 1;
