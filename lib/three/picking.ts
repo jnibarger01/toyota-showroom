@@ -91,7 +91,14 @@ export class VehiclePicker {
   pick(pointer: THREE.Vector2, camera: THREE.Camera, root: THREE.Object3D): PickResult | null {
     this.raycaster.setFromCamera(pointer, camera);
     const hits = this.raycaster.intersectObject(root, true);
-    const hit = hits[0];
+    // `Raycaster` does not skip hidden geometry — `intersectObject` tests `object.layers` and
+    // nothing else, so a mesh with `visible === false` still reports intersections (verified
+    // against three's own `intersect()`, not assumed). Every vehicle now carries hidden geometry
+    // sitting exactly where a visible part is: the procedural accessories, and one full set of
+    // wheels per offered wheel-and-tyre package. Without this filter the nearest *hit* is routinely
+    // a wheel nobody can see, which resolves to no registered part and returns `null` — clicking a
+    // wheel would silently do nothing.
+    const hit = hits.find((candidate) => isVisibleWithin(candidate.object, root));
     if (!hit) return null;
 
     const materialName = materialNameAtHit(hit);
@@ -114,6 +121,23 @@ export class VehiclePicker {
     });
     this.root = null;
   }
+}
+
+/**
+ * Whether `object` and every ancestor up to and including `root` is visible.
+ *
+ * Stops at `root` rather than walking to the scene: the vehicle root's own visibility is the
+ * caller's concern, and a picker should not depend on where the root happens to be parented.
+ */
+function isVisibleWithin(object: THREE.Object3D, root: THREE.Object3D): boolean {
+  let current: THREE.Object3D | null = object;
+  while (current) {
+    if (!current.visible) return false;
+    if (current === root) return true;
+    current = current.parent;
+  }
+  // Ran out of ancestors without reaching the root — the hit is not under it, so leave it alone.
+  return true;
 }
 
 /**

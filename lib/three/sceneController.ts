@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   CATEGORY_APPLY_ORDER,
   isMultiSelect,
+  selectionGroupOf,
   type CustomizationOption,
   type SelectionMap,
 } from "../types/customization";
@@ -36,6 +37,23 @@ export class VehicleSceneController {
   readonly sceneMapReport: SceneMapReport;
   private hoveredId: string | undefined;
   private selectedId: string | undefined;
+  /**
+   * `Object3D.visible` as the loaded scene supplied it, for every node any catalog option can show
+   * or hide. Captured once, at construction, *after* `prepareVehicleRoot` has hidden the donor
+   * geometry — so "original" means "what this vehicle looks like with nothing selected", which is
+   * exactly the state a reverted option has to return to.
+   */
+  private readonly originalVisibility = new Map<THREE.Object3D, boolean>();
+  /**
+   * The option currently applied in each single-select `selectionGroup`.
+   *
+   * Single-select is enforced in the selection map, but the *scene* needs the same guarantee and
+   * cannot infer it: an option that hid geometry has to be told to give it back when a sibling in
+   * its group replaces it. Without this, choosing a wheel package and then a factory wheel finish
+   * leaves the vehicle with no wheels at all — the package's `hidesNodes` still in force with the
+   * package itself no longer shown.
+   */
+  private readonly activeByGroup = new Map<string, string>();
 
   /**
    * `sceneMap` is optional and defaults to empty so every existing call site (which predates
@@ -51,6 +69,46 @@ export class VehicleSceneController {
     this.sceneMapReport = built.report;
     this.picker = new VehiclePicker(this.registry);
     this.picker.prepare(root);
+    this.captureOriginalVisibility(catalog);
+  }
+
+  private captureOriginalVisibility(catalog: readonly CustomizationOption[]): void {
+    for (const option of catalog) {
+      for (const name of [...(option.targetNodes ?? []), ...(option.hidesNodes ?? [])]) {
+        const node = this.root.getObjectByName(name);
+        if (node && !this.originalVisibility.has(node)) {
+          this.originalVisibility.set(node, node.visible);
+        }
+      }
+    }
+  }
+
+  /** Restores one node to the visibility the loaded scene gave it, defaulting to visible. */
+  private restoreVisibility(node: THREE.Object3D): void {
+    node.visible = this.originalVisibility.get(node) ?? true;
+  }
+
+  /**
+   * Undoes an option's visibility effects without touching materials.
+   *
+   * Materials are deliberately left alone: `MaterialWriter` is restored wholesale by
+   * `applyConfiguration`, and an incremental single-option swap within a group (bronze wheels to
+   * black wheels) is meant to overwrite the previous write, not revert it first.
+   */
+  private revertGroupVisibility(option: CustomizationOption): void {
+    for (const node of resolveNodes(this.root, option.hidesNodes ?? []).found) {
+      this.restoreVisibility(node);
+    }
+    if (option.operation === "mesh-visibility") {
+      for (const node of resolveNodes(this.root, option.targetNodes ?? []).found) {
+        this.restoreVisibility(node);
+      }
+    }
+    if (option.operation === "mesh-replacement") {
+      for (const mount of resolveNodes(this.root, option.mountNodes ?? []).found) {
+        detachFromMount(mount);
+      }
+    }
   }
 
   /**
@@ -150,6 +208,16 @@ export class VehicleSceneController {
    * the failure mode this integration exists to remove.
    */
   async applyOption(option: CustomizationOption): Promise<boolean> {
+    if (!isMultiSelect(option.category)) {
+      const group = selectionGroupOf(option);
+      const previous = this.activeByGroup.get(group);
+      if (previous && previous !== option.id) {
+        const outgoing = this.catalog.get(previous);
+        if (outgoing) this.revertGroupVisibility(outgoing);
+      }
+      this.activeByGroup.set(group, option.id);
+    }
+
     switch (option.operation) {
       case "material-update":
         return this.applyMaterialUpdate(option);
@@ -293,6 +361,12 @@ export class VehicleSceneController {
     // to an unpainted build, or restoring one, has to undo writes as well as replay them.
     this.writer.restoreOriginals();
 
+    // The visibility counterpart of `restoreOriginals()`. Replaying a saved build has to start from
+    // the vehicle as it loaded, or a package fitted before the restore would leave the factory
+    // wheels hidden under a configuration that never asked for that.
+    for (const [node, visible] of this.originalVisibility) node.visible = visible;
+    this.activeByGroup.clear();
+
     for (const option of this.catalog.values()) {
       // Mesh replacements, accumulating categories, and eagerly-attached runtime geometry all need
       // an explicit reset before replay. This preserves stock running gear when a replacement is
@@ -343,5 +417,9 @@ export class VehicleSceneController {
     this.writer.dispose();
     disposeSubtree(this.root);
     this.registry.clear();
+    // Holds `Object3D` keys for the whole loaded scene; clearing it with the rest keeps a disposed
+    // controller from pinning the graph it just tore down.
+    this.originalVisibility.clear();
+    this.activeByGroup.clear();
   }
 }

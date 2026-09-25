@@ -44,8 +44,9 @@ test("the RAV4's production GLB decodes and every catalog option resolves agains
     "the scene fell back to the procedural vehicle instead of decoding the shipped RAV4 GLB",
   ).toEqual([]);
 
-  // The only two real catalog options (paint targeting body.carmain, chrome trim targeting
-  // metal.chrome) must resolve against the shipped asset — see lib/data/options/rav4.ts. Unlike
+  // Every real catalog option — paint targeting body.carmain, chrome trim targeting metal.chrome
+  // (lib/data/options/rav4.ts), and the wheel-and-tyre packages mounted at the `MOUNT_WHEEL_*` rig
+  // nodes (lib/data/options/runningGear.ts) — must resolve against the shipped asset. Unlike
   // the 4Runner's assertion, this file does NOT assert zero "is unavailable for this asset"
   // warnings: the scene map's 17 deliberately forward-declared parts (wheels, tires, doors,
   // mirrors, badge, grille, interior, roof — docs/RAV4_PROVENANCE.md §4) are expected to log
@@ -70,6 +71,36 @@ test("a paint selection applies to the decoded RAV4 model", async ({ page }) => 
 
   await paint.click();
   await expect(paint).toHaveAttribute("aria-pressed", "true");
+});
+
+test("fitting a wheel package puts wheels on a capture that ships without any", async ({ page }) => {
+  // The RAV4 capture is a body shell: it has four empty `MOUNT_WHEEL_*` rig nodes and no wheel
+  // geometry at all (docs/RAV4_PROVENANCE.md). A procedural package is the only thing that can give
+  // this vehicle wheels, so this asserts on the rendered canvas rather than on `aria-pressed`
+  // alone — a pressed button proves the selection was recorded, not that anything reached the scene.
+  const canvas = await waitForSettledCanvas(page);
+
+  await page.getByRole("button", { name: /Wheels & Tires/i }).click();
+
+  const before = await canvas.screenshot();
+
+  const wheels = page.getByRole("button", { name: "Off-Road Beadlock + All-Terrain" });
+  await expect(wheels).toBeVisible();
+  await expect(wheels).not.toHaveAttribute("aria-pressed", "true");
+  await wheels.click();
+  await expect(wheels).toHaveAttribute("aria-pressed", "true");
+
+  await expect
+    .poll(async () => (await canvas.screenshot()).equals(before), { timeout: 15_000 })
+    .toBe(false);
+
+  // Sidewall finish is a separate selection group, so it composes with the fitted package rather
+  // than replacing it.
+  const sidewall = page.getByRole("button", { name: "Raised White Letters" });
+  await expect(sidewall).toBeVisible();
+  await sidewall.click();
+  await expect(sidewall).toHaveAttribute("aria-pressed", "true");
+  await expect(wheels).toHaveAttribute("aria-pressed", "true");
 });
 
 test("clicking the RAV4's paint selects body.exterior specifically and shows the selection badge", async ({ page }) => {

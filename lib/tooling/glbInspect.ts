@@ -62,6 +62,17 @@ export interface GlbInspection {
   nodeNames: Set<string>;
   /** Node name → the set of material names its mesh (if any) carries across all primitives. */
   materialsByNode: Map<string, Set<string>>;
+  /**
+   * Node name → every material name reachable **at or below** that node.
+   *
+   * `materialsByNode` answers only for the node's own mesh, which under-reports for a group node
+   * that wraps its geometry in children. `lib/three/nodes.ts`'s `resolveMeshes` — what the running
+   * app actually uses — collects every mesh under a named node by descent, so a catalog option may
+   * legitimately target a group (the Camry's `CAMRY_EX_ALLOY_MESH` wraps 474 wheel primitives, and
+   * `GLTFLoader` wraps any multi-primitive mesh in a `Group` too). This map matches that behaviour,
+   * so the offline contract check and the runtime check agree on what a node "carries".
+   */
+  materialsInSubtree: Map<string, Set<string>>;
 }
 
 function readGlbJsonChunk(buffer: Buffer): GltfDocument {
@@ -111,5 +122,45 @@ export function inspectGlb(filePath: string): GlbInspection {
     if (materialNames.size > 0) materialsByNode.set(node.name, materialNames);
   }
 
-  return { nodeNames, materialsByNode };
+  const nodes = document.nodes ?? [];
+  const materialsInSubtree = new Map<string, Set<string>>();
+  // Memoised by node *index*, because two nodes may legitimately share a name and a subtree can be
+  // deep (the Camry's is 1,194 nodes); without it this is quadratic on the largest asset here.
+  const byIndex = new Map<number, Set<string>>();
+
+  const collect = (index: number, seen: Set<number>): Set<string> => {
+    const memoised = byIndex.get(index);
+    if (memoised) return memoised;
+    // A malformed document could describe a cycle; a glTF node graph is a forest, but this parser
+    // trusts the file rather than the spec.
+    if (seen.has(index)) return new Set<string>();
+    seen.add(index);
+
+    const node = nodes[index];
+    const names = new Set<string>(node?.name ? materialsByNode.get(node.name) ?? [] : []);
+    if (!node?.name && node?.mesh !== undefined) {
+      for (const primitive of document.meshes?.[node.mesh]?.primitives ?? []) {
+        if (primitive.material === undefined) continue;
+        const name = document.materials?.[primitive.material]?.name;
+        if (name) names.add(name);
+      }
+    }
+    for (const child of node?.children ?? []) {
+      for (const name of collect(child, seen)) names.add(name);
+    }
+    byIndex.set(index, names);
+    return names;
+  };
+
+  for (let index = 0; index < nodes.length; index++) {
+    const name = nodes[index]?.name;
+    if (!name) continue;
+    const names = collect(index, new Set<number>());
+    if (names.size === 0) continue;
+    const existing = materialsInSubtree.get(name);
+    if (existing) for (const value of names) existing.add(value);
+    else materialsInSubtree.set(name, new Set(names));
+  }
+
+  return { nodeNames, materialsByNode, materialsInSubtree };
 }
