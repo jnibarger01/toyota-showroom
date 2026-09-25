@@ -55,6 +55,16 @@ describe("VehicleLights", () => {
     expect(emissiveOf(brake).emissiveIntensity).toBe(0.5);
   });
 
+  it("scales a lamp the asset authored to glow, rather than replacing it with a dimmer fixed look", () => {
+    // The 4Runner's brake material: red, emissive strength 3.
+    const material = new THREE.MeshStandardMaterial({ name: "emissive.brakelights", emissive: "#ff0201", emissiveIntensity: 3 });
+    const brake: LampBinding = { role: "brake", mesh: new THREE.Mesh(new THREE.BoxGeometry(), material), materialNames: ["emissive.brakelights"] };
+    const lights = new VehicleLights([brake], new MaterialWriter());
+    lights.setMode("brake");
+    expect(emissiveOf(brake).emissiveIntensity).toBe(9);
+    expect(emissiveOf(brake).emissive.getHexString()).toBe("ff0201");
+  });
+
   it("writes through clone-on-write, so a shared lamp material is not blinked on a sibling", () => {
     const shared = new THREE.MeshStandardMaterial({ name: "emissive.turn" });
     const left: LampBinding = { role: "turn", mesh: new THREE.Mesh(new THREE.BoxGeometry(), shared), materialNames: ["emissive.turn"] };

@@ -1467,24 +1467,6 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   Reload to apply fully
                 </span>
               ) : null}
-              {lampModes.length > 0 ? (
-                // Same native-<select> reasoning as the quality control above.
-                <label className="quality-select" title="Vehicle lights">
-                  <Lightbulb size={17} aria-hidden="true" />
-                  <span className="sr-only">Vehicle lights</span>
-                  <select
-                    data-testid="lamp-mode"
-                    value={lampMode}
-                    onChange={(event) => setLampMode(event.target.value as LampMode)}
-                  >
-                    {LAMP_MODES.filter((mode) => lampModes.includes(mode.id)).map((mode) => (
-                      <option key={mode.id} value={mode.id} title={mode.description}>
-                        {mode.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
               <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
             </div>
           </div>
@@ -1708,6 +1690,27 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 </button>
               ))}
             </div>
+            {lampModes.length > 0 ? (
+              <>
+                {/* Here rather than in the stage toolbar: it sits with the other "how is the car
+                  * being shown" controls, and a sixth toolbar control overflowed the row at desktop
+                  * widths. Only rendered for vehicles whose scene map names lamps. */}
+                <label id="lamp-mode-label"><Lightbulb size={14} /> Lights</label>
+                <div className="segmented lamp-modes" role="group" aria-labelledby="lamp-mode-label" data-testid="lamp-mode">
+                  {LAMP_MODES.filter((mode) => lampModes.includes(mode.id)).map((mode) => (
+                    <button
+                      key={mode.id}
+                      className={lampMode === mode.id ? "active" : ""}
+                      aria-pressed={lampMode === mode.id}
+                      title={mode.description}
+                      onClick={() => setLampMode(mode.id)}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </section>
           <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>{formatCurrency(baseMsrp)}</b></p><p><span>Configured upgrades</span><b>{formatPriceDelta(estimatedTotal - baseMsrp)}</b></p><p className="total"><span>Estimated total</span><b data-testid="estimated-total">{formatCurrency(estimatedTotal)}</b></p></section>
           <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={baseMsrp} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `${formatCurrency(estimatedTotal - budget)} over target` : `${formatCurrency(budget - estimatedTotal)} remaining`}</p></section>

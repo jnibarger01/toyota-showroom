@@ -63,8 +63,21 @@ export function rolesLitBy(mode: LampMode): ReadonlySet<LampRole> {
   }
 }
 
-/** Emitted colour and strength per role. Strengths are pre-tone-mapping; Neutral tone mapping keeps
- * the hue of a saturated red/amber rather than washing it toward white the way ACES would. */
+/**
+ * How much brighter than as-modeled a lit lamp of each role glows. Authors already tune lamp
+ * emission to their asset's scale (the 4Runner's side lights are authored at emissive strength 30,
+ * its brake lamps at 3), so "on" is the authored emission scaled — a fixed absolute value would be
+ * darker than the asset's own default on some vehicles and blinding on others. Brake and low beam
+ * are boosted because as-modeled they read as tail/parking brightness, and pressing the brake has to
+ * visibly change something.
+ */
+const ROLE_BOOST: Record<LampRole, number> = { drl: 1, lowBeam: 4, fog: 1, tail: 1, brake: 3, turn: 1 };
+
+/** Authored emission below this (max channel × intensity) counts as "not authored to glow". */
+const AUTHORED_GLOW_THRESHOLD = 0.5;
+
+/** Fallback colour and strength for a lamp the asset authored dark. Pre-tone-mapping values;
+ * Neutral tone mapping keeps the hue of a saturated red/amber rather than washing it to white. */
 const ROLE_LOOK: Record<LampRole, { color: string; intensity: number }> = {
   drl: { color: "#f4f7ff", intensity: 2.5 },
   lowBeam: { color: "#fff4e2", intensity: 5 },
@@ -173,9 +186,15 @@ export class VehicleLights {
         }
         const on = lit.has(binding.role) && (binding.role !== "turn" || turnOn);
         if (on) {
-          const look = ROLE_LOOK[binding.role];
-          emissive.emissive.set(look.color);
-          emissive.emissiveIntensity = look.intensity;
+          const authoredGlow = Math.max(authored.color.r, authored.color.g, authored.color.b) * authored.intensity;
+          if (authoredGlow >= AUTHORED_GLOW_THRESHOLD) {
+            emissive.emissive.copy(authored.color);
+            emissive.emissiveIntensity = authored.intensity * ROLE_BOOST[binding.role];
+          } else {
+            const look = ROLE_LOOK[binding.role];
+            emissive.emissive.set(look.color);
+            emissive.emissiveIntensity = look.intensity;
+          }
         } else {
           emissive.emissive.setRGB(0, 0, 0);
           emissive.emissiveIntensity = 0;
