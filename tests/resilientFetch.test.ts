@@ -54,4 +54,43 @@ describe("resilientFetch", () => {
     await vi.advanceTimersByTimeAsync(25);
     await rejection;
   });
+
+  it("honors caller cancellation without retrying the request", async () => {
+    const fetchMock = vi.fn((_url, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    const pending = resilientFetch(
+      "https://provider.example/catalog",
+      { signal: controller.signal },
+      { timeoutMs: 10_000, maxRetries: 2 },
+    );
+    const rejection = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+
+    controller.abort(new DOMException("cancelled", "AbortError"));
+
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels retry backoff when the caller aborts", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+
+    const pending = resilientFetch(
+      "https://provider.example/catalog",
+      { signal: controller.signal },
+      { baseDelayMs: 10_000, maxRetries: 2 },
+    );
+    const rejection = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+
+    await vi.advanceTimersByTimeAsync(0);
+    controller.abort(new DOMException("cancelled", "AbortError"));
+
+    await rejection;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
