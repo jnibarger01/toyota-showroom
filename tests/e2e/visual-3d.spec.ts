@@ -66,6 +66,9 @@ test("4Runner hero on the high tier (floor reflection, studio HDRI, neutral tone
 test("4Runner in a metallic paint (flake finish) on the medium tier", async ({ page }) => {
   const { errors } = await openSettled(page, "4runner", "medium");
   await page.getByRole("button", { name: "Barcelona Red Metallic" }).first().click();
+  // The flake layer comes from the Metallic *finish* option (lib/data/paintFinishes.ts), not from
+  // the colour's name.
+  await page.getByRole("button", { name: "Metallic", exact: true }).first().click();
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
