@@ -43,7 +43,9 @@ const paint = (id: string, label: string, color: string, extra: Partial<Customiz
   option(id, "paint", label, BODY, ["paint"], { color, metalness: 0.55, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.05 }, extra);
 
 const rims = (id: string, label: string, materialConfig: MaterialConfig, extra: Partial<CustomizationOption> = {}) =>
-  option(id, "wheels", label, RIMS, ["material_18"], materialConfig, { selectionGroup: "gr-corolla-rims", ...extra });
+  // No selectionGroup: like the Supra's finishes, these share the "wheels" group with the procedural
+  // wheel packages (lib/data/wheelPackages.ts), so choosing a finish swaps a fitted package back out.
+  option(id, "wheels", label, RIMS, ["material_18"], materialConfig, extra);
 
 export const grCorollaOptions: CustomizationOption[] = [
   paint("paint-089-blizzard-pearl", "Blizzard Pearl", "#eceeee", { priceDelta: 425, compatibleGradeIds: ["core", "circuit"] }),
