@@ -11,13 +11,14 @@ import { resolveMeshes, resolveNodes } from "./nodes";
 import { attachToMount, detachFromMount, disposeSubtree, instantiateAsset, loadAsset } from "./assets";
 import type { PaintStudioState } from "../types/paintStudio";
 import { finishForCustomMetalness } from "./paintFinish";
+import { lampRoleFor, VehicleLights, type LampBinding } from "./vehicleLights";
 import {
   materialConfigFromPaintStudio,
   PAINT_CUSTOM_OPTION_ID,
   PAINT_STUDIO_TARGET_MATERIALS,
   PAINT_STUDIO_TARGET_NODES,
 } from "../data/paintStudio";
-import { buildSceneRegistry, SceneRegistry, type SceneMapReport } from "./sceneRegistry";
+import { buildSceneRegistry, SceneRegistry, type SceneMapReport, type SceneRegistryEntry } from "./sceneRegistry";
 import { PartHighlighter, type HighlightState } from "./highlight";
 import type { SceneMapEntry } from "../types/sceneMap";
 import { VehiclePicker, type PickResult } from "./picking";
@@ -37,6 +38,9 @@ export class VehicleSceneController {
   private readonly registry: SceneRegistry;
   private readonly picker: VehiclePicker;
   readonly sceneMapReport: SceneMapReport;
+  /** Lamp states over the scene map's emissive `light` regions. Empty (no modes) for a vehicle
+   * whose scene map names none. */
+  readonly lights: VehicleLights;
   private hoveredId: string | undefined;
   private selectedId: string | undefined;
   /**
@@ -72,6 +76,7 @@ export class VehicleSceneController {
     this.picker = new VehiclePicker(this.registry);
     this.picker.prepare(root);
     this.captureOriginalVisibility(catalog);
+    this.lights = new VehicleLights(lampBindingsFrom(this.registry.list()), this.writer);
   }
 
   private captureOriginalVisibility(catalog: readonly CustomizationOption[]): void {
@@ -470,6 +475,8 @@ export class VehicleSceneController {
       this.applyPaintStudio(paintStudio);
     }
 
+    // `restoreOriginals` above dropped every cloned lamp material with the rest.
+    this.lights.reapply();
     return { applied, failed };
   }
 
@@ -496,4 +503,15 @@ export class VehicleSceneController {
     this.originalVisibility.clear();
     this.activeByGroup.clear();
   }
+}
+
+/** Every registered emissive lamp region, with its role. Lenses/housings have no role and are skipped. */
+function lampBindingsFrom(entries: readonly SceneRegistryEntry[]): LampBinding[] {
+  const bindings: LampBinding[] = [];
+  for (const entry of entries) {
+    const role = lampRoleFor(entry.id);
+    if (!role || entry.type !== "light" || !(entry.object instanceof THREE.Mesh) || !entry.materialNames?.length) continue;
+    bindings.push({ role, mesh: entry.object, materialNames: entry.materialNames });
+  }
+  return bindings;
 }

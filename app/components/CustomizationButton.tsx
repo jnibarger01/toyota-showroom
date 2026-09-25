@@ -31,9 +31,22 @@ export function CustomizationButton({ option, variant = "chip", onBeforeSelect }
   };
 
   if (variant === "swatch") {
+    // Hover (mouse/pen) and keyboard focus preview the paint on the vehicle without selecting it;
+    // leaving puts the real selection back. Touch is skipped: a tap is already a selection, and a
+    // preview flashed for the length of a tap is noise. See `configurationStore.previewOption`.
+    const preview = () => void configurationStore.previewOption(option);
+    const endPreview = () => void configurationStore.previewOption(null);
     return (
       <button
         type="button"
+        onPointerEnter={(event) => {
+          if (event.pointerType !== "touch") preview();
+        }}
+        onPointerLeave={(event) => {
+          if (event.pointerType !== "touch") endPreview();
+        }}
+        onFocus={preview}
+        onBlur={endPreview}
         aria-label={option.label}
         aria-pressed={selected}
         title={option.priceDelta ? `${option.label} (${formatPriceDelta(option.priceDelta)})` : option.label}

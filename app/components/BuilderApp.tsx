@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import type { CameraPreset, TourAction, TourStatus } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
+import { LAMP_MODES, type LampMode } from "../../lib/three/vehicleLights";
 import { PaintStudioPanel } from "./PaintStudioPanel";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
@@ -269,6 +270,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [xrError, setXrError] = useState<string | null>(null);
   /** Mirrors the renderer's stored preference; `VehicleCanvas` reports the real value on mount. */
   const [qualityPreference, setQualityPreference] = useState<QualityPreference>("auto");
+  /** Lamp state is a viewing aid like the camera angle, not part of the build — never saved. */
+  const [lampMode, setLampMode] = useState<LampMode>("modeled");
+  /** `[]` until the vehicle settles, and for vehicles whose scene map names no lamps. */
+  const [lampModes, setLampModes] = useState<LampMode[]>([]);
   /** True when the chosen tier needs a reload to apply in full — see `qualityPreferenceNeedsReload`. */
   const [qualityNeedsReload, setQualityNeedsReload] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -1462,6 +1467,24 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   Reload to apply fully
                 </span>
               ) : null}
+              {lampModes.length > 0 ? (
+                // Same native-<select> reasoning as the quality control above.
+                <label className="quality-select" title="Vehicle lights">
+                  <Lightbulb size={17} aria-hidden="true" />
+                  <span className="sr-only">Vehicle lights</span>
+                  <select
+                    data-testid="lamp-mode"
+                    value={lampMode}
+                    onChange={(event) => setLampMode(event.target.value as LampMode)}
+                  >
+                    {LAMP_MODES.filter((mode) => lampModes.includes(mode.id)).map((mode) => (
+                      <option key={mode.id} value={mode.id} title={mode.description}>
+                        {mode.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <button title="Fullscreen" onClick={() => void toggleFullscreen()}><Expand size={17} /></button>
             </div>
           </div>
@@ -1504,6 +1527,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               qualityPreference={qualityPreference}
               onQualityPreferenceLoaded={setQualityPreference}
               onQualityNeedsReload={setQualityNeedsReload}
+              lampMode={lampMode}
+              onLampModesAvailable={setLampModes}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}
