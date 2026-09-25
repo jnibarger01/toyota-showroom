@@ -98,7 +98,7 @@ button { font: inherit; color: inherit; }
   box-shadow: var(--shadow-elevated);
 }
 
-.builder-shell { min-height: 100vh; background: radial-gradient(circle at 45% 10%, #18202a 0, #0b0f14 38%, #07090c 100%); }
+.builder-shell { min-height: 100dvh; background: radial-gradient(circle at 45% 10%, #18202a 0, #0b0f14 38%, #07090c 100%); }
 .builder-status { display: grid; place-items: center; color: var(--muted); font-size: 14px; }
 .topbar {
   height: 72px; display: grid; grid-template-columns: 260px 1fr auto; align-items: center;
@@ -214,7 +214,7 @@ button { font: inherit; color: inherit; }
 }
 
 
-.workspace { height: calc(100vh - 72px); display: grid; grid-template-columns: 238px minmax(0, 1fr) 304px; }
+.workspace { height: calc(100dvh - 72px); display: grid; grid-template-columns: 238px minmax(0, 1fr) 304px; }
 .left-rail, .right-panel { background: rgba(12,16,21,.95); overflow: auto; }
 .left-rail { border-right: 1px solid #202731; padding: 24px 16px; }
 .right-panel { border-left: 1px solid #202731; padding: 22px 16px; }
