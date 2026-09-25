@@ -48,6 +48,7 @@ import { getSceneMapForVehicle } from "../../lib/data/sceneMap";
 import { pointerToNdc } from "../../lib/three/picking";
 import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
 import { buildProceduralAccessories, createProceduralVehicle } from "../../lib/three/proceduralParts";
+import { installProceduralWheelPackages } from "../../lib/three/installWheels";
 import { buildRuntimeModificationKit } from "../../lib/three/proceduralMods";
 import {
   initialProgressiveState,
@@ -650,6 +651,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         scene.add(contactShadow);
         buildProceduralAccessories(root);
         buildRuntimeModificationKit(root, slug);
+        // Measured off this vehicle's own running gear, so it must run after the root is prepared
+        // and before `verifyNodeContract` — the wheel-package options name these nodes. It runs
+        // after the runtime mod kit so its own `RUNTIME_MOD_*` meshes are already excluded from
+        // anything either builder measures.
+        installProceduralWheelPackages(root, slug);
         scene.add(root);
         rootRef.current = root;
         groundedYRef.current = root.position.y;

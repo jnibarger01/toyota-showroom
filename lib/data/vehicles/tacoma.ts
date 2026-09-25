@@ -104,9 +104,11 @@ export const tacoma: Vehicle = {
   ],
 
   media: {
-    hero: { url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota Tacoma TRD Pro placeholder hero" },
+    // No GLB yet: a "3D model coming soon" card from scripts/render-thumbnails.ts rather than
+    // another vehicle's photo.
+    hero: { url: "/images/vehicles/tacoma/tacoma-thumbnail.webp", alt: "2024 Toyota Tacoma — 3D model coming soon", width: 800, height: 500 },
     gallery: [],
-    thumbnails: [{ url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota Tacoma thumbnail" }],
+    thumbnails: [{ url: "/images/vehicles/tacoma/tacoma-thumbnail.webp", alt: "2024 Toyota Tacoma — 3D model coming soon", width: 800, height: 500 }],
     videos: [],
     environmentMaps: [],
   },

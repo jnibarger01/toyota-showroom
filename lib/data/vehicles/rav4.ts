@@ -111,11 +111,10 @@ export const rav4: Vehicle = {
   ],
 
   media: {
-    // No dedicated RAV4 studio photography exists in this repo yet; the capture pipeline's own
-    // rendered viewport frame is the only real image of this specific asset (docs/RAV4_PROVENANCE.md).
-    hero: { url: "/renders/rav4-2024/rendered-rav4-viewport.png", alt: "2024 Toyota RAV4 Limited, captured viewport render" },
-    gallery: [{ url: "/renders/rav4-2024/rendered-rav4-viewport.png", alt: "2024 Toyota RAV4 Limited, captured viewport render" }],
-    thumbnails: [{ url: "/renders/rav4-2024/rendered-rav4-viewport.png", alt: "2024 Toyota RAV4 thumbnail" }],
+    // Thumbnail rendered from the runtime GLB by scripts/render-thumbnails.ts.
+    hero: { url: "/images/vehicles/rav4/rav4-thumbnail.webp", alt: "2024 Toyota RAV4 Limited, front three-quarter 3D render", width: 800, height: 500 },
+    gallery: [{ url: "/images/vehicles/rav4/rav4-thumbnail.webp", alt: "2024 Toyota RAV4 Limited, front three-quarter 3D render", width: 800, height: 500 }],
+    thumbnails: [{ url: "/images/vehicles/rav4/rav4-thumbnail.webp", alt: "2024 Toyota RAV4 Limited, front three-quarter 3D render", width: 800, height: 500 }],
     videos: [],
     environmentMaps: [],
   },

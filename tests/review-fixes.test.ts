@@ -4,7 +4,7 @@ import { colorHexAt, createVehicleFixture, materialAt } from "./fixtures/scene";
 import { VehicleSceneController } from "../lib/three/sceneController";
 import { verifyNodeContract } from "../lib/three/nodes";
 import { fourRunnerOptions } from "../lib/data/options/4runner";
-import { getOptionById } from "../lib/data/options";
+import { getOptionById, getOptionsForVehicle } from "../lib/data/options";
 import { validateSelections } from "../lib/validation/configuration";
 import { withOptionSelected, type CustomizationOption } from "../lib/types/customization";
 import { ApiError } from "../lib/api/errors";
@@ -20,40 +20,47 @@ import { DRACO_DECODER_PATH, markAttached } from "../lib/three/assets";
 // ─────────────────────────────────────────────── selection groups within a category
 
 describe("selection groups", () => {
+  const catalog = getOptionsForVehicle("4runner");
   const grilleBlackout = getOptionById("4runner", "trim-grille-blackout")!;
   const grilleChrome = getOptionById("4runner", "trim-grille-chrome")!;
-  const tyreWhite = getOptionById("4runner", "trim-tire-letters-raised-white")!;
-  const tyreBlack = getOptionById("4runner", "trim-tire-letters-blackwall")!;
+  // `wheels` carries two independent groups: which wheel-and-tyre package is fitted, and what
+  // finish its sidewalls wear. Before the shared running-gear catalog the same shape existed under
+  // `trim` (a grille and a tyre-lettering choice); it moved, the property did not.
+  const packageSport = getOptionById("4runner", "wheels-package-sport-machined")!;
+  const packageBronze = getOptionById("4runner", "wheels-package-bronze-forged")!;
+  const tyreWhite = getOptionById("4runner", "tire-sidewall-raised-white")!;
+  const tyreBlack = getOptionById("4runner", "tire-sidewall-blackwall")!;
 
   it("keeps independent groups filed under one category", () => {
-    let selections = withOptionSelected({}, tyreWhite, fourRunnerOptions);
-    selections = withOptionSelected(selections, grilleBlackout, fourRunnerOptions);
+    let selections = withOptionSelected({}, tyreWhite, catalog);
+    selections = withOptionSelected(selections, packageSport, catalog);
 
-    // Choosing a grille must not evict the tyre lettering, which is separately configurable.
-    expect(selections.trim).toContain(tyreWhite.id);
-    expect(selections.trim).toContain(grilleBlackout.id);
+    // Fitting a package must not evict the sidewall finish, which is separately configurable.
+    expect(selections.wheels).toContain(tyreWhite.id);
+    expect(selections.wheels).toContain(packageSport.id);
   });
 
   it("still evicts the previous choice within the same group", () => {
-    let selections = withOptionSelected({}, grilleBlackout, fourRunnerOptions);
-    selections = withOptionSelected(selections, grilleChrome, fourRunnerOptions);
+    let selections = withOptionSelected({}, grilleBlackout, catalog);
+    selections = withOptionSelected(selections, grilleChrome, catalog);
 
     expect(selections.trim).toEqual([grilleChrome.id]);
   });
 
   it("evicts per group independently", () => {
-    let selections = withOptionSelected({}, tyreWhite, fourRunnerOptions);
-    selections = withOptionSelected(selections, grilleBlackout, fourRunnerOptions);
-    selections = withOptionSelected(selections, tyreBlack, fourRunnerOptions);
+    let selections = withOptionSelected({}, tyreWhite, catalog);
+    selections = withOptionSelected(selections, packageSport, catalog);
+    selections = withOptionSelected(selections, tyreBlack, catalog);
+    selections = withOptionSelected(selections, packageBronze, catalog);
 
-    expect(selections.trim).toEqual([grilleBlackout.id, tyreBlack.id]);
+    expect(selections.wheels).toEqual([tyreBlack.id, packageBronze.id]);
   });
 
   it("is accepted by the server when the groups differ", () => {
     const selections = validateSelections("4runner", "sr5", {
-      trim: [grilleBlackout.id, tyreWhite.id],
+      wheels: [packageSport.id, tyreWhite.id],
     });
-    expect(selections.trim).toHaveLength(2);
+    expect(selections.wheels).toHaveLength(2);
   });
 
   it("is rejected by the server when two options share a group", () => {
@@ -69,13 +76,15 @@ describe("selection groups", () => {
   });
 
   it("survives a round trip through the scene and stays visible", async () => {
-    const fixture = createVehicleFixture();
-    const { satisfied } = verifyNodeContract(fixture.root, fourRunnerOptions);
+    const fixture = createVehicleFixture({ wheelPackages: true });
+    const { satisfied } = verifyNodeContract(fixture.root, catalog);
     const controller = new VehicleSceneController(fixture.root, satisfied);
 
-    await controller.applyConfiguration({ trim: [tyreWhite.id, grilleBlackout.id] });
+    await controller.applyConfiguration({ wheels: [tyreWhite.id], trim: [grilleBlackout.id] });
 
+    // The sidewall write reaches the factory tyres and the fitted packages alike.
     expect(colorHexAt(fixture.root, "PLACED_KO3_front_left", "tire.sidewall")).toBe("6f6f6c");
+    expect(colorHexAt(fixture.root, "TIRES_sport-machined", "tire.sidewall")).toBe("6f6f6c");
     expect(colorHexAt(fixture.root, "Tun_GRILLE", "plastik.all.003")).toBe("0d0f11");
   });
 });

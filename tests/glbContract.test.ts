@@ -11,6 +11,13 @@ import {
 } from "../lib/data/options/plannedGate";
 import { VEHICLES } from "../lib/data/vehicles";
 import { ACCESSORY_NODE_NAMES } from "../lib/three/proceduralParts";
+import {
+  TIRE_MATERIAL_NAME,
+  WHEEL_MATERIAL_NAME,
+  tiresNodeName,
+  wheelsetNodeName,
+} from "../lib/three/proceduralWheels";
+import { getWheelFitment } from "../lib/data/wheelFitment";
 import type { CustomizationOption } from "../lib/types/customization";
 import { isProceduralPreview } from "../lib/types/customization";
 
@@ -21,6 +28,22 @@ import { isProceduralPreview } from "../lib/types/customization";
  * the raw-file inspection below must be told about them or every accessory option reads as broken.
  */
 const SYNTHETIC_NODE_NAMES = new Set<string>(Object.values(ACCESSORY_NODE_NAMES));
+
+/**
+ * The same exemption for runtime-built running gear.
+ *
+ * `installProceduralWheelPackages` (lib/three/installWheels.ts) mounts one `WHEELSET_*` group per
+ * package this vehicle offers, each wrapping a `TIRES_*` subgroup, before `verifyNodeContract`
+ * runs. Derived per vehicle from that vehicle's own fitment rather than allowlisted by prefix, so a
+ * package offered on a vehicle whose fitment does not list it still fails this check.
+ */
+function syntheticWheelNodeNames(vehicleId: string): Set<string> {
+  const fitment = getWheelFitment(vehicleId);
+  if (!fitment) return new Set<string>();
+  return new Set<string>(
+    fitment.packageIds.flatMap((id) => [wheelsetNodeName(id), tiresNodeName(id)]),
+  );
+}
 
 /**
  * Guards the catalog against silent drift from the shipped GLB.
@@ -39,14 +62,23 @@ const SYNTHETIC_NODE_NAMES = new Set<string>(Object.values(ACCESSORY_NODE_NAMES)
 function missingMaterials(
   inspection: ReturnType<typeof inspectGlb>,
   option: CustomizationOption,
+  syntheticWheels: ReadonlySet<string>,
 ): string[] {
   if (!option.targetMaterials?.length || !option.targetNodes?.length) return [];
 
   const present = new Set<string>();
   for (const nodeName of option.targetNodes) {
-    for (const materialName of inspection.materialsByNode.get(nodeName) ?? []) {
+    // Subtree, not just the node's own mesh: the runtime's `resolveMeshes` descends into a named
+    // group, and a catalog option may target one.
+    for (const materialName of inspection.materialsInSubtree.get(nodeName) ?? []) {
       present.add(materialName);
     }
+  }
+  // Runtime-built running gear carries its material names in code, not in the GLB — the tyre
+  // sidewall slot a `tire-sidewall-*` option writes to exists on every mounted package.
+  if (option.targetNodes.some((name) => syntheticWheels.has(name))) {
+    present.add(TIRE_MATERIAL_NAME);
+    present.add(WHEEL_MATERIAL_NAME);
   }
   return option.targetMaterials.filter((name) => !present.has(name));
 }
@@ -80,6 +112,10 @@ describe("catalog vs. shipped GLB", () => {
       const options = getOptionsForVehicle(vehicle.slug).filter(
         (option) => option.geometrySource !== "procedural-runtime",
       );
+      // Wheel packages are runtime-built too, but unlike the mod kit they are checked here rather
+      // than excluded: their node names are derived per vehicle from its own fitment, so this file
+      // still catches a package offered on a vehicle whose fitment does not list it.
+      const syntheticWheels = syntheticWheelNodeNames(vehicle.slug);
 
       it("has at least one customization option to check", () => {
         // An empty catalog trivially "passes" every check below; assert non-emptiness so this file
@@ -93,9 +129,12 @@ describe("catalog vs. shipped GLB", () => {
 
         it(label, () => {
           const missingNodes = requiredNodeNames(option).filter(
-            (name) => !inspection.nodeNames.has(name) && !SYNTHETIC_NODE_NAMES.has(name),
+            (name) =>
+              !inspection.nodeNames.has(name) &&
+              !SYNTHETIC_NODE_NAMES.has(name) &&
+              !syntheticWheels.has(name),
           );
-          const missingMats = missingMaterials(inspection, option);
+          const missingMats = missingMaterials(inspection, option, syntheticWheels);
           const unresolved = missingNodes.length > 0 || missingMats.length > 0;
 
           expect(

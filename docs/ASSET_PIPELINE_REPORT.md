@@ -32,6 +32,14 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 - Compression: draco
 - Semantic contract: 11 satisfied, 0 unsatisfied
 
+## GR Corolla body (`gr-corolla`)
+
+- Source: `/models/gr-corolla-2023/gr-corolla.glb` — 3725.7 KiB
+- Meshes: 44   Triangles: 482,036   Materials: 25   Textures: 3
+- Compression: draco
+- Largest textures: (unnamed) (2048×2048, 1669.5 KiB), (unnamed) (1024×1024, 669.7 KiB), (unnamed) (256×256, 2.5 KiB)
+- Semantic contract: 12 satisfied, 0 unsatisfied
+
 ## Corolla GT-S (AE86) body (`ae86`)
 
 - Source: `/models/toyota-ae86-ivofficial.glb` — 79.3 KiB

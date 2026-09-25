@@ -2,6 +2,7 @@ import type { Vehicle } from "../../types/vehicle";
 import { fourRunner } from "./4runner";
 import { tacoma } from "./tacoma";
 import { camry } from "./camry";
+import { grCorolla } from "./gr-corolla";
 import { ae86 } from "./ae86";
 import { rav4 } from "./rav4";
 import { grSupra } from "./gr-supra";
@@ -9,7 +10,7 @@ import { rav4Hybrid } from "./rav4-hybrid";
 import { landCruiser } from "./land-cruiser";
 
 /** Single source of truth for the vehicle catalog. Add new models here only. */
-export const VEHICLES: readonly Vehicle[] = [fourRunner, tacoma, camry, ae86, rav4, rav4Hybrid, landCruiser, grSupra];
+export const VEHICLES: readonly Vehicle[] = [fourRunner, tacoma, camry, grCorolla, ae86, rav4, rav4Hybrid, landCruiser, grSupra];
 
 export function getVehicleBySlug(slug: string): Vehicle | undefined {
   return VEHICLES.find((vehicle) => vehicle.slug === slug);

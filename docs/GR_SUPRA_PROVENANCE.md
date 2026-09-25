@@ -7,7 +7,7 @@ The shipped model is the supplied `/home/jacen/Downloads/toyota_gr_supra.glb`, c
 - SHA-256: `39436feea760a5ad94374203a45a1a253384e89c4d1fab6cab76b9c800d1be9d`
 - Size: 16,792,184 bytes
 - Contract inspection: 232 nodes, 94 meshes, 28 materials, 34 textures, 0 animations
-- Thumbnail: `public/images/vehicles/gr-supra/gr-supra-front-three-quarter.png`, 1280x720, rendered in a standalone Three.js canvas from this GLB and visually inspected. It contains no UI.
+- Thumbnail: `public/images/vehicles/gr-supra/gr-supra-thumbnail.webp`, 800x500, rendered from this GLB by `scripts/render-thumbnails.ts` with the catalog's "Factory wheels" finish applied (the asset's `Wheel1A` has no base colour). It contains no UI.
 
 ## TRD Pro wheel
 

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import {
   CATEGORY_APPLY_ORDER,
   isMultiSelect,
+  selectionGroupOf,
   type CustomizationOption,
   type SelectionMap,
 } from "../types/customization";
@@ -11,6 +12,7 @@ import { attachToMount, detachFromMount, disposeSubtree, instantiateAsset, loadA
 import type { PaintStudioState } from "../types/paintStudio";
 import {
   materialConfigFromPaintStudio,
+  PAINT_CUSTOM_OPTION_ID,
   PAINT_STUDIO_TARGET_MATERIALS,
   PAINT_STUDIO_TARGET_NODES,
 } from "../data/paintStudio";
@@ -36,6 +38,23 @@ export class VehicleSceneController {
   readonly sceneMapReport: SceneMapReport;
   private hoveredId: string | undefined;
   private selectedId: string | undefined;
+  /**
+   * `Object3D.visible` as the loaded scene supplied it, for every node any catalog option can show
+   * or hide. Captured once, at construction, *after* `prepareVehicleRoot` has hidden the donor
+   * geometry — so "original" means "what this vehicle looks like with nothing selected", which is
+   * exactly the state a reverted option has to return to.
+   */
+  private readonly originalVisibility = new Map<THREE.Object3D, boolean>();
+  /**
+   * The option currently applied in each single-select `selectionGroup`.
+   *
+   * Single-select is enforced in the selection map, but the *scene* needs the same guarantee and
+   * cannot infer it: an option that hid geometry has to be told to give it back when a sibling in
+   * its group replaces it. Without this, choosing a wheel package and then a factory wheel finish
+   * leaves the vehicle with no wheels at all — the package's `hidesNodes` still in force with the
+   * package itself no longer shown.
+   */
+  private readonly activeByGroup = new Map<string, string>();
 
   /**
    * `sceneMap` is optional and defaults to empty so every existing call site (which predates
@@ -51,6 +70,46 @@ export class VehicleSceneController {
     this.sceneMapReport = built.report;
     this.picker = new VehiclePicker(this.registry);
     this.picker.prepare(root);
+    this.captureOriginalVisibility(catalog);
+  }
+
+  private captureOriginalVisibility(catalog: readonly CustomizationOption[]): void {
+    for (const option of catalog) {
+      for (const name of [...(option.targetNodes ?? []), ...(option.hidesNodes ?? [])]) {
+        const node = this.root.getObjectByName(name);
+        if (node && !this.originalVisibility.has(node)) {
+          this.originalVisibility.set(node, node.visible);
+        }
+      }
+    }
+  }
+
+  /** Restores one node to the visibility the loaded scene gave it, defaulting to visible. */
+  private restoreVisibility(node: THREE.Object3D): void {
+    node.visible = this.originalVisibility.get(node) ?? true;
+  }
+
+  /**
+   * Undoes an option's visibility effects without touching materials.
+   *
+   * Materials are deliberately left alone: `MaterialWriter` is restored wholesale by
+   * `applyConfiguration`, and an incremental single-option swap within a group (bronze wheels to
+   * black wheels) is meant to overwrite the previous write, not revert it first.
+   */
+  private revertGroupVisibility(option: CustomizationOption): void {
+    for (const node of resolveNodes(this.root, option.hidesNodes ?? []).found) {
+      this.restoreVisibility(node);
+    }
+    if (option.operation === "mesh-visibility") {
+      for (const node of resolveNodes(this.root, option.targetNodes ?? []).found) {
+        this.restoreVisibility(node);
+      }
+    }
+    if (option.operation === "mesh-replacement") {
+      for (const mount of resolveNodes(this.root, option.mountNodes ?? []).found) {
+        detachFromMount(mount);
+      }
+    }
   }
 
   /**
@@ -144,12 +203,69 @@ export class VehicleSceneController {
     this.selectPart(undefined);
   }
 
+  /** The given ids, ordered as the catalog declares them. Ids the catalog cannot resolve keep their
+   * relative position, so an unknown id still reaches `applyConfiguration`'s `failed` list. */
+  private inCatalogOrder(optionIds: readonly string[]): string[] {
+    const rank = new Map([...this.catalog.keys()].map((id, index) => [id, index]));
+    return [...optionIds].sort(
+      (left, right) => (rank.get(left) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+
+  /**
+   * Re-applies the options that the catalog orders *after* `option` within its category.
+   *
+   * A single click does not replay a configuration, so nothing else would restore the relationship
+   * between two groups that write the same material slot. Picking a paint colour after a finish
+   * overwrites the finish's metalness and roughness with the colour's own; this puts the finish
+   * back, which is what makes "colour then finish" and "finish then colour" end in the same place.
+   *
+   * Only later groups are replayed, and only material updates: an earlier group has already had its
+   * say, and re-running a mesh operation would undo the visibility work `applyOption` just did.
+   */
+  private async reapplyDependentGroups(option: CustomizationOption): Promise<void> {
+    const group = selectionGroupOf(option);
+    let seenSelf = false;
+
+    for (const candidate of this.catalog.values()) {
+      if (candidate.id === option.id) {
+        seenSelf = true;
+        continue;
+      }
+      if (!seenSelf) continue;
+      if (candidate.category !== option.category) continue;
+      if (candidate.operation !== "material-update") continue;
+
+      const candidateGroup = selectionGroupOf(candidate);
+      if (candidateGroup === group) continue;
+      if (this.activeByGroup.get(candidateGroup) !== candidate.id) continue;
+
+      this.applyMaterialUpdate(candidate);
+    }
+  }
+
   /**
    * Applies a single option. Returns `false` when the option's nodes are not present, which the
    * caller surfaces as an error rather than treating as success — a silent no-op here is exactly
    * the failure mode this integration exists to remove.
    */
   async applyOption(option: CustomizationOption): Promise<boolean> {
+    if (!isMultiSelect(option.category)) {
+      const group = selectionGroupOf(option);
+      const previous = this.activeByGroup.get(group);
+      if (previous && previous !== option.id) {
+        const outgoing = this.catalog.get(previous);
+        if (outgoing) this.revertGroupVisibility(outgoing);
+      }
+      this.activeByGroup.set(group, option.id);
+    }
+
+    const applied = await this.applyOperation(option);
+    if (applied && !isMultiSelect(option.category)) await this.reapplyDependentGroups(option);
+    return applied;
+  }
+
+  private async applyOperation(option: CustomizationOption): Promise<boolean> {
     switch (option.operation) {
       case "material-update":
         return this.applyMaterialUpdate(option);
@@ -187,10 +303,23 @@ export class VehicleSceneController {
    */
   applyPaintStudio(paintStudio: PaintStudioState | undefined): boolean {
     if (!paintStudio || paintStudio.mode !== "custom" || !paintStudio.material) return false;
-    const meshes = resolveMeshes(this.root, [...PAINT_STUDIO_TARGET_NODES]);
+
+    // Targets come from this vehicle's own `paint-custom` catalog entry, falling back to the
+    // 4Runner-shaped constants for a controller built without one.
+    //
+    // They used to come from those constants alone, which is why the studio only ever worked on the
+    // three vehicles that happen to paint `BODY`/`body.carmain`. The Camry paints `CarPaint`, the
+    // AE86 `Body`, the Supra `Paint` — on those, a custom colour resolved no meshes and silently
+    // did nothing. The catalog entry is still catalog-owned and server-resolved; nothing about the
+    // target names comes from the persisted payload.
+    const custom = this.catalog.get(PAINT_CUSTOM_OPTION_ID);
+    const nodes = custom?.targetNodes?.length ? custom.targetNodes : [...PAINT_STUDIO_TARGET_NODES];
+    const materials = custom?.targetMaterials?.length ? custom.targetMaterials : [...PAINT_STUDIO_TARGET_MATERIALS];
+
+    const meshes = resolveMeshes(this.root, nodes);
     if (meshes.length === 0) return false;
     const config = materialConfigFromPaintStudio(paintStudio.material);
-    return this.writer.applyMaterialConfig(meshes, [...PAINT_STUDIO_TARGET_MATERIALS], config) > 0;
+    return this.writer.applyMaterialConfig(meshes, materials, config) > 0;
   }
 
   private applyMaterialUpdate(option: CustomizationOption): boolean {
@@ -293,6 +422,12 @@ export class VehicleSceneController {
     // to an unpainted build, or restoring one, has to undo writes as well as replay them.
     this.writer.restoreOriginals();
 
+    // The visibility counterpart of `restoreOriginals()`. Replaying a saved build has to start from
+    // the vehicle as it loaded, or a package fitted before the restore would leave the factory
+    // wheels hidden under a configuration that never asked for that.
+    for (const [node, visible] of this.originalVisibility) node.visible = visible;
+    this.activeByGroup.clear();
+
     for (const option of this.catalog.values()) {
       // Mesh replacements, accumulating categories, and eagerly-attached runtime geometry all need
       // an explicit reset before replay. This preserves stock running gear when a replacement is
@@ -307,7 +442,13 @@ export class VehicleSceneController {
     }
 
     for (const category of CATEGORY_APPLY_ORDER) {
-      for (const optionId of selections[category] ?? []) {
+      // Catalog order, not the order the ids happen to sit in the saved map. Within one category
+      // two selection groups can write the same material slot — a paint colour carries its own
+      // metalness and roughness, and a paint finish overwrites exactly those — so replaying a
+      // configuration in click order would reproduce whichever the user happened to pick last
+      // rather than what the catalog defines. Ordering by the catalog makes restoration
+      // deterministic: the same selection set always yields the same scene.
+      for (const optionId of this.inCatalogOrder(selections[category] ?? [])) {
         const option = this.catalog.get(optionId);
         if (!option) {
           failed.push(optionId);
@@ -343,5 +484,9 @@ export class VehicleSceneController {
     this.writer.dispose();
     disposeSubtree(this.root);
     this.registry.clear();
+    // Holds `Object3D` keys for the whole loaded scene; clearing it with the rest keeps a disposed
+    // controller from pinning the graph it just tore down.
+    this.originalVisibility.clear();
+    this.activeByGroup.clear();
   }
 }

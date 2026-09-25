@@ -80,8 +80,9 @@ const MODELS = [
   // repackaging the container only; the primitives are already Draco-compressed on read, and the
   // draco() transform below re-applies the same codec on write, not a different one.
   { path: asset("rav4-2024/rav4_2024_limited_decoded.gltf"), label: "RAV4 body" },
-  { path: asset("rav4-hybrid-2023/rav4-hybrid.glb"), label: "2023 RAV4 Hybrid", simplify: true, webp: true, lod: true },
-  { path: asset("land-cruiser-250-2025/land-cruiser-250.glb"), label: "2025 Land Cruiser 250", simplify: true, webp: true, lod: true },
+  { path: asset("rav4-hybrid-2023/rav4-hybrid.glb"), label: "2023 RAV4 Hybrid" },
+  { path: asset("land-cruiser-250-2025/land-cruiser-250.glb"), label: "2025 Land Cruiser 250" },
+  { path: asset("gr-corolla-2023/gr-corolla.glb"), label: "2023 GR Corolla" },
 ];
 
 /**
