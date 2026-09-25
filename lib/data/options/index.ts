@@ -2,7 +2,7 @@ import type { CustomizationOption, CustomizationCategory } from "../../types/cus
 import { fourRunnerOptions } from "./4runner";
 import { tacomaOptions } from "./tacoma";
 import { camryOptions } from "./camry";
-import { corollaOptions } from "./corolla";
+import { grCorollaOptions } from "./gr-corolla";
 import { ae86Options } from "./ae86";
 import { rav4Options } from "./rav4";
 import { grSupraOptions } from "./gr-supra";
@@ -20,7 +20,7 @@ const BASE_OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
   "4runner": [...fourRunnerOptions.filter((option) => option.id !== "wheels-trd-pro-global"), ...getGlobalWheelOptions("4runner")],
   tacoma: tacomaOptions,
   camry: camryOptions,
-  corolla: corollaOptions,
+  "gr-corolla": grCorollaOptions,
   ae86: ae86Options,
   rav4: rav4Options,
   "rav4-hybrid": rav4HybridOptions,

@@ -81,6 +81,7 @@ const MODELS = [
   { path: asset("rav4-2024/rav4_2024_limited_decoded.gltf"), label: "RAV4 body" },
   { path: asset("rav4-hybrid-2023/rav4-hybrid.glb"), label: "2023 RAV4 Hybrid" },
   { path: asset("land-cruiser-250-2025/land-cruiser-250.glb"), label: "2025 Land Cruiser 250" },
+  { path: asset("gr-corolla-2023/gr-corolla.glb"), label: "2023 GR Corolla" },
 ];
 
 const REPORT_ONLY = process.argv.includes("--report");

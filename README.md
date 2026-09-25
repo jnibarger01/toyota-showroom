@@ -42,7 +42,7 @@ Every explore/compare card image is rendered from the vehicle's runtime GLB by
 `npm run assets:thumbnails [slug…]` (`scripts/render-thumbnails.ts`): same camera elevation, frame
 fill, lighting, and backdrop for every vehicle, written to
 `public/images/vehicles/<slug>/<slug>-thumbnail.webp` (800×500, the card's 16:10). Vehicles without
-a GLB (Tacoma, Corolla) get a "3D model coming soon" card instead of another vehicle's photo.
+a GLB (Tacoma) get a "3D model coming soon" card instead of another vehicle's photo.
 Re-run it after adding or swapping a model. If the pinned Playwright Chromium isn't installed, set
 `THUMBNAIL_CHROMIUM_PATH` to any local Chromium.
 

@@ -4,6 +4,7 @@ import { AE86_SCENE_MAP } from "./ae86";
 import { RAV4_SCENE_MAP } from "./rav4";
 import { GR_SUPRA_SCENE_MAP } from "./gr-supra";
 import { CAMRY_SCENE_MAP } from "./camry";
+import { GR_COROLLA_SCENE_MAP } from "./gr-corolla";
 import { RAV4_HYBRID_SCENE_MAP } from "./rav4-hybrid";
 import { LAND_CRUISER_SCENE_MAP } from "./land-cruiser";
 
@@ -15,9 +16,10 @@ const SCENE_MAPS: Record<string, readonly SceneMapEntry[]> = {
   "land-cruiser": LAND_CRUISER_SCENE_MAP,
   "gr-supra": GR_SUPRA_SCENE_MAP,
   camry: CAMRY_SCENE_MAP,
+  "gr-corolla": GR_COROLLA_SCENE_MAP,
 };
 
-/** Tacoma and Corolla still use the procedural fallback and therefore have no authored scene map. */
+/** Tacoma still uses the procedural fallback and therefore has no authored scene map. */
 export function getSceneMapForVehicle(slug: string): readonly SceneMapEntry[] {
   return SCENE_MAPS[slug] ?? [];
 }
