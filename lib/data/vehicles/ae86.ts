@@ -94,11 +94,10 @@ export const ae86: Vehicle = {
   ],
 
   media: {
-    // No dedicated AE86 photography exists in this repo; reusing the shared placeholder image, same
-    // convention lib/data/vehicles/tacoma.ts and camry.ts already use for vehicles without one.
-    hero: { url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota 4Runner TRD Pro placeholder hero (no AE86 photography available)" },
-    gallery: [],
-    thumbnails: [{ url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "Toyota AE86 thumbnail placeholder" }],
+    // Thumbnail rendered from the runtime GLB by scripts/render-thumbnails.ts.
+    hero: { url: "/images/vehicles/ae86/ae86-thumbnail.webp", alt: "1985 Toyota Corolla GT-S (AE86), front three-quarter 3D render", width: 800, height: 500 },
+    gallery: [{ url: "/images/vehicles/ae86/ae86-thumbnail.webp", alt: "1985 Toyota Corolla GT-S (AE86), front three-quarter 3D render", width: 800, height: 500 }],
+    thumbnails: [{ url: "/images/vehicles/ae86/ae86-thumbnail.webp", alt: "1985 Toyota Corolla GT-S (AE86), front three-quarter 3D render", width: 800, height: 500 }],
     videos: [],
     environmentMaps: [],
   },

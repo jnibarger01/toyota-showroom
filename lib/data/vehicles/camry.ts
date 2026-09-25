@@ -100,9 +100,10 @@ export const camry: Vehicle = {
   ],
 
   media: {
-    hero: { url: "/images/vehicles/camry/camry-front-three-quarter.png", alt: "2025 Toyota Camry front three-quarter studio render", width: 800, height: 500 },
-    gallery: [{ url: "/images/vehicles/camry/camry-front-three-quarter.png", alt: "2025 Toyota Camry front three-quarter studio render", width: 800, height: 500 }],
-    thumbnails: [{ url: "/images/vehicles/camry/camry-front-three-quarter.png", alt: "2025 Toyota Camry front three-quarter studio render", width: 800, height: 500 }],
+    // Thumbnail rendered from the runtime GLB by scripts/render-thumbnails.ts.
+    hero: { url: "/images/vehicles/camry/camry-thumbnail.webp", alt: "2025 Toyota Camry, front three-quarter 3D render", width: 800, height: 500 },
+    gallery: [{ url: "/images/vehicles/camry/camry-thumbnail.webp", alt: "2025 Toyota Camry, front three-quarter 3D render", width: 800, height: 500 }],
+    thumbnails: [{ url: "/images/vehicles/camry/camry-thumbnail.webp", alt: "2025 Toyota Camry, front three-quarter 3D render", width: 800, height: 500 }],
     videos: [],
     environmentMaps: [],
   },

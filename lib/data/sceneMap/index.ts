@@ -17,7 +17,7 @@ const SCENE_MAPS: Record<string, readonly SceneMapEntry[]> = {
   camry: CAMRY_SCENE_MAP,
 };
 
-/** Tacoma still uses the procedural fallback and therefore has no authored scene map. */
+/** Tacoma and Corolla still use the procedural fallback and therefore have no authored scene map. */
 export function getSceneMapForVehicle(slug: string): readonly SceneMapEntry[] {
   return SCENE_MAPS[slug] ?? [];
 }

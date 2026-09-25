@@ -4,9 +4,10 @@ import { createProceduralVehicle, buildProceduralAccessories } from "../lib/thre
 import { verifyNodeContract } from "../lib/three/nodes";
 import { VehicleSceneController } from "../lib/three/sceneController";
 import { tacomaOptions } from "../lib/data/options/tacoma";
+import { corollaOptions } from "../lib/data/options/corolla";
 
 /**
- * Tacoma has no GLB in this repo, so `VehicleCanvas.loadVehicleRoot` renders it via
+ * Tacoma and Corolla have no GLB in this repo, so `VehicleCanvas.loadVehicleRoot` renders it via
  * `createProceduralVehicle()` + `buildProceduralAccessories()` — the exact same functions this test
  * calls directly. Camry is intentionally excluded: its catalog targets the authored Camry GLB and
  * the generic fallback has no reason to invent aliases for authored node names.
@@ -20,6 +21,7 @@ function proceduralScene(): THREE.Object3D {
 
 describe.each([
   ["tacoma", tacomaOptions],
+  ["corolla", corollaOptions],
 ])("%s catalog vs. the procedural fallback vehicle", (vehicleSlug, options) => {
   it("has at least one option", () => {
     expect(options.length).toBeGreaterThan(0);

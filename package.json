@@ -22,6 +22,7 @@
     "test:e2e:update-visual": "playwright test tests/e2e/visual.spec.ts --update-snapshots=all",
     "typecheck": "tsc --noEmit",
     "assets:optimize": "node scripts/optimize-models.mjs",
+    "assets:thumbnails": "tsx scripts/render-thumbnails.ts",
     "assets:report": "tsx scripts/asset-pipeline-report.ts --fail-on-contract-violation",
     "assets:benchmark-compression": "node scripts/benchmark-compression.mjs",
     "bundle:budget": "node scripts/bundle-budget.mjs",

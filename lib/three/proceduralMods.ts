@@ -19,6 +19,7 @@ const VEHICLE_PROFILES: Record<string, { wheelRadius: number; axleInset: number;
   tacoma: { wheelRadius: 0.22, axleInset: 0.29, trackInset: 0.09 },
   rav4: { wheelRadius: 0.20, axleInset: 0.30, trackInset: 0.08 },
   camry: { wheelRadius: 0.19, axleInset: 0.31, trackInset: 0.08 },
+  corolla: { wheelRadius: 0.19, axleInset: 0.31, trackInset: 0.08 },
   "gr-supra": { wheelRadius: 0.20, axleInset: 0.30, trackInset: 0.07 },
   ae86: { wheelRadius: 0.19, axleInset: 0.31, trackInset: 0.08 },
 };
