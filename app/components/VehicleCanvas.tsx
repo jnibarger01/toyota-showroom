@@ -62,6 +62,7 @@ import {
   type EnvironmentPreset,
 } from "../../lib/three/environmentController";
 import { RenderController } from "../../lib/three/renderController";
+import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
 import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
 import { readQualityPreference, writeQualityPreference, type QualityPreference } from "../../lib/three/qualityPreference";
@@ -689,11 +690,19 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         let detailed: THREE.Object3D | null = null;
         try {
           const modelStartedAt = performance.now();
-          detailed = await loadVehicleRoot(threeDConfig, (fraction) => onProgressRef.current?.(fraction));
+          detailed = await loadVehicleRoot(
+            threeDConfig,
+            renderController.currentQuality.modelDetail,
+            (fraction) => onProgressRef.current?.(fraction),
+          );
           // Download *and* Draco decode together, which is the number that matters: after
           // scripts/optimize-models.mjs took the payload to ~1.2 MiB, decode is expected to
           // dominate, and that is exactly the assumption worth checking against real devices.
-          recordMetric({ name: "model_loaded", value: Math.round(performance.now() - modelStartedAt) });
+          recordMetric({
+            name: "model_loaded",
+            value: Math.round(performance.now() - modelStartedAt),
+            labels: { detail: renderController.currentQuality.modelDetail },
+          });
           progressive = reduceProgressiveLoad(progressive, { type: "glb-decoded" });
         } catch (error) {
           console.error("High-detail glTF failed to load; using procedural fallback.", error);
@@ -1014,10 +1023,12 @@ function createRadialGradientTexture(): THREE.CanvasTexture {
 
 async function loadVehicleRoot(
   threeDConfig: Vehicle3DConfig,
+  detail: QualitySettings["modelDetail"],
   onProgress?: (fraction: number) => void,
 ): Promise<THREE.Object3D> {
-  if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
-  const gltf = await getGltfLoader().loadAsync(resolveAssetUrl(threeDConfig.modelUrl), (event) => {
+  const modelUrl = modelUrlForDetail(threeDConfig, detail);
+  if (!threeDConfig.hasModel || !modelUrl) return createProceduralVehicle();
+  const gltf = await getGltfLoader().loadAsync(resolveAssetUrl(modelUrl), (event) => {
     // `lengthComputable` is false whenever the response has no usable `Content-Length` — common for
     // a gzipped GLB. Reporting `loaded / 0` would emit Infinity, and guessing a denominator would
     // show a progress bar that lies; skipping the callback lets the UI fall back to the

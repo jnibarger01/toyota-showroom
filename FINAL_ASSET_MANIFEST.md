@@ -17,8 +17,9 @@ Every node name, every material name, and the rendered triangle count are preser
 optimization — `tests/glbContract.test.ts` re-derives the whole customization catalog against the
 committed binaries on every run.
 
-`public/models/4runner-limited.gltf` (4.2 MiB) is **not** in this list: nothing in `lib/` or `app/`
-references it, so no browser requests it. It is a candidate for deletion, left for a separate call.
+`4runner-limited.gltf` (4.2 MiB) is **not** in this list: nothing in `lib/` or `app/` references it,
+so no browser requests it. It now lives at `assets/provenance/4runner/` — kept as the supplied
+Blender export, but out of `public/` so it is no longer copied into every deployment.
 
 ## Source assets — in history, not in the working tree
 

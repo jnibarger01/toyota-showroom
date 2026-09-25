@@ -50,6 +50,7 @@ export const rav4Hybrid: Vehicle = {
   threeDConfig: {
     hasModel: true,
     modelUrl: "/models/rav4-hybrid-2023/rav4-hybrid.glb",
+    lodModelUrl: "/models/rav4-hybrid-2023/rav4-hybrid.lod1.glb",
     scale: [100, 100, 100],
     rotation: [0, 0, 0],
     texturePolicy: "preserve",

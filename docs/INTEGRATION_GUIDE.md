@@ -1456,7 +1456,8 @@ $ npm run test:e2e     # 5 passed — real Playwright against the built static e
   vendored Draco decoder (`public/draco/` — present on disk but not actually wired into the loader
   configuration until §14 fixed it), and a new RAV4 render asset set
   (`public/renders/rav4-2024/`, not yet wired into `lib/data/vehicles` —
-  no `rav4` entry exists in `VEHICLES` yet). The merge commit documents the conflict resolution for
+  no `rav4` entry exists in `VEHICLES` yet; the raw capture record has since moved to
+  `assets/provenance/rav4-2024/`, see `docs/RAV4_PROVENANCE.md`). The merge commit documents the conflict resolution for
   the three files both streams touched (`BuilderApp.tsx`, `VehicleCanvas.tsx`,
   `lib/data/vehicles/4runner.ts`).
 - **The static export's CSP can't set `frame-ancestors`.** §13 explains why (only a real HTTP header
@@ -1804,9 +1805,10 @@ added immediately and the rAF loop starts. The detailed asset loads in the backg
 the stand-in is disposed and the real root is prepared / verified before `onReady`. Phases live in
 `lib/three/progressiveLoad.ts` so they stay unit-tested without WebGL.
 
-**Quality tiers (LOD stand-in).** The shipped GLB is a single resolution, so "LOD" here means
-renderer knobs: pixel-ratio cap, shadow map size / enable, antialias, secondary-light scale,
-starfield density, and whether to fetch authored wheel/tyre glTFs. `lib/three/quality.ts` picks
+**Quality tiers and LOD.** Renderer knobs — pixel-ratio cap, shadow map size / enable, antialias,
+secondary-light scale, starfield density, whether to fetch authored wheel/tyre glTFs — plus, for
+vehicles that ship a `lodModelUrl`, a genuinely lighter mesh on `low` (`modelDetail`; see
+`docs/PERF_BUDGETS.md` "Model detail and LOD"). `lib/three/quality.ts` picks
 `high` / `medium` / `low` once from device hints (Save-Data, memory, cores, mobile UA, DPR).
 
 **Frame-time instrumentation.** `lib/three/frameStats.ts` keeps a rolling average on the

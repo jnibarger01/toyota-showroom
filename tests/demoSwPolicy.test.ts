@@ -41,6 +41,7 @@ describe("selectDemoCacheStrategy", () => {
       "stale-while-revalidate",
     );
     expect(selectDemoCacheStrategy("/draco/draco_decoder.wasm")).toBe("stale-while-revalidate");
+    expect(selectDemoCacheStrategy("/hdri/cold_photography_studio_1k.hdr")).toBe("stale-while-revalidate");
     expect(selectDemoCacheStrategy("/renders/rav4-2024/rendered-rav4-viewport.png")).toBe(
       "stale-while-revalidate",
     );

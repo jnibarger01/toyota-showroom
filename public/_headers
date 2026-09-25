@@ -60,6 +60,8 @@
   Cache-Control: public, max-age=86400, must-revalidate
 /renders/*
   Cache-Control: public, max-age=86400, must-revalidate
+/hdri/*
+  Cache-Control: public, max-age=86400, must-revalidate
 /images/*
   Cache-Control: public, max-age=86400, must-revalidate
 /chessathon/*

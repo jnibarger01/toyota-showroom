@@ -77,17 +77,17 @@ const DEFAULT_BUDGET_BYTES = 2 * MiB;
  * in `tests/glbContract.test.ts`.
  */
 const ALLOWANCES: Record<string, { bytes: number; why: string }> = {
-  "public/renders/rav4-2024/rav4_2024_limited_buffers.base64": {
+  "assets/provenance/rav4-2024/rav4_2024_limited_buffers.base64": {
     bytes: 6 * MiB,
-    why: "Base64 capture data for the RAV4 render pipeline; not fetched by the running app.",
+    why: "Base64 capture record for the RAV4 (docs/RAV4_PROVENANCE.md); provenance only, not deployed.",
   },
-  "public/models/4runner-limited.gltf": {
+  "assets/provenance/4runner/4runner-limited.gltf": {
     bytes: 5 * MiB,
-    why: "Uncompressed fallback 4Runner catalog asset.",
+    why: "Supplied Blender glTF export (INTEGRATION_REPORT.md); provenance only, not deployed.",
   },
-  "public/renders/rav4-2024/rav4_2024_limited_decoded.bin": {
+  "assets/provenance/rav4-2024/rav4_2024_limited_decoded.bin": {
     bytes: 4 * MiB,
-    why: "Decoded RAV4 geometry retained beside its capture metadata.",
+    why: "Decoded RAV4 geometry retained beside its capture metadata; provenance only, not deployed.",
   },
   "package-lock.json": {
     bytes: 4 * MiB,
@@ -98,16 +98,20 @@ const ALLOWANCES: Record<string, { bytes: number; why: string }> = {
     why: "Approved design reference image.",
   },
   "public/models/camry/camry.glb": {
-    bytes: 5 * MiB,
+    bytes: 3.5 * MiB,
     why: "Optimized Camry showroom model; loaded by the Camry vehicle route.",
   },
   "public/models/rav4-hybrid-2023/rav4-hybrid.glb": {
-    bytes: 6 * MiB,
+    bytes: 4.25 * MiB,
     why: "Optimized RAV4 Hybrid runtime showroom model; loaded directly by the vehicle route.",
   },
   "public/models/land-cruiser-250-2025/land-cruiser-250.glb": {
-    bytes: 9 * MiB,
+    bytes: 5.25 * MiB,
     why: "Optimized Land Cruiser runtime showroom model; loaded directly by the vehicle route.",
+  },
+  "public/models/land-cruiser-250-2025/land-cruiser-250.lod1.glb": {
+    bytes: 3 * MiB,
+    why: "Low-tier LOD of the Land Cruiser (lodModelUrl); loaded instead of the full asset on low.",
   },
   // Reviewed transfer bundle from #82 (not wired into the runtime catalog yet).
   "assets/imported/toyota-rav4-showroom.glb": {

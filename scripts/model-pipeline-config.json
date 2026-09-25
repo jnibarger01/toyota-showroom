@@ -1,0 +1,9 @@
+{
+  "$comment": "Paint material names per runtime model, read by scripts/optimize-models.mjs to keep simplification off body panels. tests/modelPipelineConfig.test.ts fails if a vehicle's catalog paint options target a material missing here.",
+  "paintMaterials": {
+    "modsnation_7416_assets_assembled.glb": ["body.carmain"],
+    "camry/camry.glb": ["CarPaint"],
+    "rav4-hybrid-2023/rav4-hybrid.glb": ["Tdummy_material_0_085", "Color_2"],
+    "land-cruiser-250-2025/land-cruiser-250.glb": ["CarPaint", "CarPaint_N2"]
+  }
+}

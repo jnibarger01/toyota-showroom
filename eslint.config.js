@@ -14,6 +14,8 @@ export default [
       "public/models/**",
       "public/draco/**",
       "public/renders/**",
+      // Provenance records (raw vendor captures, bundled decoders) — kept, never built or linted.
+      "assets/**",
       "db/migrations/**",
       "next-env.d.ts",
       "*.config.js",

@@ -131,6 +131,7 @@ export const fourRunner: Vehicle = {
   threeDConfig: {
     hasModel: true,
     modelUrl: "/models/modsnation_7416_assets_assembled.glb",
+    lodModelUrl: "/models/modsnation_7416_assets_assembled.lod1.glb",
     cameraPresets: [
       { id: "hero", label: "Hero", position: [7.5, 4.0, 8.5], target: [0, 1.1, 0] },
       { id: "wheels", label: "Wheels", position: [4.5, 1.05, 4.8], target: [-0.9, 0.55, 1.3] },

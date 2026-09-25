@@ -102,8 +102,8 @@ describe("optimized runtime model assets", () => {
     // A `.gltf` in a threeDConfig means either an external-buffer asset (an extra round trip) or a
     // base64 one (a 33% tax). Neither belongs on the critical path; catch it at the config level.
     for (const vehicle of VEHICLES) {
-      const { modelUrl, wheelAndTireAssets } = vehicle.threeDConfig;
-      for (const url of [modelUrl, wheelAndTireAssets?.wheelUrl, wheelAndTireAssets?.tireUrl]) {
+      const { modelUrl, lodModelUrl, wheelAndTireAssets } = vehicle.threeDConfig;
+      for (const url of [modelUrl, lodModelUrl, wheelAndTireAssets?.wheelUrl, wheelAndTireAssets?.tireUrl]) {
         if (!url) continue;
         expect(url, `${vehicle.slug} fetches ${url} at runtime`).toMatch(/\.glb$/);
       }

@@ -22,6 +22,7 @@ Re-compressing the GLB is **not** the next lever for #27.
 | Shadow map | 2048, on | 1024, on | off |
 | Antialias | on | on | off |
 | Authored wheel/tyre glTF swap | yes | yes | skipped (faster settle) |
+| Vehicle mesh (`modelDetail`) | full | full | `lodModelUrl` where shipped |
 | Starfield points | 400 | 200 | 80 |
 | Frame-time instrumentation | always-on rolling avg on the canvas `dataset` | same | same |
 | Idle suspend | tab hidden **or** canvas not intersecting | same | same |
@@ -29,6 +30,31 @@ Re-compressing the GLB is **not** the next lever for #27.
 Tier selection: `lib/three/quality.ts` (`selectQualityTier` / `resolveQuality`), driven by
 Save-Data, `deviceMemory`, cores, mobile UA / coarse pointer, and DPR. Static pick at canvas setup —
 not adaptive.
+
+## Model detail and LOD
+
+`scripts/optimize-models.mjs` does two geometry passes beyond Draco on the heavy bodies (Camry,
+RAV4 Hybrid, Land Cruiser):
+
+- **Full asset:** meshoptimizer simplification at a 0.05% error bound on every primitive of ≥4k
+  triangles *except paint*, plus WebP colour textures (≤2048px). Paint is excluded by exact material
+  name (`scripts/model-pipeline-config.json`, tied to the catalog by
+  `tests/modelPipelineConfig.test.ts`) because fewer triangles on a smooth panel visibly move the
+  clearcoat highlight — confirmed in side-by-side renders before this shipped.
+- **LOD1 (`*.lod1.glb`):** everything simplified hard, paint at a tight 0.2% bound, textures
+  ≤256px. Loaded instead of the full asset on the `low` tier.
+
+| Model | Before | Full | LOD1 |
+|---|---|---|---|
+| Land Cruiser 250 | 7.37 MiB / 1.56M tris | 4.31 MiB / 0.71M | 2.18 MiB / 0.35M |
+| RAV4 Hybrid | 4.60 MiB / 0.37M | 3.42 MiB / 0.28M | 1.52 MiB / 0.07M |
+| Camry | 3.91 MiB / 1.23M | 2.58 MiB / 0.60M | 1.40 MiB / 0.20M |
+| 4Runner | 1.21 MiB / 0.33M | unchanged | 0.52 MiB / 0.11M |
+
+`modelDetail` is construction-time (`CONSTRUCTION_TIME_QUALITY_KEYS`): the governor does not swap
+meshes mid-session, and pinning a different tier reports "reload to apply" like antialias does.
+`tests/glbContract.test.ts` holds every LOD to the full catalog contract and to < 70% of its full
+asset's bytes; `tests/e2e/model-integrity.spec.ts` proves the low tier fetches only the LOD.
 
 ## Progressive load
 

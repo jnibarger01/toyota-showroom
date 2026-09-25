@@ -3,8 +3,8 @@
  *
  * Tier selection is device-hint based (memory, cores, coarse pointer, Save-Data). Adaptive
  * mid-session policy (auto-downgrade from frame time) is intentionally left to issue #33 —
- * this module only picks a tier once and exposes the renderer knobs that act as our LOD stand-in
- * while the shipped GLB has a single mesh resolution.
+ * this module only picks a tier once and exposes the renderer knobs. Vehicles that ship a
+ * `lodModelUrl` also get a genuinely lighter mesh on `low` (`modelDetail`).
  */
 
 export type QualityTier = "high" | "medium" | "low";
@@ -21,6 +21,13 @@ export type QualitySettings = {
    * constrained devices does not wait on a second pair of Draco downloads.
    */
   loadAuthoredRunningGear: boolean;
+  /**
+   * Which mesh resolution to download. `"lod1"` loads `Vehicle3DConfig.lodModelUrl` when the vehicle
+   * ships one (roughly a third of the triangles, textures capped at 256px) and falls back to the
+   * full asset otherwise. Pixel ratio and shadows only cut fill cost; this is the knob that cuts
+   * download, decode, and vertex cost on the devices that feel all three.
+   */
+  modelDetail: "full" | "lod1";
   /** Point count for the Night starfield. */
   starfieldCount: number;
   /** Scales rim + fill intensity (key/hemi stay at their preset values). */
@@ -45,6 +52,7 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, "tier">> = {
     shadowsEnabled: true,
     shadowMapSize: 2048,
     loadAuthoredRunningGear: true,
+    modelDetail: "full",
     starfieldCount: 400,
     secondaryLightScale: 1,
   },
@@ -54,6 +62,7 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, "tier">> = {
     shadowsEnabled: true,
     shadowMapSize: 1024,
     loadAuthoredRunningGear: true,
+    modelDetail: "full",
     starfieldCount: 200,
     secondaryLightScale: 0.85,
   },
@@ -63,6 +72,7 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, "tier">> = {
     shadowsEnabled: false,
     shadowMapSize: 512,
     loadAuthoredRunningGear: false,
+    modelDetail: "lod1",
     starfieldCount: 80,
     secondaryLightScale: 0.6,
   },
@@ -77,14 +87,28 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, "tier">> = {
  * loaded scene, and the camera pose mid-orbit, which costs far more than the MSAA it saves.
  *
  * `loadAuthoredRunningGear` gates a download decision made once, before the wheel and tyre assets
- * are fetched; the governor cannot un-download them later.
+ * are fetched; the governor cannot un-download them later. `modelDetail` is the same kind of
+ * decision for the vehicle mesh itself: swapping resolution mid-session would mean a second full
+ * download and a scene swap under the viewer.
  *
  * Named here rather than left as folklore because the gap is not obvious from the tier table: both
  * fields look like live knobs beside `maxPixelRatio` and `shadowsEnabled`, and treating them that
  * way is how a downgrade ends up believing it shed cost it is still paying. `RenderController`
  * asserts against this list rather than silently ignoring the fields.
  */
-export const CONSTRUCTION_TIME_QUALITY_KEYS = ["antialias", "loadAuthoredRunningGear"] as const;
+export const CONSTRUCTION_TIME_QUALITY_KEYS = ["antialias", "loadAuthoredRunningGear", "modelDetail"] as const;
+
+/**
+ * The model URL to download for a vehicle at a given detail level. Falls back to the full asset when
+ * no LOD ships, so `"lod1"` on a vehicle without one is a no-op rather than an empty stage.
+ */
+export function modelUrlForDetail(
+  config: { modelUrl?: string; lodModelUrl?: string },
+  detail: QualitySettings["modelDetail"],
+): string | undefined {
+  if (detail === "lod1" && config.lodModelUrl) return config.lodModelUrl;
+  return config.modelUrl;
+}
 
 export function qualitySettingsFor(tier: QualityTier): QualitySettings {
   return { tier, ...TIER_SETTINGS[tier] };
