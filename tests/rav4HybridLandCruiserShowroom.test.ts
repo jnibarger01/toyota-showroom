@@ -6,8 +6,8 @@ import { getOptionsForVehicle } from "../lib/data/options";
 import { getSceneMapForVehicle } from "../lib/data/sceneMap";
 
 const cases = [
-  { slug: "rav4-hybrid", year: 2023, model: "RAV4 Hybrid", modelUrl: "/models/rav4-hybrid-2023/rav4-hybrid.glb", thumbnail: "/images/vehicles/rav4-hybrid/rav4-hybrid-front-three-quarter.png" },
-  { slug: "land-cruiser", year: 2025, model: "Land Cruiser", modelUrl: "/models/land-cruiser-250-2025/land-cruiser-250.glb", thumbnail: "/images/vehicles/land-cruiser/land-cruiser-front-three-quarter.png" },
+  { slug: "rav4-hybrid", year: 2023, model: "RAV4 Hybrid", modelUrl: "/models/rav4-hybrid-2023/rav4-hybrid.glb", thumbnail: "/images/vehicles/rav4-hybrid/rav4-hybrid-thumbnail.webp" },
+  { slug: "land-cruiser", year: 2025, model: "Land Cruiser", modelUrl: "/models/land-cruiser-250-2025/land-cruiser-250.glb", thumbnail: "/images/vehicles/land-cruiser/land-cruiser-thumbnail.webp" },
 ] as const;
 
 describe("RAV4 Hybrid and Land Cruiser showroom integration", () => {

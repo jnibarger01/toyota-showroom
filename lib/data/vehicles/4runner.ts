@@ -117,13 +117,10 @@ export const fourRunner: Vehicle = {
   ],
 
   media: {
+    // Thumbnail rendered from the runtime GLB by scripts/render-thumbnails.ts.
     hero: { url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota 4Runner TRD Pro, front three-quarter view" },
-    gallery: [
-      { url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota 4Runner TRD Pro, front three-quarter view" },
-    ],
-    thumbnails: [
-      { url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota 4Runner thumbnail" },
-    ],
+    gallery: [{ url: "/images/modsnation_7416_final_hero_tweaked.png", alt: "2024 Toyota 4Runner TRD Pro, front three-quarter view" }],
+    thumbnails: [{ url: "/images/vehicles/4runner/4runner-thumbnail.webp", alt: "2024 Toyota 4Runner TRD Pro, front three-quarter 3D render", width: 800, height: 500 }],
     videos: [],
     environmentMaps: [],
   },

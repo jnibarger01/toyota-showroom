@@ -166,6 +166,8 @@ describe("shipped GLB payload budget", () => {
     // ~3.91 MiB after texture stripping + Draco. 5 MiB leaves controlled headroom without
     // permitting the original 68.36 MiB source payload to regress into production.
     "/models/camry/camry.glb": 5 * 1024 * 1024,
+    // ~3.64 MiB after Draco (19.21 MiB Sketchfab source, textures kept). 5 MiB leaves headroom.
+    "/models/gr-corolla-2023/gr-corolla.glb": 5 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
     // ~4.61 MiB optimized authored RAV4 Hybrid import; 6 MiB allows modest mesh growth.
     "/models/rav4-hybrid-2023/rav4-hybrid.glb": 6 * 1024 * 1024,

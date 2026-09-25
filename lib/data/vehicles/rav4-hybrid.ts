@@ -42,10 +42,12 @@ export const rav4Hybrid: Vehicle = {
     { code: "ash", name: "Ash", hex: "#8a8580", material: "softex", availableGradeIds: ["xle", "limited"] },
   ],
   media: {
-    hero: { url: "/images/vehicles/rav4-hybrid/rav4-hybrid-front-three-quarter.png", alt: "2023 Toyota RAV4 Hybrid front three-quarter 3D render", width: 800, height: 500 },
-    gallery: [{ url: "/images/vehicles/rav4-hybrid/rav4-hybrid-front-three-quarter.png", alt: "2023 Toyota RAV4 Hybrid 3D render", width: 800, height: 500 }],
-    thumbnails: [{ url: "/images/vehicles/rav4-hybrid/rav4-hybrid-front-three-quarter.png", alt: "2023 Toyota RAV4 Hybrid thumbnail", width: 800, height: 500 }],
-    videos: [], environmentMaps: [],
+    // Thumbnail rendered from the runtime GLB by scripts/render-thumbnails.ts.
+    hero: { url: "/images/vehicles/rav4-hybrid/rav4-hybrid-thumbnail.webp", alt: "2023 Toyota RAV4 Hybrid, front three-quarter 3D render", width: 800, height: 500 },
+    gallery: [{ url: "/images/vehicles/rav4-hybrid/rav4-hybrid-thumbnail.webp", alt: "2023 Toyota RAV4 Hybrid, front three-quarter 3D render", width: 800, height: 500 }],
+    thumbnails: [{ url: "/images/vehicles/rav4-hybrid/rav4-hybrid-thumbnail.webp", alt: "2023 Toyota RAV4 Hybrid, front three-quarter 3D render", width: 800, height: 500 }],
+    videos: [],
+    environmentMaps: [],
   },
   threeDConfig: {
     hasModel: true,

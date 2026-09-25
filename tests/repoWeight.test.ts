@@ -101,6 +101,10 @@ const ALLOWANCES: Record<string, { bytes: number; why: string }> = {
     bytes: 5 * MiB,
     why: "Optimized Camry showroom model; loaded by the Camry vehicle route.",
   },
+  "public/models/gr-corolla-2023/gr-corolla.glb": {
+    bytes: 5 * MiB,
+    why: "Optimized GR Corolla showroom model; loaded by the gr-corolla vehicle route.",
+  },
   "public/models/rav4-hybrid-2023/rav4-hybrid.glb": {
     bytes: 6 * MiB,
     why: "Optimized RAV4 Hybrid runtime showroom model; loaded directly by the vehicle route.",

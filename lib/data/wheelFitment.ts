@@ -224,6 +224,27 @@ const WHEEL_FITMENTS: readonly VehicleWheelFitment[] = [
     stockTireMaterials: ["side_tire"],
     packageIds: TRUCK_PACKAGES,
   },
+  {
+    /**
+     * Four Sketchfab wheel assemblies (`wheel_7`, `wheel.001_11`, …), each a tyre / rim / disc /
+     * detail mesh set, plus four separate caliper groups. Anchored on the tyre meshes and measured at
+     * runtime. The assembly groups are not used by name: three.js strips the `.` from
+     * `wheel.001_11` on load, so those names differ between the file and the scene; the `Object_N`
+     * meshes read the same in both. Calipers go with the stock wheels, as on the Supra.
+     */
+    vehicleId: "gr-corolla",
+    anchors: { kind: "corner", nodeNames: ["Object_28", "Object_41", "Object_49", "Object_57"] },
+    stockRunningGearNodes: [
+      "Object_28", "Object_29", "Object_30", "Object_31",
+      "Object_41", "Object_42", "Object_43", "Object_44",
+      "Object_49", "Object_50", "Object_51", "Object_52",
+      "Object_57", "Object_58", "Object_59", "Object_60",
+      "Object_4", "Object_5", "Object_46", "Object_47", "Object_54", "Object_55", "Object_62", "Object_63",
+    ],
+    stockTireNodes: ["Object_28", "Object_41", "Object_49", "Object_57"],
+    stockTireMaterials: ["tyre"],
+    packageIds: STREET_PACKAGES,
+  },
 ];
 
 const BY_VEHICLE = new Map(WHEEL_FITMENTS.map((entry) => [entry.vehicleId, entry]));

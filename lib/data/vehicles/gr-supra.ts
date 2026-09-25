@@ -39,16 +39,21 @@ export const grSupra: Vehicle = {
   ],
   interiorColors: [{ code: "black", name: "Black leather", hex: "#18191b", material: "leather", availableGradeIds: ["2-0", "3-0-premium"] }],
   media: {
-    hero: { url: "/images/vehicles/gr-supra/gr-supra-front-three-quarter.png", alt: "2024 Toyota GR Supra front three-quarter 3D render", width: 1280, height: 720 },
-    gallery: [{ url: "/images/vehicles/gr-supra/gr-supra-front-three-quarter.png", alt: "2024 Toyota GR Supra front three-quarter 3D render", width: 1280, height: 720 }],
-    thumbnails: [{ url: "/images/vehicles/gr-supra/gr-supra-front-three-quarter.png", alt: "2024 Toyota GR Supra 3D model thumbnail", width: 1280, height: 720 }], videos: [], environmentMaps: [],
+    // Thumbnail rendered from the runtime GLB by scripts/render-thumbnails.ts.
+    hero: { url: "/images/vehicles/gr-supra/gr-supra-thumbnail.webp", alt: "2024 Toyota GR Supra, front three-quarter 3D render", width: 800, height: 500 },
+    gallery: [{ url: "/images/vehicles/gr-supra/gr-supra-thumbnail.webp", alt: "2024 Toyota GR Supra, front three-quarter 3D render", width: 800, height: 500 }],
+    thumbnails: [{ url: "/images/vehicles/gr-supra/gr-supra-thumbnail.webp", alt: "2024 Toyota GR Supra, front three-quarter 3D render", width: 800, height: 500 }],
+    videos: [],
+    environmentMaps: [],
   },
   threeDConfig: {
     // The authored Sketchfab hierarchy carries a 0.001 FBX-to-metre transform. Normalize it at
     // the generic Vehicle3DConfig boundary so the shared camera and grounding logic see a car-sized
     // object rather than baking a Supra-only transform into VehicleCanvas.
     hasModel: true, modelUrl: "/models/gr-supra-2024/toyota_gr_supra.glb", scale: [100, 100, 100], rotation: [0, 0, 0], texturePolicy: "factors-only",
-    cameraPresets: [{ id: "hero", label: "Hero", position: [4.2, 2.1, 5.8], target: [0, 1.1, 0] }, { id: "front", label: "Front", position: [0, 1.5, 6], target: [0, 1, 0] }, { id: "side", label: "Side", position: [5.5, 1.5, 0], target: [0, 1, 0] }],
+    // After prepareVehicleRoot's π yaw this asset's nose points at -z (verified in the rendered
+    // catalog thumbnail); the earlier +z hero/front presets both framed the tail.
+    cameraPresets: [{ id: "hero", label: "Hero", position: [4.2, 2.1, -5.8], target: [0, 1.1, 0] }, { id: "front", label: "Front", position: [0, 1.5, -6], target: [0, 1, 0] }, { id: "side", label: "Side", position: [5.5, 1.5, 0], target: [0, 1, 0] }],
     paintableMaterialNames: ["Paint", "PaintSecondary"],
     wheelMountNames: ["Wheel_01_LF", "Wheel_01_RF", "Wheel_01_LR", "Wheel_01_RR"],
     interiorMaterialNames: ["InteriorBase", "InteriorColor2"], groundingNodeNames: ["RootNode"],

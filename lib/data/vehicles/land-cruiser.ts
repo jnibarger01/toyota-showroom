@@ -41,10 +41,12 @@ export const landCruiser: Vehicle = {
     { code: "java", name: "Java", hex: "#5b3828", material: "leather", availableGradeIds: ["land-cruiser"] },
   ],
   media: {
-    hero: { url: "/images/vehicles/land-cruiser/land-cruiser-front-three-quarter.png", alt: "2025 Toyota Land Cruiser front three-quarter 3D render", width: 800, height: 500 },
-    gallery: [{ url: "/images/vehicles/land-cruiser/land-cruiser-front-three-quarter.png", alt: "2025 Toyota Land Cruiser 3D render", width: 800, height: 500 }],
-    thumbnails: [{ url: "/images/vehicles/land-cruiser/land-cruiser-front-three-quarter.png", alt: "2025 Toyota Land Cruiser thumbnail", width: 800, height: 500 }],
-    videos: [], environmentMaps: [],
+    // Thumbnail rendered from the runtime GLB by scripts/render-thumbnails.ts.
+    hero: { url: "/images/vehicles/land-cruiser/land-cruiser-thumbnail.webp", alt: "2025 Toyota Land Cruiser, front three-quarter 3D render", width: 800, height: 500 },
+    gallery: [{ url: "/images/vehicles/land-cruiser/land-cruiser-thumbnail.webp", alt: "2025 Toyota Land Cruiser, front three-quarter 3D render", width: 800, height: 500 }],
+    thumbnails: [{ url: "/images/vehicles/land-cruiser/land-cruiser-thumbnail.webp", alt: "2025 Toyota Land Cruiser, front three-quarter 3D render", width: 800, height: 500 }],
+    videos: [],
+    environmentMaps: [],
   },
   threeDConfig: {
     hasModel: true,
