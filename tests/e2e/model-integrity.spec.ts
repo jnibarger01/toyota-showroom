@@ -127,3 +127,55 @@ test("the GR Supra decodes in the browser and settles without procedural fallbac
   expect(messages.filter((message) => message.includes("is unavailable for this asset"))).toEqual([]);
   expect(responses).toContain(200);
 });
+
+/**
+ * The two assets `scripts/optimize-models.mjs` now simplifies *and* re-encodes to WebP
+ * (`EXT_texture_webp`). The structural contract test cannot see a texture that fails to decode or a
+ * primitive the simplifier emptied; only a real GLTFLoader can.
+ */
+for (const { slug, paintLabel, asset } of [
+  { slug: "land-cruiser", paintLabel: "Ice Cap", asset: "/land-cruiser-250-2025/land-cruiser-250.glb" },
+  { slug: "rav4-hybrid", paintLabel: "Ice Cap", asset: "/rav4-hybrid-2023/rav4-hybrid.glb" },
+]) {
+  test(`the simplified ${slug} decodes in the browser and every catalog option resolves`, async ({ page }) => {
+    const messages: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "warning" || message.type() === "error") messages.push(message.text());
+    });
+    const responses: number[] = [];
+    page.on("response", (response) => {
+      if (new URL(response.url()).pathname.endsWith(asset)) responses.push(response.status());
+    });
+
+    await page.goto(`${slug}/`);
+    await expect(page.getByRole("button", { name: paintLabel }).first()).toBeVisible({ timeout: 60_000 });
+    await expect.poll(async () => page.locator("canvas").getAttribute("data-load-phase"), { timeout: 60_000 }).toBe("ready");
+    expect(messages.filter((message) => message.includes("High-detail glTF failed to load"))).toEqual([]);
+    expect(messages.filter((message) => message.includes("is unavailable for this asset"))).toEqual([]);
+    expect(responses).toContain(200);
+  });
+}
+
+test("the low quality tier downloads the LOD instead of the full asset, and the catalog still resolves", async ({ page }) => {
+  // Pinned rather than inferred: a stored preference outranks device hints (lib/three/
+  // qualityPreference.ts), so this exercises exactly the path a viewer who picks "Low" gets.
+  await page.addInitScript(() => localStorage.setItem("toyota-showroom:quality", "low"));
+  const messages: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning" || message.type() === "error") messages.push(message.text());
+  });
+  const fetched: string[] = [];
+  page.on("response", (response) => {
+    const path = new URL(response.url()).pathname;
+    if (path.endsWith(".glb")) fetched.push(path);
+  });
+
+  await page.goto("4runner/");
+  await expect(page.getByRole("button", { name: "Barcelona Red Metallic" })).toBeVisible({ timeout: 45_000 });
+  await expect.poll(async () => page.locator("canvas").getAttribute("data-load-phase"), { timeout: 45_000 }).toBe("ready");
+
+  expect(fetched.some((path) => path.endsWith("modsnation_7416_assets_assembled.lod1.glb"))).toBe(true);
+  expect(fetched.some((path) => path.endsWith("modsnation_7416_assets_assembled.glb"))).toBe(false);
+  expect(messages.filter((message) => message.includes("High-detail glTF failed to load"))).toEqual([]);
+  expect(messages.filter((message) => message.includes("is unavailable for this asset"))).toEqual([]);
+});

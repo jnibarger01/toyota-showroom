@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { SceneMapEntry, SemanticCapability } from "../types/sceneMap";
+import { findNodeByName } from "./nodes";
 
 /**
  * Stable semantic identity for a loaded vehicle scene.
@@ -134,7 +135,7 @@ export function buildSceneRegistry(
   const report: SceneMapReport = { satisfied: [], unsatisfied: [] };
 
   for (const entry of entries) {
-    const object = root.getObjectByName(entry.match.objectName);
+    const object = findNodeByName(root, entry.match.objectName);
     if (!object) {
       report.unsatisfied.push({ entry, reason: `missing node "${entry.match.objectName}"` });
       continue;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONSTRUCTION_TIME_QUALITY_KEYS,
+  modelUrlForDetail,
   qualitySettingsFor,
   resolveQuality,
   selectQualityTier,
@@ -81,6 +83,20 @@ describe("qualitySettingsFor / resolveQuality", () => {
     expect(low.antialias).toBe(false);
     expect(low.loadAuthoredRunningGear).toBe(false);
     expect(high.loadAuthoredRunningGear).toBe(true);
+    expect(low.modelDetail).toBe("lod1");
+    expect(medium.modelDetail).toBe("full");
+    expect(high.modelDetail).toBe("full");
+  });
+
+  it("modelUrlForDetail prefers the LOD only at lod1, and falls back when none ships", () => {
+    const config = { modelUrl: "/models/a.glb", lodModelUrl: "/models/a.lod1.glb" };
+    expect(modelUrlForDetail(config, "lod1")).toBe("/models/a.lod1.glb");
+    expect(modelUrlForDetail(config, "full")).toBe("/models/a.glb");
+    expect(modelUrlForDetail({ modelUrl: "/models/b.glb" }, "lod1")).toBe("/models/b.glb");
+  });
+
+  it("treats modelDetail as construction-time (a live tier change cannot swap the mesh)", () => {
+    expect(CONSTRUCTION_TIME_QUALITY_KEYS).toContain("modelDetail");
   });
 
   it("resolveQuality composes selection and settings", () => {

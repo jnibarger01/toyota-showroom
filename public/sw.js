@@ -22,7 +22,7 @@
  *
  *   - `/assets/*`  — content-hashed and served `immutable`. Cache-first, never revalidated: the
  *                    filename changes when the content does, so a hit is always correct.
- *   - `/models/*`, `/draco/*`, `/renders/*`, `/images/*`
+ *   - `/models/*`, `/draco/*`, `/renders/*`, `/hdri/*`, `/images/*`
  *                  — large and stable, but `public/_headers` serves them `must-revalidate` rather
  *                    than `immutable`, because the optimisation scripts rewrite these files in
  *                    place under unchanged names. Stale-while-revalidate: serve the cached copy
@@ -57,7 +57,7 @@ const CACHE_NAME = `toyota-showroom-demo-${CACHE_VERSION}`;
 const IMMUTABLE_PATHS = ["/assets/"];
 
 /** Large, stable, but rewritten in place by the asset scripts — refresh behind the hit. */
-const REVALIDATE_PATHS = ["/models/", "/draco/", "/renders/", "/images/"];
+const REVALIDATE_PATHS = ["/models/", "/draco/", "/renders/", "/hdri/", "/images/"];
 
 /** The static catalog mirror the demo reads instead of the API. */
 const CATALOG_MARKER = "/catalog/v1/";

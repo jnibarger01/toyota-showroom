@@ -51,6 +51,7 @@ export const landCruiser: Vehicle = {
   threeDConfig: {
     hasModel: true,
     modelUrl: "/models/land-cruiser-250-2025/land-cruiser-250.glb",
+    lodModelUrl: "/models/land-cruiser-250-2025/land-cruiser-250.lod1.glb",
     rotation: [0, 0, 0],
     texturePolicy: "preserve",
     cameraPresets: [

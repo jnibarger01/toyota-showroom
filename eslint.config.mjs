@@ -10,6 +10,7 @@ export default defineConfig([
     ".wrangler/**",
     "public/api/**",
     "public/catalog/**",
+    "assets/**",
     "next-env.d.ts",
   ]),
 ]);

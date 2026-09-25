@@ -19,7 +19,8 @@
 
 ## Integrated browser asset
 
-`public/models/4runner-limited.gltf` is the supplied Blender-exported glTF 2.0 asset. It includes:
+`assets/provenance/4runner/4runner-limited.gltf` (formerly under `public/models/`; moved out of the
+deployed tree because the runtime never requested it) is the supplied Blender-exported glTF 2.0 asset. It includes:
 
 - Blender glTF exporter metadata (`Khronos glTF Blender I/O v3.6.28`)
 - Inline binary geometry and embedded JPEG textures

@@ -111,6 +111,7 @@ export const camry: Vehicle = {
   threeDConfig: {
     hasModel: true,
     modelUrl: "/models/camry/camry.glb",
+    lodModelUrl: "/models/camry/camry.lod1.glb",
     // Sketchfab authored this XV80 scene at 0.01 world scale; 100x yields real vehicle dimensions.
     scale: [100, 100, 100],
     rotation: [0, 0, 0],

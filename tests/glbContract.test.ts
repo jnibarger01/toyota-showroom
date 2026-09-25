@@ -83,20 +83,29 @@ function missingMaterials(
   return option.targetMaterials.filter((name) => !present.has(name));
 }
 
+/**
+ * Every model URL a vehicle can download: the full asset and, where one ships, the `low`-tier LOD
+ * (`lodModelUrl`). The LOD is held to the exact same catalog contract — a viewer on a slow phone
+ * must get the same working option list as everyone else, not a quieter subset.
+ */
+function shippedModelUrls(threeDConfig: (typeof VEHICLES)[number]["threeDConfig"]): string[] {
+  if (!threeDConfig.hasModel) return [];
+  return [threeDConfig.modelUrl, threeDConfig.lodModelUrl].filter((url): url is string => Boolean(url));
+}
+
 describe("catalog vs. shipped GLB", () => {
   for (const vehicle of VEHICLES) {
     const { threeDConfig } = vehicle;
-    if (!threeDConfig.hasModel || !threeDConfig.modelUrl) continue;
-
-    const filePath = path.join(process.cwd(), "public", threeDConfig.modelUrl);
+    for (const modelUrl of shippedModelUrls(threeDConfig)) {
+    const filePath = path.join(process.cwd(), "public", modelUrl);
     if (!existsSync(filePath)) {
-      it(`${vehicle.slug}: has its declared GLB checked in`, () => {
-        expect(existsSync(filePath), `Missing declared model: ${threeDConfig.modelUrl}`).toBe(true);
+      it(`${vehicle.slug}: has its declared GLB checked in (${modelUrl})`, () => {
+        expect(existsSync(filePath), `Missing declared model: ${modelUrl}`).toBe(true);
       });
       continue;
     }
 
-    describe(vehicle.slug, () => {
+    describe(`${vehicle.slug} (${modelUrl})`, () => {
       const inspection = inspectGlb(filePath);
       // Runtime-generated options are validated against the live Three.js kit in
       // tests/runtimeModificationKit.test.ts. They intentionally do not exist in the raw GLB.
@@ -130,12 +139,13 @@ describe("catalog vs. shipped GLB", () => {
 
           expect(
             unresolved,
-            `Option "${option.id}" does not resolve against ${threeDConfig.modelUrl}: ` +
+            `Option "${option.id}" does not resolve against ${modelUrl}: ` +
               `missing nodes [${missingNodes.join(", ")}], missing materials [${missingMats.join(", ")}].`,
           ).toBe(false);
         });
       }
     });
+    }
   }
 });
 
@@ -163,22 +173,23 @@ describe("shipped GLB payload budget", () => {
     // ~0.48 MiB today; scripts/optimize-models.mjs repackaged the vendor's decoded .gltf+.bin pair
     // (docs/RAV4_PROVENANCE.md §3) into this single binary .glb, same Draco compression.
     "/models/rav4-2024/rav4_2024_limited_decoded.glb": 1.5 * 1024 * 1024,
-    // ~3.91 MiB after texture stripping + Draco. 5 MiB leaves controlled headroom without
-    // permitting the original 68.36 MiB source payload to regress into production.
-    "/models/camry/camry.glb": 5 * 1024 * 1024,
-    // ~3.64 MiB after Draco (19.21 MiB Sketchfab source, textures kept). 5 MiB leaves headroom.
-    "/models/gr-corolla-2023/gr-corolla.glb": 5 * 1024 * 1024,
+    // ~2.58 MiB after texture stripping, paint-preserving simplification (1.23M -> 0.61M triangles)
+    // and Draco. 3.5 MiB leaves headroom without letting the 3.91 MiB unsimplified asset — or the
+    // original 68.36 MiB source payload — regress into production.
+    "/models/camry/camry.glb": 3.5 * 1024 * 1024,
+    "/models/camry/camry.lod1.glb": 2 * 1024 * 1024,
+    "/models/modsnation_7416_assets_assembled.lod1.glb": 1 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
-    // ~4.61 MiB optimized authored RAV4 Hybrid import; 6 MiB allows modest mesh growth.
-    "/models/rav4-hybrid-2023/rav4-hybrid.glb": 6 * 1024 * 1024,
-    // ~7.37 MiB optimized authored Land Cruiser import; 9 MiB leaves controlled headroom.
-    "/models/land-cruiser-250-2025/land-cruiser-250.glb": 9 * 1024 * 1024,
+    // ~3.42 MiB: paint-preserving simplification plus WebP textures (was 4.61 MiB).
+    "/models/rav4-hybrid-2023/rav4-hybrid.glb": 4.25 * 1024 * 1024,
+    "/models/rav4-hybrid-2023/rav4-hybrid.lod1.glb": 2 * 1024 * 1024,
+    // ~4.31 MiB: 1.56M -> 0.73M triangles outside the paint, WebP textures (was 7.37 MiB).
+    "/models/land-cruiser-250-2025/land-cruiser-250.glb": 5.25 * 1024 * 1024,
+    "/models/land-cruiser-250-2025/land-cruiser-250.lod1.glb": 3 * 1024 * 1024,
   };
 
   for (const vehicle of VEHICLES) {
-    const { modelUrl, hasModel } = vehicle.threeDConfig;
-    if (!hasModel || !modelUrl) continue;
-
+    for (const modelUrl of shippedModelUrls(vehicle.threeDConfig)) {
     const filePath = path.join(process.cwd(), "public", modelUrl);
     if (!existsSync(filePath)) continue;
 
@@ -196,6 +207,19 @@ describe("shipped GLB payload budget", () => {
         `${modelUrl} is ${(actual / 1024 / 1024).toFixed(2)} MiB, over its ` +
           `${(budget / 1024 / 1024).toFixed(2)} MiB budget. Run \`node scripts/optimize-models.mjs\`.`,
       ).toBeLessThanOrEqual(budget);
+    });
+    }
+  }
+
+  // A LOD that is not meaningfully smaller than its source is a download the low tier pays for
+  // nothing — the whole point of shipping it.
+  for (const vehicle of VEHICLES) {
+    const { modelUrl, lodModelUrl } = vehicle.threeDConfig;
+    if (!modelUrl || !lodModelUrl) continue;
+    it(`${vehicle.slug}: ${lodModelUrl} is smaller than the full asset`, () => {
+      const full = statSync(path.join(process.cwd(), "public", modelUrl)).size;
+      const lod = statSync(path.join(process.cwd(), "public", lodModelUrl)).size;
+      expect(lod).toBeLessThan(full * 0.7);
     });
   }
 });

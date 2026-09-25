@@ -43,7 +43,7 @@ import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
 import { getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { resolveAssetUrl } from "../../lib/three/assetUrl";
-import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
+import { findNodeByName, logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { getSceneMapForVehicle } from "../../lib/data/sceneMap";
 import { pointerToNdc } from "../../lib/three/picking";
 import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
@@ -63,6 +63,7 @@ import {
   type EnvironmentPreset,
 } from "../../lib/three/environmentController";
 import { RenderController } from "../../lib/three/renderController";
+import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
 import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
 import { readQualityPreference, writeQualityPreference, type QualityPreference } from "../../lib/three/qualityPreference";
@@ -695,11 +696,19 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         let detailed: THREE.Object3D | null = null;
         try {
           const modelStartedAt = performance.now();
-          detailed = await loadVehicleRoot(threeDConfig, (fraction) => onProgressRef.current?.(fraction));
+          detailed = await loadVehicleRoot(
+            threeDConfig,
+            renderController.currentQuality.modelDetail,
+            (fraction) => onProgressRef.current?.(fraction),
+          );
           // Download *and* Draco decode together, which is the number that matters: after
           // scripts/optimize-models.mjs took the payload to ~1.2 MiB, decode is expected to
           // dominate, and that is exactly the assumption worth checking against real devices.
-          recordMetric({ name: "model_loaded", value: Math.round(performance.now() - modelStartedAt) });
+          recordMetric({
+            name: "model_loaded",
+            value: Math.round(performance.now() - modelStartedAt),
+            labels: { detail: renderController.currentQuality.modelDetail },
+          });
           progressive = reduceProgressiveLoad(progressive, { type: "glb-decoded" });
         } catch (error) {
           console.error("High-detail glTF failed to load; using procedural fallback.", error);
@@ -1020,10 +1029,12 @@ function createRadialGradientTexture(): THREE.CanvasTexture {
 
 async function loadVehicleRoot(
   threeDConfig: Vehicle3DConfig,
+  detail: QualitySettings["modelDetail"],
   onProgress?: (fraction: number) => void,
 ): Promise<THREE.Object3D> {
-  if (!threeDConfig.hasModel || !threeDConfig.modelUrl) return createProceduralVehicle();
-  const gltf = await getGltfLoader().loadAsync(resolveAssetUrl(threeDConfig.modelUrl), (event) => {
+  const modelUrl = modelUrlForDetail(threeDConfig, detail);
+  if (!threeDConfig.hasModel || !modelUrl) return createProceduralVehicle();
+  const gltf = await getGltfLoader().loadAsync(resolveAssetUrl(modelUrl), (event) => {
     // `lengthComputable` is false whenever the response has no usable `Content-Length` — common for
     // a gzipped GLB. Reporting `loaded / 0` would emit Infinity, and guessing a denominator would
     // show a progress bar that lies; skipping the callback lets the UI fall back to the
@@ -1043,7 +1054,7 @@ async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Veh
   const config = threeDConfig.wheelAndTireAssets;
   if (!config) return;
 
-  const mounts = threeDConfig.wheelMountNames.map((name) => root.getObjectByName(name));
+  const mounts = threeDConfig.wheelMountNames.map((name) => findNodeByName(root, name));
   if (mounts.some((mount) => !mount)) {
     console.warn("[customization] supplied wheel and tyre glTFs were not mounted: wheel mounts are missing.");
     return;
@@ -1057,8 +1068,8 @@ async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Veh
 
     // Remove the model's baked-in pair before naming replacements, avoiding duplicate matches in
     // `getObjectByName` as well as duplicate visible geometry.
-    removeNode(root.getObjectByName(wheelNodeName));
-    removeNode(root.getObjectByName(tireNodeName));
+    removeNode(findNodeByName(root, wheelNodeName));
+    removeNode(findNodeByName(root, tireNodeName));
 
     const assembly = new THREE.Group();
     assembly.name = `AUTHORED_RUNNING_GEAR_${index}`;
@@ -1126,7 +1137,7 @@ export function prepareVehicleRoot(root: THREE.Object3D, threeDConfig: Vehicle3D
   );
 
   for (const name of threeDConfig.hiddenNodeNames ?? []) {
-    const node = root.getObjectByName(name);
+    const node = findNodeByName(root, name);
     if (node) node.visible = false;
     else console.warn(`[customization] hiddenNodeNames references a missing node: "${name}"`);
   }
@@ -1179,7 +1190,7 @@ function boundsOf(root: THREE.Object3D, nodeNames?: string[]): THREE.Box3 | null
   const box = new THREE.Box3();
   let any = false;
   for (const name of nodeNames) {
-    const node = root.getObjectByName(name);
+    const node = findNodeByName(root, name);
     if (!node) continue;
     box.expandByObject(node);
     any = true;

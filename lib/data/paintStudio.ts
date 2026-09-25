@@ -43,7 +43,7 @@ export const HDRI_PRESETS: readonly HdriPreset[] = [
     label: "Golden Hour",
     lightingKey: "sunset",
     priceDelta: 175,
-    hdrUrl: "/renders/rav4-2024/cold_photography_studio_1k.hdr",
+    hdrUrl: "/hdri/cold_photography_studio_1k.hdr",
   },
 ];
 

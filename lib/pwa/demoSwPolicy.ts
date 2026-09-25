@@ -59,6 +59,7 @@ export const DEMO_SW_REVALIDATE_PATHS: readonly string[] = [
   "/models/",
   "/draco/",
   "/renders/",
+  "/hdri/",
   "/images/",
 ];
 

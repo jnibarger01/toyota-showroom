@@ -138,6 +138,13 @@ export interface WheelAndTireAssetConfig {
 export interface Vehicle3DConfig {
   hasModel: boolean;
   modelUrl?: string;
+  /**
+   * Reduced-detail sibling of `modelUrl` (`*.lod1.glb`, written by `scripts/optimize-models.mjs`).
+   * Loaded instead of `modelUrl` when the quality tier's `modelDetail` is `"lod1"`. Same node and
+   * material names by construction, so every catalog option resolves against either file —
+   * `tests/glbContract.test.ts` checks both.
+   */
+  lodModelUrl?: string;
   scale?: [number, number, number];
   rotation?: [number, number, number];
   /** Optional renderer compatibility policy for authored textures that fail on a target backend. */
