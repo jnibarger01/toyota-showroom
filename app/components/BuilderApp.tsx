@@ -145,7 +145,7 @@ const CATEGORY_LABELS: Record<CustomizationCategory, string> = {
 
 const BUILDER_RAIL_CATEGORIES = [
   { category: "paint", label: "Exterior", Icon: PaintBucket },
-  { category: "wheels", label: "Wheels", Icon: CircleGauge },
+  { category: "wheels", label: "Wheels & Tires", Icon: CircleGauge },
   { category: "tires", label: "Tires", Icon: CircleGauge },
   { category: "brakes", label: "Brakes", Icon: CircleGauge },
   { category: "exhaust", label: "Exhaust", Icon: Move3d },
