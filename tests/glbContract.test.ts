@@ -179,6 +179,8 @@ describe("shipped GLB payload budget", () => {
     "/models/camry/camry.glb": 3.5 * 1024 * 1024,
     "/models/camry/camry.lod1.glb": 2 * 1024 * 1024,
     "/models/modsnation_7416_assets_assembled.lod1.glb": 1 * 1024 * 1024,
+    // ~3.64 MiB after Draco (19.21 MiB Sketchfab source, textures kept). 5 MiB leaves headroom.
+    "/models/gr-corolla-2023/gr-corolla.glb": 5 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
     // ~3.42 MiB: paint-preserving simplification plus WebP textures (was 4.61 MiB).
     "/models/rav4-hybrid-2023/rav4-hybrid.glb": 4.25 * 1024 * 1024,
