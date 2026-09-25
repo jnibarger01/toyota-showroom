@@ -80,7 +80,9 @@ test("fitting a wheel package puts wheels on a capture that ships without any", 
   // alone — a pressed button proves the selection was recorded, not that anything reached the scene.
   const canvas = await waitForSettledCanvas(page);
 
-  await page.getByRole("button", { name: /Wheels & Tires/i }).click();
+  // Scoped to the systems rail: "Wheels" is also a camera preset in the stage toolbar, so an
+  // unscoped role query matches two buttons and fails strict mode.
+  await page.locator(".rail-item").filter({ hasText: "Wheels" }).click();
 
   const before = await canvas.screenshot();
 
