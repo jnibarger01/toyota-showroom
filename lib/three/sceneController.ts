@@ -12,6 +12,7 @@ import { attachToMount, detachFromMount, disposeSubtree, instantiateAsset, loadA
 import type { PaintStudioState } from "../types/paintStudio";
 import {
   materialConfigFromPaintStudio,
+  PAINT_CUSTOM_OPTION_ID,
   PAINT_STUDIO_TARGET_MATERIALS,
   PAINT_STUDIO_TARGET_NODES,
 } from "../data/paintStudio";
@@ -202,6 +203,47 @@ export class VehicleSceneController {
     this.selectPart(undefined);
   }
 
+  /** The given ids, ordered as the catalog declares them. Ids the catalog cannot resolve keep their
+   * relative position, so an unknown id still reaches `applyConfiguration`'s `failed` list. */
+  private inCatalogOrder(optionIds: readonly string[]): string[] {
+    const rank = new Map([...this.catalog.keys()].map((id, index) => [id, index]));
+    return [...optionIds].sort(
+      (left, right) => (rank.get(left) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+
+  /**
+   * Re-applies the options that the catalog orders *after* `option` within its category.
+   *
+   * A single click does not replay a configuration, so nothing else would restore the relationship
+   * between two groups that write the same material slot. Picking a paint colour after a finish
+   * overwrites the finish's metalness and roughness with the colour's own; this puts the finish
+   * back, which is what makes "colour then finish" and "finish then colour" end in the same place.
+   *
+   * Only later groups are replayed, and only material updates: an earlier group has already had its
+   * say, and re-running a mesh operation would undo the visibility work `applyOption` just did.
+   */
+  private async reapplyDependentGroups(option: CustomizationOption): Promise<void> {
+    const group = selectionGroupOf(option);
+    let seenSelf = false;
+
+    for (const candidate of this.catalog.values()) {
+      if (candidate.id === option.id) {
+        seenSelf = true;
+        continue;
+      }
+      if (!seenSelf) continue;
+      if (candidate.category !== option.category) continue;
+      if (candidate.operation !== "material-update") continue;
+
+      const candidateGroup = selectionGroupOf(candidate);
+      if (candidateGroup === group) continue;
+      if (this.activeByGroup.get(candidateGroup) !== candidate.id) continue;
+
+      this.applyMaterialUpdate(candidate);
+    }
+  }
+
   /**
    * Applies a single option. Returns `false` when the option's nodes are not present, which the
    * caller surfaces as an error rather than treating as success — a silent no-op here is exactly
@@ -218,6 +260,12 @@ export class VehicleSceneController {
       this.activeByGroup.set(group, option.id);
     }
 
+    const applied = await this.applyOperation(option);
+    if (applied && !isMultiSelect(option.category)) await this.reapplyDependentGroups(option);
+    return applied;
+  }
+
+  private async applyOperation(option: CustomizationOption): Promise<boolean> {
     switch (option.operation) {
       case "material-update":
         return this.applyMaterialUpdate(option);
@@ -255,10 +303,23 @@ export class VehicleSceneController {
    */
   applyPaintStudio(paintStudio: PaintStudioState | undefined): boolean {
     if (!paintStudio || paintStudio.mode !== "custom" || !paintStudio.material) return false;
-    const meshes = resolveMeshes(this.root, [...PAINT_STUDIO_TARGET_NODES]);
+
+    // Targets come from this vehicle's own `paint-custom` catalog entry, falling back to the
+    // 4Runner-shaped constants for a controller built without one.
+    //
+    // They used to come from those constants alone, which is why the studio only ever worked on the
+    // three vehicles that happen to paint `BODY`/`body.carmain`. The Camry paints `CarPaint`, the
+    // AE86 `Body`, the Supra `Paint` — on those, a custom colour resolved no meshes and silently
+    // did nothing. The catalog entry is still catalog-owned and server-resolved; nothing about the
+    // target names comes from the persisted payload.
+    const custom = this.catalog.get(PAINT_CUSTOM_OPTION_ID);
+    const nodes = custom?.targetNodes?.length ? custom.targetNodes : [...PAINT_STUDIO_TARGET_NODES];
+    const materials = custom?.targetMaterials?.length ? custom.targetMaterials : [...PAINT_STUDIO_TARGET_MATERIALS];
+
+    const meshes = resolveMeshes(this.root, nodes);
     if (meshes.length === 0) return false;
     const config = materialConfigFromPaintStudio(paintStudio.material);
-    return this.writer.applyMaterialConfig(meshes, [...PAINT_STUDIO_TARGET_MATERIALS], config) > 0;
+    return this.writer.applyMaterialConfig(meshes, materials, config) > 0;
   }
 
   private applyMaterialUpdate(option: CustomizationOption): boolean {
@@ -381,7 +442,13 @@ export class VehicleSceneController {
     }
 
     for (const category of CATEGORY_APPLY_ORDER) {
-      for (const optionId of selections[category] ?? []) {
+      // Catalog order, not the order the ids happen to sit in the saved map. Within one category
+      // two selection groups can write the same material slot — a paint colour carries its own
+      // metalness and roughness, and a paint finish overwrites exactly those — so replaying a
+      // configuration in click order would reproduce whichever the user happened to pick last
+      // rather than what the catalog defines. Ordering by the catalog makes restoration
+      // deterministic: the same selection set always yields the same scene.
+      for (const optionId of this.inCatalogOrder(selections[category] ?? [])) {
         const option = this.catalog.get(optionId);
         if (!option) {
           failed.push(optionId);
