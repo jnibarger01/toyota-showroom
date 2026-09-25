@@ -28,12 +28,6 @@ const WHEEL_NODES = [
 ];
 // The procedural fallback uses one shared rim material for all four wheels.
 const WHEEL_MATERIALS = ["wheel.metal"];
-const TIRE_NODES = [
-  "PLACED_KO3_front_left",
-  "PLACED_KO3_front_right",
-  "PLACED_KO3_rear_left",
-  "PLACED_KO3_rear_right",
-];
 
 function paint(id: string, label: string, color: string, priceDelta?: number, gradeIds?: string[]): CustomizationOption {
   return {
@@ -92,28 +86,9 @@ export const tacomaOptions: CustomizationOption[] = [
     compatibleGradeIds: ["trd-off-road", "trd-pro"],
   },
 
-  {
-    id: "trim-tire-letters-raised-white",
-    category: "trim",
-    selectionGroup: "trim-tire-letters",
-    label: "Raised White Letters",
-    operation: "material-update",
-    targetNodes: TIRE_NODES,
-    targetMaterials: ["tire.sidewall"],
-    materialConfig: { color: "#6f6f6c", roughness: 0.85 },
-    compatibleVehicleIds: VEHICLE,
-  },
-  {
-    id: "trim-tire-letters-blackwall",
-    category: "trim",
-    selectionGroup: "trim-tire-letters",
-    label: "Blackwall",
-    operation: "material-update",
-    targetNodes: TIRE_NODES,
-    targetMaterials: ["tire.sidewall"],
-    materialConfig: { color: "#141414", roughness: 0.94 },
-    compatibleVehicleIds: VEHICLE,
-  },
+  // Tyre sidewall finishes are generated for every vehicle by
+  // `lib/data/options/runningGear.ts` and target the fitted procedural packages as well as these
+  // factory tyres; the option ids are unchanged from when they were declared here.
 
   // A midsize truck is exactly what these procedural accessories (lib/three/proceduralParts.ts)
   // were modelled for; all three are appropriate here, unlike on a sedan.
