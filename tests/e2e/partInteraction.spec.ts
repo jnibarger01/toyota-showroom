@@ -15,6 +15,13 @@ import { expect, test, type Page } from "@playwright/test";
 test.describe.configure({ mode: "serial", timeout: 60_000 });
 
 async function waitForSettledCanvas(page: Page) {
+  // Pinned to `low` because this file tests picking, not rendering. The harness rasterises WebGL in
+  // software (SwiftShader), where image-based lighting on every material plus MSAA/shadows/the floor
+  // reflection leave `medium` and `high` at a few frames per second or less — and every stepped
+  // `mouse.move` in the drag test waits on a frame. Picking runs against the same semantic parts on
+  // the LOD (glbContract holds it to the full contract). Each tier's rendered output is covered where
+  // it belongs, in visual-3d.spec.ts.
+  await page.addInitScript(() => localStorage.setItem("toyota-showroom:quality", "low"));
   await page.goto("4runner/");
   await expect(page.getByRole("button", { name: "Barcelona Red Metallic" })).toBeVisible({ timeout: 45_000 });
   await expect

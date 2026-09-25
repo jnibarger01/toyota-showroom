@@ -96,6 +96,23 @@ const CHANGE_COOLDOWN_MS = 500;
 const OUTLIER_FRAME_MS = 250;
 
 /**
+ * Consecutive over-`OUTLIER_FRAME_MS` frames after which they stop being outliers.
+ *
+ * Discarding every long frame is right for an isolated hitch and exactly wrong for a device that is
+ * simply overwhelmed: if *every* frame takes 400 ms, every frame was discarded, the average never
+ * moved, and the governor held the heaviest tier forever on precisely the hardware it exists to
+ * protect. A run this long is a frame rate, not a hitch; its frames are fed in clamped to
+ * `OUTLIER_FRAME_MS`, which is far above `DOWNGRADE_ABOVE_MS`, so the downgrade path takes over.
+ */
+const SUSTAINED_OUTLIER_FRAMES = 4;
+
+/**
+ * Deltas above this are pauses (a restored background tab, a debugger breakpoint), never a frame
+ * rate — no one orbits a vehicle at 0.2 fps. Always discarded, and they break a sustained run.
+ */
+const PAUSE_FRAME_MS = 5000;
+
+/**
  * Weight of each new sample in the exponential moving average.
  *
  * 0.1 gives a time constant of roughly ten frames — long enough that one slow frame cannot move the
@@ -112,6 +129,13 @@ const EWMA_ALPHA = 0.1;
  */
 const WARMUP_FRAMES = 30;
 
+/**
+ * Upper bound on the warm-up, in wall-clock time. Thirty frames is half a second on a healthy
+ * device but thirty seconds on one rendering at 1 fps — the device that most needs a downgrade
+ * would otherwise wait longest for one.
+ */
+const WARMUP_MAX_MS = 3000;
+
 export class QualityGovernor {
   private readonly onChange: QualityGovernorOptions["onChange"];
   private readonly now: () => number;
@@ -119,6 +143,10 @@ export class QualityGovernor {
   private tierIndex: number;
   private averageFrameMs = 0;
   private framesSeen = 0;
+  /** `now()` at the first recorded frame since construction/reset — bounds the warm-up in time. */
+  private firstFrameAt: number | null = null;
+  /** Current run of over-`OUTLIER_FRAME_MS` frames; see `SUSTAINED_OUTLIER_FRAMES`. */
+  private outlierRun = 0;
   private slowStreak = 0;
   private fastStreak = 0;
   private changedAt = Number.NEGATIVE_INFINITY;
@@ -191,9 +219,20 @@ export class QualityGovernor {
   recordFrame(deltaMs: number): void {
     // Non-finite or non-positive deltas mean a broken clock, not a fast frame.
     if (!Number.isFinite(deltaMs) || deltaMs <= 0) return;
-    if (deltaMs > OUTLIER_FRAME_MS) return;
+    if (deltaMs > PAUSE_FRAME_MS) {
+      this.outlierRun = 0;
+      return;
+    }
+    if (deltaMs > OUTLIER_FRAME_MS) {
+      this.outlierRun += 1;
+      if (this.outlierRun < SUSTAINED_OUTLIER_FRAMES) return;
+      deltaMs = OUTLIER_FRAME_MS;
+    } else {
+      this.outlierRun = 0;
+    }
 
     this.framesSeen += 1;
+    if (this.firstFrameAt === null) this.firstFrameAt = this.now();
     // Seeded from the first real sample rather than eased up from zero, which would otherwise spend
     // the warm-up window climbing out of an average that never reflected a real frame.
     this.averageFrameMs =
@@ -206,7 +245,7 @@ export class QualityGovernor {
     // there is exactly one early return rather than a `pinned` check on each.
     if (this.pinned) return;
 
-    if (this.framesSeen <= WARMUP_FRAMES) return;
+    if (this.framesSeen <= WARMUP_FRAMES && this.now() - this.firstFrameAt < WARMUP_MAX_MS) return;
     if (this.now() - this.changedAt < CHANGE_COOLDOWN_MS) return;
 
     if (this.averageFrameMs > DOWNGRADE_ABOVE_MS) {
@@ -240,6 +279,8 @@ export class QualityGovernor {
   reset(): void {
     this.averageFrameMs = 0;
     this.framesSeen = 0;
+    this.firstFrameAt = null;
+    this.outlierRun = 0;
     this.slowStreak = 0;
     this.fastStreak = 0;
   }

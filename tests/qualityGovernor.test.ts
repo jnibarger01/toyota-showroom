@@ -123,6 +123,27 @@ describe("QualityGovernor", () => {
     expect(governor.averageFrameTimeMs).toBeLessThan(20);
   });
 
+  it("downgrades a device that is simply overwhelmed, rather than treating every frame as an outlier", () => {
+    // Every frame 400 ms (2.5 fps): before, each one was discarded as an outlier, the average never
+    // moved, and the heaviest tier held forever on exactly the hardware the governor protects.
+    const { governor, clock, changes } = setup();
+    run(governor, clock, 400, 40);
+    expect(changes[0]?.reason).toBe("downgrade");
+    expect(changes[0]?.tier).toBe("medium");
+    // Bounded in wall-clock terms too: the warm-up is capped at 3 s, not 30 frames (12 s here).
+    expect(clock.now).toBeLessThan(20_000);
+  });
+
+  it("still discards isolated long frames between healthy ones", () => {
+    const { governor, clock, changes } = setup();
+    run(governor, clock, FAST_MS, 40);
+    for (let index = 0; index < 30; index += 1) {
+      run(governor, clock, 400, 3); // a hitch shorter than the sustained run
+      run(governor, clock, FAST_MS, 5);
+    }
+    expect(changes).toEqual([]);
+  });
+
   it("ignores non-finite and non-positive deltas", () => {
     const { governor, changes } = setup();
     for (const bad of [0, -5, NaN, Infinity, -Infinity]) governor.recordFrame(bad);
