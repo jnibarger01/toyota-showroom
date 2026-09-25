@@ -43,7 +43,7 @@ import type { CustomizationOption } from "../../lib/types/customization";
 import { VehicleSceneController } from "../../lib/three/sceneController";
 import { getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { resolveAssetUrl } from "../../lib/three/assetUrl";
-import { logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
+import { findNodeByName, logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
 import { getSceneMapForVehicle } from "../../lib/data/sceneMap";
 import { pointerToNdc } from "../../lib/three/picking";
 import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
@@ -1037,7 +1037,7 @@ async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Veh
   const config = threeDConfig.wheelAndTireAssets;
   if (!config) return;
 
-  const mounts = threeDConfig.wheelMountNames.map((name) => root.getObjectByName(name));
+  const mounts = threeDConfig.wheelMountNames.map((name) => findNodeByName(root, name));
   if (mounts.some((mount) => !mount)) {
     console.warn("[customization] supplied wheel and tyre glTFs were not mounted: wheel mounts are missing.");
     return;
@@ -1051,8 +1051,8 @@ async function installWheelAndTireAssets(root: THREE.Object3D, threeDConfig: Veh
 
     // Remove the model's baked-in pair before naming replacements, avoiding duplicate matches in
     // `getObjectByName` as well as duplicate visible geometry.
-    removeNode(root.getObjectByName(wheelNodeName));
-    removeNode(root.getObjectByName(tireNodeName));
+    removeNode(findNodeByName(root, wheelNodeName));
+    removeNode(findNodeByName(root, tireNodeName));
 
     const assembly = new THREE.Group();
     assembly.name = `AUTHORED_RUNNING_GEAR_${index}`;
@@ -1120,7 +1120,7 @@ export function prepareVehicleRoot(root: THREE.Object3D, threeDConfig: Vehicle3D
   );
 
   for (const name of threeDConfig.hiddenNodeNames ?? []) {
-    const node = root.getObjectByName(name);
+    const node = findNodeByName(root, name);
     if (node) node.visible = false;
     else console.warn(`[customization] hiddenNodeNames references a missing node: "${name}"`);
   }
@@ -1173,7 +1173,7 @@ function boundsOf(root: THREE.Object3D, nodeNames?: string[]): THREE.Box3 | null
   const box = new THREE.Box3();
   let any = false;
   for (const name of nodeNames) {
-    const node = root.getObjectByName(name);
+    const node = findNodeByName(root, name);
     if (!node) continue;
     box.expandByObject(node);
     any = true;

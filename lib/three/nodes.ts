@@ -7,6 +7,24 @@ import type { CustomizationOption } from "../types/customization";
  * which is stable across Blender re-exports as long as object names are unchanged.
  */
 
+/**
+ * `root.getObjectByName`, tolerant of `GLTFLoader`'s name sanitizing.
+ *
+ * GLTFLoader passes every glTF node name through `PropertyBinding.sanitizeNodeName`, which deletes
+ * `.`, `:`, `/`, `[` and `]` (they are reserved in animation binding paths). The raw asset — which is
+ * what the catalog is authored against and what `tests/glbContract.test.ts` verifies — keeps them.
+ * So a Blender-style `shell.001_CarPaint_0` exists in the file and loads as `shell001_CarPaint_0`,
+ * and an exact lookup silently misses it: every Land Cruiser paint option was being dropped from the
+ * live catalog this way while the file-level contract test passed. Exact match first, so a name that
+ * genuinely contains no reserved characters behaves exactly as before.
+ */
+export function findNodeByName(root: THREE.Object3D, name: string): THREE.Object3D | undefined {
+  const exact = root.getObjectByName(name);
+  if (exact) return exact;
+  const sanitized = THREE.PropertyBinding.sanitizeNodeName(name);
+  return sanitized === name ? undefined : root.getObjectByName(sanitized);
+}
+
 export interface NodeLookupResult {
   found: THREE.Object3D[];
   missing: string[];
@@ -16,7 +34,7 @@ export function resolveNodes(root: THREE.Object3D, names: readonly string[]): No
   const found: THREE.Object3D[] = [];
   const missing: string[] = [];
   for (const name of names) {
-    const object = root.getObjectByName(name);
+    const object = findNodeByName(root, name);
     if (object) found.push(object);
     else missing.push(name);
   }
@@ -27,7 +45,7 @@ export function resolveNodes(root: THREE.Object3D, names: readonly string[]): No
 export function resolveMeshes(root: THREE.Object3D, names: readonly string[]): THREE.Mesh[] {
   const meshes: THREE.Mesh[] = [];
   for (const name of names) {
-    const object = root.getObjectByName(name);
+    const object = findNodeByName(root, name);
     if (object instanceof THREE.Mesh) {
       meshes.push(object);
       continue;
