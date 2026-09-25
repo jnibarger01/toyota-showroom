@@ -10,6 +10,7 @@ import { landCruiserOptions } from "./land-cruiser";
 import { getGlobalWheelOptions } from "../wheels";
 import { getRunningGearOptions } from "./runningGear";
 import { createRuntimeModificationOptions } from "./runtimeMods";
+import { getPaintProgramOptions } from "./paintProgram";
 
 /**
  * Server-side source of truth for customization options. The browser receives these records from
@@ -40,6 +41,10 @@ const BASE_OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = {
  * `createRuntimeModificationOptions` contributes the shared runtime mod kit (aero, exhaust, brakes,
  * carbon, and its own single rim/tyre pair). Both are generated, and both are appended; see
  * `lib/three/proceduralMods.ts` and `lib/three/proceduralWheels.ts` for how the two differ.
+ *
+ * `getPaintProgramOptions` contributes paint finishes and the Paint Studio sentinel, borrowing each
+ * vehicle's own paint targets rather than assuming a shared slot name. It runs against the base
+ * options so its template is an authored colour, not one of the generated entries.
  */
 const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = Object.fromEntries(
   Object.entries(BASE_OPTIONS_BY_VEHICLE).map(([vehicleId, options]) => [
@@ -48,6 +53,7 @@ const OPTIONS_BY_VEHICLE: Record<string, CustomizationOption[]> = Object.fromEnt
       ...options,
       ...createRuntimeModificationOptions(vehicleId, options),
       ...getRunningGearOptions(vehicleId),
+      ...getPaintProgramOptions(vehicleId, options),
     ],
   ]),
 );
