@@ -64,17 +64,8 @@ function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
   });
 }
 
-function forwardAbort(source: AbortSignal | null | undefined, target: AbortController): () => void {
-  if (!source) return () => {};
-
-  const onAbort = () => target.abort(abortReason(source));
-  if (source.aborted) {
-    onAbort();
-    return () => {};
-  }
-
-  source.addEventListener("abort", onAbort, { once: true });
-  return () => source.removeEventListener("abort", onAbort);
+function requestSignal(timeout: AbortSignal, caller?: AbortSignal | null): AbortSignal {
+  return caller ? AbortSignal.any([caller, timeout]) : timeout;
 }
 
 export async function resilientFetch(
@@ -101,11 +92,11 @@ export async function resilientFetch(
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
-    const stopForwardingAbort = forwardAbort(init.signal, controller);
+    const signal = requestSignal(controller.signal, init.signal);
     const timer = setTimeout(() => controller.abort(), config.timeoutMs);
     let response: Response | null = null;
     try {
-      response = await fetch(url, { ...init, signal: controller.signal });
+      response = await fetch(url, { ...init, signal });
       if (!retryable(response) || attempt === attempts - 1) {
         if (retryable(response)) throw new ProviderUnavailableError(`Provider returned ${response.status}`);
         circuits.set(key, { failures: 0, openedAt: null });
@@ -117,7 +108,6 @@ export async function resilientFetch(
       if (attempt === attempts - 1) break;
     } finally {
       clearTimeout(timer);
-      stopForwardingAbort();
     }
     await sleep(retryDelay(response, attempt, config.baseDelayMs), init.signal);
   }
