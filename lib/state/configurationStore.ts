@@ -1,6 +1,7 @@
 import {
   isMultiSelect,
   isSelected,
+  selectionGroupOf,
   withOptionDeselected,
   withOptionSelected,
   type CustomizationOption,
@@ -65,6 +66,8 @@ export class ConfigurationStore {
   private sceneMutationQueue: Promise<void> | null = null;
   /** Local edits retained across a Worker revision conflict until reload / overwrite / fork. */
   private conflictDraft: VehicleConfiguration | null = null;
+  /** Paint currently shown as a hover/focus preview, never part of `state`. See `previewOption`. */
+  private previewing: CustomizationOption | null = null;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -163,15 +166,61 @@ export class ConfigurationStore {
   }
 
   selectOption(option: CustomizationOption): Promise<void> {
+    return this.enqueueSceneMutation(() => {
+      // A click lands on the swatch being previewed; the selection supersedes the preview.
+      this.previewing = null;
+      return this.selectOptionSerialized(option);
+    });
+  }
+
+  /**
+   * Scene mutations run strictly one after another: every one of them rewrites materials, and two
+   * interleaved `await`s would leave whichever finished last on screen rather than whichever was
+   * asked for last.
+   */
+  private enqueueSceneMutation(run: () => Promise<void>): Promise<void> {
     const previous = this.sceneMutationQueue;
-    const task = previous
-      ? previous.then(() => this.selectOptionSerialized(option))
-      : this.selectOptionSerialized(option);
+    const task = previous ? previous.then(run) : run();
     const tail = task.catch(() => undefined).finally(() => {
       if (this.sceneMutationQueue === tail) this.sceneMutationQueue = null;
     });
     this.sceneMutationQueue = tail;
     return task;
+  }
+
+  /**
+   * Shows a paint on the vehicle without selecting it — a hover or keyboard-focus preview over the
+   * swatch row — and `previewOption(null)` puts the real selection back.
+   *
+   * Scene-only by design: nothing here touches `state`, so a preview is never saved, never priced,
+   * never undoable, and never announced as a change. Limited to single-select paint
+   * (`material-update`): paint is the one choice people compare by looking, it is a cheap material
+   * write, and — unlike a mesh replacement — it cannot download anything on hover.
+   */
+  previewOption(option: CustomizationOption | null): Promise<void> {
+    return this.enqueueSceneMutation(async () => {
+      const controller = this.controller;
+      const current = this.state.configuration;
+      if (!controller || !current) return;
+
+      if (option) {
+        const previewable = option.category === "paint" && option.operation === "material-update";
+        if (!previewable || isSelected(current.selections, option)) return;
+        this.previewing = option;
+        await controller.previewPaint(option);
+        return;
+      }
+
+      const previewed = this.previewing;
+      if (!previewed) return;
+      this.previewing = null;
+      // The configured option in the previewed swatch's own selection group, if any.
+      const group = selectionGroupOf(previewed);
+      const selected = (current.selections.paint ?? [])
+        .map((id) => this.state.catalog.find((candidate) => candidate.id === id))
+        .find((candidate): candidate is CustomizationOption => candidate !== undefined && selectionGroupOf(candidate) === group);
+      await controller.restorePaintAfterPreview(previewed, selected, current.paintStudio);
+    });
   }
 
   private async selectOptionSerialized(option: CustomizationOption): Promise<void> {

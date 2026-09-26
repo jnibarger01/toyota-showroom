@@ -35,6 +35,23 @@ export function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+let reducedMotionQuery: MediaQueryList | null | undefined;
+
+/**
+ * `prefersReducedMotion()` for per-frame callers (the hazard-lamp blink). A `MediaQueryList`'s
+ * `matches` is live, so one list is created and kept; reading it each frame costs no lookup and no
+ * allocation, and still follows the user changing the setting mid-session.
+ */
+export function prefersReducedMotionLive(): boolean {
+  if (reducedMotionQuery === undefined) {
+    reducedMotionQuery =
+      typeof window === "undefined" || typeof window.matchMedia !== "function"
+        ? null
+        : window.matchMedia("(prefers-reduced-motion: reduce)");
+  }
+  return reducedMotionQuery?.matches ?? false;
+}
+
 /**
  * Collapses an animation duration to zero when reduced motion is requested.
  *

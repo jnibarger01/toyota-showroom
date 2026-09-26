@@ -64,6 +64,9 @@ import {
 } from "../../lib/three/environmentController";
 import { RenderController } from "../../lib/three/renderController";
 import { FloorReflection } from "../../lib/three/floorReflection";
+import { FrontWheelSteer, steerAngleForPreset } from "../../lib/three/steering";
+import type { LampMode } from "../../lib/three/vehicleLights";
+import { prefersReducedMotion, prefersReducedMotionLive } from "../../lib/three/motionPreference";
 import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
 import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
@@ -183,9 +186,14 @@ type Props = {
   onPartHover?: (part: SceneRegistryEntry | undefined) => void;
   /** Fired on every selection change — a part click/tap/Enter, or a click on empty space/Escape clearing it. */
   onPartSelect?: (part: SceneRegistryEntry | undefined) => void;
+  /** Lamp state (`lib/three/vehicleLights.ts`). Scene-only, like the camera — not part of the build. */
+  lampMode?: LampMode;
+  /** Reports which lamp modes this vehicle's scene map can actually show, once it settles; `[]` hides
+   * the control. */
+  onLampModesAvailable?: (modes: LampMode[]) => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -232,6 +240,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const qualityPreferenceRef = useRef(qualityPreference);
   const onQualityNeedsReloadRef = useRef(onQualityNeedsReload);
   const xrControllerRef = useRef<XrSessionController | null>(null);
+  /** The settled vehicle's scene controller, for effects outside the setup closure (lamp mode). */
+  const sceneControllerRef = useRef<VehicleSceneController | null>(null);
+  const steerRef = useRef<FrontWheelSteer | null>(null);
+  const lampModeRef = useRef(lampMode);
+  const onLampModesAvailableRef = useRef(onLampModesAvailable);
   useEffect(() => {
     onReadyRef.current = onReady;
     onErrorRef.current = onError;
@@ -248,7 +261,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onQualityPreferenceLoadedRef.current = onQualityPreferenceLoaded;
     qualityPreferenceRef.current = qualityPreference;
     onQualityNeedsReloadRef.current = onQualityNeedsReload;
-  }, [cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
+    lampModeRef.current = lampMode;
+    onLampModesAvailableRef.current = onLampModesAvailable;
+  }, [lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -426,6 +441,17 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
             event.preventDefault();
             return;
           }
+          case "f":
+          case "F": {
+            // Keyboard equivalent of double-click: frame the selected part (or the "]"/"[" cursor).
+            if (!controller) return;
+            const id = controller.selectedPartId ?? controller.hoveredPartId;
+            const entry = id ? controller.getPart(id) : undefined;
+            if (!entry) return;
+            focusEntry(entry);
+            event.preventDefault();
+            return;
+          }
           case "Escape": {
             if (!controller) return;
             controller.clearSelection();
@@ -516,6 +542,25 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
       const isPrimaryPointer = (event: PointerEvent) => event.pointerType !== "mouse" || event.button === 0;
 
+      /** Frames a part: around `point` when there is one (a double-click), else its bounds centre. */
+      const focusEntry = (entry: SceneRegistryEntry, point?: THREE.Vector3) => {
+        const box = new THREE.Box3().setFromObject(entry.object);
+        if (box.isEmpty()) return;
+        const center = point ?? box.getCenter(new THREE.Vector3());
+        cameraController.focusOnPick([center.x, center.y, center.z], box.getSize(new THREE.Vector3()).length() / 2);
+      };
+
+      // Double-click / double-tap zooms to the spot under the pointer. The two clicks already
+      // selected the part via pointerup, so this only moves the camera.
+      const handleDoubleClick = (event: MouseEvent) => {
+        if (!controller || event.button !== 0) return;
+        const ndc = pointerToNdc(event.clientX, event.clientY, canvasElement.getBoundingClientRect());
+        const result = controller.pickAt(ndc, camera);
+        if (!result) return;
+        cameraController.cancelTour();
+        focusEntry(result.entry, result.point);
+      };
+
       const handlePointerDown = (event: PointerEvent) => {
         if (!isPrimaryPointer(event)) return;
         if (activePointerId !== null) {
@@ -579,6 +624,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       canvasElement.addEventListener("pointerup", handlePointerUp);
       canvasElement.addEventListener("pointerleave", handlePointerLeave);
       canvasElement.addEventListener("pointercancel", handlePointerLeave);
+      canvasElement.addEventListener("dblclick", handleDoubleClick);
 
       // Start the render loop before the ~28 MiB GLB settles so the placeholder paints
       // immediately. Quality governance, idle suspension, WebGL context loss/restoration, rAF
@@ -596,6 +642,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           !environmentController.isPassthrough;
         floorReflection.setEnabled(reflect);
         environmentController.setFloorReflective(reflect);
+        // Only hazards animate; checked first so a steady lamp mode costs no media query per frame.
+        const lights = sceneControllerRef.current?.lights;
+        if (lights?.currentMode === "hazard") lights.update(performance.now(), prefersReducedMotionLive());
         floorReflection.sync();
       });
 
@@ -618,6 +667,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         canvasElement.removeEventListener("pointerup", handlePointerUp);
         canvasElement.removeEventListener("pointerleave", handlePointerLeave);
         canvasElement.removeEventListener("pointercancel", handlePointerLeave);
+        canvasElement.removeEventListener("dblclick", handleDoubleClick);
+        sceneControllerRef.current = null;
+        steerRef.current = null;
         floorReflection.dispose();
         environmentControllerRef.current?.dispose();
         environmentControllerRef.current = null;
@@ -657,6 +709,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           );
         }
         controller = new VehicleSceneController(root, report.satisfied, getSceneMapForVehicle(slug));
+        sceneControllerRef.current = controller;
+        if (lampModeRef.current) controller.lights.setMode(lampModeRef.current);
+        onLampModesAvailableRef.current?.(controller.lights.availableModes());
         for (const unsatisfied of controller.sceneMapReport.unsatisfied) {
           // Distinct wording from the customization-option warning just above on purpose: a
           // forward-declared scene-map entry with no matching geometry yet (tests/e2e/model-
@@ -696,6 +751,12 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         scene.add(contactShadow);
         scene.add(root);
         floorReflection.setSource(root);
+        // Captured at rest, after grounding; the preset effect below animates it from here.
+        const steer = threeDConfig.heroSteer && root.userData.__progressivePlaceholder !== true
+          ? new FrontWheelSteer(root, threeDConfig.heroSteer.nodeNames)
+          : null;
+        if (steer) steer.setAngle(steerAngleForPreset(cameraPresetRef.current.id, threeDConfig.heroSteer?.degrees));
+        steerRef.current = steer;
         rootRef.current = root;
         groundedYRef.current = root.position.y;
         setSceneRevision((revision) => revision + 1);
@@ -946,6 +1007,29 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   }, [cameraPreset]);
 
   useEffect(() => {
+    // Hero shot: wheels turned to show their face; every other preset: straight ahead. Tweened with
+    // the camera move (reduced motion lands it instantly, like the camera itself).
+    const steer = steerRef.current;
+    if (!steer) return;
+    const target = steerAngleForPreset(cameraPreset.id, threeDConfig.heroSteer?.degrees);
+    const proxy = { angle: steer.currentAngle };
+    const tween = gsap.to(proxy, {
+      angle: target,
+      duration: motionDuration(0.6),
+      ease: "power2.inOut",
+      onUpdate: () => steer.setAngle(proxy.angle),
+    });
+    return () => {
+      tween.kill();
+    };
+  }, [cameraPreset.id, sceneRevision, threeDConfig.heroSteer?.degrees]);
+
+  useEffect(() => {
+    if (!lampMode) return;
+    sceneControllerRef.current?.lights.setMode(lampMode);
+  }, [lampMode]);
+
+  useEffect(() => {
     // `undefined` is the initial render, not a request — resetting on mount would fight the
     // preset transition that has just been started for the initial pose.
     if (resetViewSignal === undefined) return;
@@ -1037,7 +1121,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
           "and Home to return to the selected camera angle. Use the right and left bracket keys " +
           "to cycle through selectable vehicle parts, Enter to select the highlighted part, and " +
-          "Escape to clear the selection. Click or tap a part directly to select it."
+          "Escape to clear the selection, and F to zoom to the selected part. Click or tap a part " +
+          "directly to select it; double-click to zoom to it."
         }
       />
       {modelStatus ? (

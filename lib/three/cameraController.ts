@@ -80,6 +80,10 @@ export function prefersCoarsePointer(): boolean {
   return false;
 }
 
+/** Framing range for `focusOnPick`, in metres of part radius. */
+export const FOCUS_PICK_MIN_RADIUS = 0.35;
+export const FOCUS_PICK_MAX_RADIUS = 1.1;
+
 export class CameraController {
   readonly camera: THREE.PerspectiveCamera;
   readonly controls: OrbitControls;
@@ -109,6 +113,9 @@ export class CameraController {
     this.controls.minDistance = this.limits.minDistance;
     this.controls.maxDistance = this.limits.maxDistance;
     this.controls.maxPolarAngle = this.limits.maxPolarAngle;
+    // Wheel/pinch zoom dollies toward what is under the cursor rather than the orbit target, so
+    // zooming at a wheel or a badge actually gets closer to it instead of to the car's centre.
+    this.controls.zoomToCursor = true;
 
     /*
      * Touch mapping, stated rather than inherited.
@@ -316,6 +323,16 @@ export class CameraController {
     const duration = motionDuration(FOCUS_TRANSITION_SECONDS);
     gsap.to(this.camera.position, { x: newPosition.x, y: newPosition.y, z: newPosition.z, duration, ease: "power3.inOut" });
     gsap.to(this.controls.target, { x: target.x, y: target.y, z: target.z, duration, ease: "power3.inOut" });
+  }
+
+  /**
+   * Frames a picked point on the vehicle: `point` becomes the orbit target, and the distance fits a
+   * sphere of `partRadius` clamped to a detail-shot range. Clamped because a part's bounds can be the
+   * whole car (a material region lives on the full `BODY` mesh) — the viewer double-clicked a spot,
+   * so the spot is what they want to see, not the part's entire extent.
+   */
+  focusOnPick(point: readonly [number, number, number], partRadius: number): void {
+    this.focusPoint(point, THREE.MathUtils.clamp(partRadius, FOCUS_PICK_MIN_RADIUS, FOCUS_PICK_MAX_RADIUS));
   }
 
   dispose(): void {

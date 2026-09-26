@@ -5,6 +5,8 @@ import * as THREE from "three";
 import {
   CameraController,
   DEFAULT_CAMERA_LIMITS,
+  FOCUS_PICK_MAX_RADIUS,
+  FOCUS_PICK_MIN_RADIUS,
   DESKTOP_DAMPING_FACTOR,
   DESKTOP_ROTATE_SPEED,
   DESKTOP_ZOOM_SPEED,
@@ -537,4 +539,22 @@ describe("CameraController", () => {
       b.dispose();
     });
   });
+
+describe("CameraController interaction additions", () => {
+  it("zooms toward the cursor, and frames a double-clicked point at a detail-shot distance", () => {
+    const controller = new CameraController({
+      domElement: document.createElement("canvas"),
+      initialPreset: hero,
+      presets: [hero],
+    });
+    expect((controller as unknown as { controls: { zoomToCursor: boolean } }).controls.zoomToCursor).toBe(true);
+    const focusPoint = vi.spyOn(controller, "focusPoint");
+    controller.focusOnPick([1, 1, 1], 5); // a whole-body part radius
+    controller.focusOnPick([1, 1, 1], 0.01); // a tiny badge
+    expect(focusPoint.mock.calls[0]![1]).toBe(FOCUS_PICK_MAX_RADIUS);
+    expect(focusPoint.mock.calls[1]![1]).toBe(FOCUS_PICK_MIN_RADIUS);
+    controller.dispose();
+  });
+});
+
 });

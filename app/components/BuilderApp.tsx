@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import type { CameraPreset, TourAction, TourStatus } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
+import { LAMP_MODES, type LampMode } from "../../lib/three/vehicleLights";
 import { PaintStudioPanel } from "./PaintStudioPanel";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
@@ -269,6 +270,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [xrError, setXrError] = useState<string | null>(null);
   /** Mirrors the renderer's stored preference; `VehicleCanvas` reports the real value on mount. */
   const [qualityPreference, setQualityPreference] = useState<QualityPreference>("auto");
+  /** Lamp state is a viewing aid like the camera angle, not part of the build — never saved. */
+  const [lampMode, setLampMode] = useState<LampMode>("modeled");
+  /** `[]` until the vehicle settles, and for vehicles whose scene map names no lamps. */
+  const [lampModes, setLampModes] = useState<LampMode[]>([]);
   /** True when the chosen tier needs a reload to apply in full — see `qualityPreferenceNeedsReload`. */
   const [qualityNeedsReload, setQualityNeedsReload] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -1505,6 +1510,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               qualityPreference={qualityPreference}
               onQualityPreferenceLoaded={setQualityPreference}
               onQualityNeedsReload={setQualityNeedsReload}
+              lampMode={lampMode}
+              onLampModesAvailable={setLampModes}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}
@@ -1684,6 +1691,27 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 </button>
               ))}
             </div>
+            {lampModes.length > 0 ? (
+              <>
+                {/* Here rather than in the stage toolbar: it sits with the other "how is the car
+                  * being shown" controls, and a sixth toolbar control overflowed the row at desktop
+                  * widths. Only rendered for vehicles whose scene map names lamps. */}
+                <label id="lamp-mode-label"><Lightbulb size={14} /> Lights</label>
+                <div className="segmented lamp-modes" role="group" aria-labelledby="lamp-mode-label" data-testid="lamp-mode">
+                  {LAMP_MODES.filter((mode) => lampModes.includes(mode.id)).map((mode) => (
+                    <button
+                      key={mode.id}
+                      className={lampMode === mode.id ? "active" : ""}
+                      aria-pressed={lampMode === mode.id}
+                      title={mode.description}
+                      onClick={() => setLampMode(mode.id)}
+                    >
+                      {mode.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </section>
           <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>{formatCurrency(baseMsrp)}</b></p><p><span>Configured upgrades</span><b>{formatPriceDelta(estimatedTotal - baseMsrp)}</b></p><p className="total"><span>Estimated total</span><b data-testid="estimated-total">{formatCurrency(estimatedTotal)}</b></p></section>
           <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={baseMsrp} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `${formatCurrency(estimatedTotal - budget)} over target` : `${formatCurrency(budget - estimatedTotal)} remaining`}</p></section>

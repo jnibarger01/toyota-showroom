@@ -111,6 +111,28 @@ describe("CustomizationButton", () => {
     expect(screen.queryByText("Blueprint")).not.toBeInTheDocument();
   });
 
+  it("keeps a swatch preview open while either hover or keyboard focus still holds it", async () => {
+    await attach();
+    const previewSpy = vi.spyOn(configurationStore, "previewOption").mockResolvedValue(undefined);
+    render(<CustomizationButton option={paint} variant="swatch" />);
+    const swatch = screen.getByRole("button", { name: "Blueprint" });
+
+    fireEvent.focus(swatch);
+    fireEvent.pointerEnter(swatch, { pointerType: "mouse" });
+    fireEvent.pointerLeave(swatch, { pointerType: "mouse" }); // still focused
+    expect(previewSpy.mock.calls).toEqual([[paint]]);
+    fireEvent.blur(swatch);
+    expect(previewSpy.mock.calls).toEqual([[paint], [null]]);
+
+    fireEvent.pointerEnter(swatch, { pointerType: "mouse" });
+    fireEvent.focus(swatch);
+    fireEvent.blur(swatch); // still hovered
+    expect(previewSpy.mock.calls.at(-1)).toEqual([paint]);
+    fireEvent.pointerLeave(swatch, { pointerType: "mouse" });
+    expect(previewSpy.mock.calls.at(-1)).toEqual([null]);
+    previewSpy.mockRestore();
+  });
+
   it("reflects the store's selection state as aria-pressed and the active class", async () => {
     await attach({ paint: [paint.id] });
     render(<CustomizationButton option={paint} variant="swatch" />);
