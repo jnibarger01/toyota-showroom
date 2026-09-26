@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { withBasePath } from "../shared/basePath";
 import { RGBELoader } from "three/examples/jsm/loaders/RGBELoader.js";
-import { getHdriPreset, type HdriLightingKey } from "../data/paintStudio";
+import { getHdriPreset, type HdriLightingKey, type HdriPreset } from "../data/paintStudio";
 
 /**
  * Applies a catalog HDRI preset to a scene.
@@ -152,6 +152,26 @@ function isWebGLRenderer(
  * only recourse is disposing that handle, which clears `scene.environment` out from under the newer
  * request that had already committed. Returns `null` without side effects when it reports false.
  */
+/**
+ * The preset's analytic side — background, hemisphere, key/rim/fill colours and intensities —
+ * without touching `scene.environment`. Split out so re-applying an already-live preset (a terrain
+ * or lighting change repainted the lights) can restore its palette without re-filtering its map.
+ */
+export function applyHdriPalette(refs: HdriLightRefs, preset: HdriPreset): (typeof LIGHTING)[HdriLightingKey] {
+  const palette = LIGHTING[preset.lightingKey];
+  refs.scene.background = new THREE.Color(palette.bg);
+  refs.hemi.color.set(palette.hemiSky);
+  refs.hemi.groundColor.set(palette.hemiGround);
+  refs.hemi.intensity = palette.hemi;
+  refs.key.color.set(palette.keyColor);
+  refs.key.intensity = palette.key;
+  refs.rim.color.set(palette.rimColor);
+  refs.rim.intensity = palette.rim;
+  refs.fill.color.set(palette.fillColor);
+  refs.fill.intensity = palette.fill;
+  return palette;
+}
+
 export async function applyHdriPreset(
   refs: HdriLightRefs,
   renderer: THREE.WebGLRenderer | { isWebGLRenderer?: boolean },
@@ -167,17 +187,7 @@ export async function applyHdriPreset(
     return null;
   }
 
-  const palette = LIGHTING[preset.lightingKey];
-  refs.scene.background = new THREE.Color(palette.bg);
-  refs.hemi.color.set(palette.hemiSky);
-  refs.hemi.groundColor.set(palette.hemiGround);
-  refs.hemi.intensity = palette.hemi;
-  refs.key.color.set(palette.keyColor);
-  refs.key.intensity = palette.key;
-  refs.rim.color.set(palette.rimColor);
-  refs.rim.intensity = palette.rim;
-  refs.fill.color.set(palette.fillColor);
-  refs.fill.intensity = palette.fill;
+  const palette = applyHdriPalette(refs, preset);
 
   if (!preset.hdrUrl) {
     refs.scene.environment = null;

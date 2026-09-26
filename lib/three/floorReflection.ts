@@ -76,7 +76,9 @@ export class FloorReflection {
       }
     }
     for (const [from, to] of this.pairs) {
-      to.visible = from.visible;
+      // A mirrored light (a fog-lamp accessory's PointLight) would light the real vehicle from
+      // under the floor — doubling the accessory's light and its cost — so it never switches on.
+      to.visible = to instanceof THREE.Light ? false : from.visible;
       to.position.copy(from.position);
       to.quaternion.copy(from.quaternion);
       to.scale.copy(from.scale);
@@ -101,6 +103,7 @@ export class FloorReflection {
       // Never picked (the raycaster would otherwise find a part "under the floor"), never casts or
       // receives shadow (the real vehicle already does, and a mirrored caster would double it).
       to.raycast = () => {};
+      if (to instanceof THREE.Light) to.visible = false;
       if (to instanceof THREE.Mesh) {
         to.castShadow = false;
         to.receiveShadow = false;
