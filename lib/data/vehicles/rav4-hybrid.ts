@@ -66,5 +66,12 @@ export const rav4Hybrid: Vehicle = {
     paintableMaterialNames: ["Tdummy_material_0_085", "Color_2"],
     wheelMountNames: ["T1_T:dummy_material_0_133_0", "T2_T:dummy_material_0_133_0", "T3_T:dummy_material_0_133_0", "T4_T:dummy_material_0_133_0"],
     interiorMaterialNames: ["int_Leather"],
+    // The export splits each door into ~20 sibling nodes sharing a prefix, hence prefixes.
+    doors: [
+      { id: "front-left", label: "Driver door", kind: "side", nodePrefix: "T:SK_Door_FL_" },
+      { id: "front-right", label: "Passenger door", kind: "side", nodePrefix: "T:SK_Door_FR_" },
+      { id: "rear-left", label: "Rear left door", kind: "side", nodePrefix: "T:SK_Door_BL_" },
+      { id: "rear-right", label: "Rear right door", kind: "side", nodePrefix: "T:SK_Door_BR_" },
+    ],
   },
 };

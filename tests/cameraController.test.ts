@@ -7,6 +7,8 @@ import {
   DEFAULT_CAMERA_LIMITS,
   FOCUS_PICK_MAX_RADIUS,
   FOCUS_PICK_MIN_RADIUS,
+  DRIVER_FOV,
+  DRIVER_NEAR,
   DESKTOP_DAMPING_FACTOR,
   DESKTOP_ROTATE_SPEED,
   DESKTOP_ZOOM_SPEED,
@@ -557,4 +559,77 @@ describe("CameraController interaction additions", () => {
   });
 });
 
+});
+
+describe("CameraController driver view", () => {
+  it("hands the camera to the seat, keeps OrbitControls out of it, and gives it back on a preset", () => {
+    const controller = new CameraController({ domElement: document.createElement("canvas"), initialPreset: hero, presets: [hero, wheels] });
+    const eye = new THREE.Vector3(-0.4, 1.2, -0.3);
+    const showroomFov = controller.camera.fov;
+    controller.enterDriverView(eye);
+    expect(controller.isDriverView).toBe(true);
+    expect(controller.camera.fov).toBe(DRIVER_FOV);
+    expect(controller.camera.near).toBe(DRIVER_NEAR);
+    expect(controller.camera.position.distanceTo(eye)).toBeLessThan(1e-9);
+    controller.update(); // must not let OrbitControls re-derive the pose
+    expect(controller.camera.position.distanceTo(eye)).toBeLessThan(1e-9);
+    controller.dollyBy(5); // no zoom from the seat
+    expect(controller.camera.position.distanceTo(eye)).toBeLessThan(1e-9);
+
+    controller.resetToPreset(wheels);
+    expect(controller.isDriverView).toBe(false);
+    expect(controller.camera.fov).toBe(showroomFov);
+    expect(controller.camera.position.toArray()).toEqual(expect.arrayContaining([expect.any(Number)]));
+    controller.dispose();
+  });
+});
+
+describe("CameraController driver view and the tour", () => {
+  it("leaves the seat (lens and OrbitControls restored) before the tour flies the camera", () => {
+    const controller = new CameraController({ domElement: document.createElement("canvas"), initialPreset: hero, presets: [hero, wheels] });
+    const showroomFov = controller.camera.fov;
+    controller.enterDriverView(new THREE.Vector3(-0.4, 1.2, -0.3));
+    controller.playTour();
+    expect(controller.isDriverView).toBe(false);
+    expect(controller.camera.fov).toBe(showroomFov);
+    controller.cancelTour();
+    controller.dispose();
+  });
+
+  it("follows the vehicle when it moves under a seated driver, keeping where they are looking", () => {
+    const controller = new CameraController({ domElement: document.createElement("canvas"), initialPreset: hero, presets: [hero, wheels] });
+    controller.enterDriverView(new THREE.Vector3(-0.4, 1.2, -0.3));
+    const facing = controller.camera.getWorldDirection(new THREE.Vector3());
+    controller.moveDriverEye(new THREE.Vector3(-0.4, 1.3, -0.3)); // a 10 cm lift
+    expect(controller.camera.position.y).toBeCloseTo(1.3, 6);
+    expect(controller.camera.getWorldDirection(new THREE.Vector3()).angleTo(facing)).toBeLessThan(1e-6);
+    controller.dispose();
+  });
+});
+
+describe("CameraController driver view drag", () => {
+  it("follows only the pointer that started the drag, and a cancel ends it", () => {
+    const canvas = document.createElement("canvas");
+    // jsdom has no pointer capture; OrbitControls' own (disabled-mode) cancel handler calls it.
+    Object.assign(canvas, { setPointerCapture: () => {}, releasePointerCapture: () => {} });
+    const controller = new CameraController({ domElement: canvas, initialPreset: hero, presets: [hero, wheels] });
+    controller.enterDriverView(new THREE.Vector3(-0.4, 1.2, -0.3));
+    const pointer = (type: string, pointerId: number, clientX: number) =>
+      canvas.dispatchEvent(Object.assign(new Event(type), { pointerId, clientX, clientY: 0 }));
+    const facing = () => controller.camera.getWorldDirection(new THREE.Vector3());
+
+    pointer("pointerdown", 1, 100);
+    pointer("pointerdown", 2, 600); // a second finger lands
+    const before = facing();
+    pointer("pointermove", 1, 110); // first finger moves 10 px — measured from its own origin
+    expect(facing().angleTo(before)).toBeLessThan(0.1);
+    const beforeSecond = facing();
+    pointer("pointermove", 2, 900); // the second finger is ignored
+    const afterSecond = facing();
+    expect(afterSecond.angleTo(beforeSecond)).toBeLessThan(1e-9);
+    pointer("pointercancel", 1, 110);
+    pointer("pointermove", 1, 400); // drag over: no more turning
+    expect(facing().angleTo(afterSecond)).toBeLessThan(1e-9);
+    controller.dispose();
+  });
 });

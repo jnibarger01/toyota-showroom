@@ -15,6 +15,7 @@ import {
   CircleGauge,
   Cog,
   Expand,
+  Eye,
   Landmark,
   Lightbulb,
   Loader2,
@@ -42,6 +43,7 @@ import {
 import type { CameraPreset, TourAction, TourStatus } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
 import { LAMP_MODES, type LampMode } from "../../lib/three/vehicleLights";
+import { dimensionSpecsFrom } from "../../lib/showroom/dimensionSpecs";
 import { PaintStudioPanel } from "./PaintStudioPanel";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
@@ -274,6 +276,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [lampMode, setLampMode] = useState<LampMode>("modeled");
   /** `[]` until the vehicle settles, and for vehicles whose scene map names no lamps. */
   const [lampModes, setLampModes] = useState<LampMode[]>([]);
+  // Showroom view tools. Viewing aids, never part of the build: nothing here is saved or priced.
+  const [showHotspots, setShowHotspots] = useState(false);
+  const [showDimensions, setShowDimensions] = useState(false);
+  const [doorsOpen, setDoorsOpen] = useState(false);
+  const [hotspotsAvailable, setHotspotsAvailable] = useState(false);
+  const [doorsAvailable, setDoorsAvailable] = useState(false);
+  const [driverView, setDriverView] = useState(false);
+  const [driverViewAvailable, setDriverViewAvailable] = useState(false);
+  const dimensionSpecs = useMemo(() => dimensionSpecsFrom(bootstrap?.vehicle.specs ?? []), [bootstrap]);
   /** True when the chosen tier needs a reload to apply in full — see `qualityPreferenceNeedsReload`. */
   const [qualityNeedsReload, setQualityNeedsReload] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -317,6 +328,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [selectedPart, setSelectedPart] = useState<SceneRegistryEntry | undefined>(undefined);
 
   const { configuration, catalog, status, error, saveFailure } = useConfiguration();
+  /** Categories this vehicle's served catalog actually has — a hotspot may only open one of these. */
+  const hotspotCategories = useMemo(
+    () => [...new Set(catalog.map((option) => option.category))],
+    [catalog],
+  );
   const persistenceMode = usePersistenceMode();
 
   useEffect(() => {
@@ -585,6 +601,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     [catalog],
   );
   const selectedIds = useMemo(() => new Set(Object.values(configuration?.selections ?? {}).flat()), [configuration]);
+  // What the scene is built from; the dimensions overlay re-measures when it changes.
+  const configurationKey = useMemo(() => JSON.stringify(configuration?.selections ?? {}), [configuration]);
   const visibleCatalog = useMemo(
     () => filterBuildOptions(catalog, optionQuery, selectedIds, selectedOnly),
     [catalog, optionQuery, selectedIds, selectedOnly],
@@ -1512,6 +1530,28 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onQualityNeedsReload={setQualityNeedsReload}
               lampMode={lampMode}
               onLampModesAvailable={setLampModes}
+              hotspotCategories={hotspotCategories}
+              showHotspots={showHotspots}
+              onHotspotActivate={(category) => {
+                setActiveCategory(category);
+                // At the mobile breakpoint the panel is off-screen until opened, so a hotspot has to
+                // open it too. The Customize trigger being displayed is that layout's own signal —
+                // on desktop the panel is always visible and must not become a focus trap.
+                const trigger = mobileTriggerRef.current;
+                if (trigger && getComputedStyle(trigger).display !== "none") {
+                  setTourOpen(false);
+                  setMobilePanelOpen(true);
+                }
+              }}
+              showDimensions={showDimensions}
+              dimensionSpecs={dimensionSpecs}
+              onHotspotsAvailable={setHotspotsAvailable}
+              configurationKey={configurationKey}
+              doorsOpen={doorsOpen}
+              onDoorsAvailable={setDoorsAvailable}
+              driverView={driverView}
+              onDriverViewAvailable={setDriverViewAvailable}
+              onDriverViewExit={() => setDriverView(false)}
               onReady={handleSceneReady}
               onError={handleSceneError}
               onProgress={setModelProgress}
@@ -1690,6 +1730,20 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   {item}
                 </button>
               ))}
+            </div>
+            {/* Toggles, not a segmented choice: each is independently on or off. */}
+            <label id="view-tools-label"><Eye size={14} /> View</label>
+            <div className="segmented view-tools" role="group" aria-labelledby="view-tools-label">
+              {hotspotsAvailable ? (
+                <button className={showHotspots ? "active" : ""} aria-pressed={showHotspots} data-testid="toggle-hotspots" onClick={() => setShowHotspots((value) => !value)}>Features</button>
+              ) : null}
+              <button className={showDimensions ? "active" : ""} aria-pressed={showDimensions} data-testid="toggle-dimensions" onClick={() => setShowDimensions((value) => !value)}>Dimensions</button>
+              {doorsAvailable ? (
+                <button className={doorsOpen ? "active" : ""} aria-pressed={doorsOpen} data-testid="toggle-doors" onClick={() => setDoorsOpen((value) => !value)}>Doors</button>
+              ) : null}
+              {driverViewAvailable ? (
+                <button className={driverView ? "active" : ""} aria-pressed={driverView} data-testid="toggle-driver-view" title="Look around from the driver's seat (arrow keys or drag)" onClick={() => setDriverView((value) => !value)}>Driver</button>
+              ) : null}
             </div>
             {lampModes.length > 0 ? (
               <>

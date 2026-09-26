@@ -57,5 +57,10 @@ export const grSupra: Vehicle = {
     paintableMaterialNames: ["Paint", "PaintSecondary"],
     wheelMountNames: ["Wheel_01_LF", "Wheel_01_RF", "Wheel_01_LR", "Wheel_01_RR"],
     interiorMaterialNames: ["InteriorBase", "InteriorColor2"], groundingNodeNames: ["RootNode"],
+    driverView: { steeringWheelNodeNames: ["SteeringWheel_Interior", "SteeringWheel_Badge"] },
+    doors: [
+      { id: "left", label: "Driver door", kind: "side", nodeNames: ["DoorLF"] },
+      { id: "right", label: "Passenger door", kind: "side", nodeNames: ["DoorRF"] },
+    ],
   },
 };

@@ -44,6 +44,7 @@ import { VehicleSceneController } from "../../lib/three/sceneController";
 import { getGltfLoader, instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { resolveAssetUrl } from "../../lib/three/assetUrl";
 import { findNodeByName, logHierarchy, verifyNodeContract } from "../../lib/three/nodes";
+import { worldBoundsOf } from "../../lib/three/showroomFrame";
 import { getSceneMapForVehicle } from "../../lib/data/sceneMap";
 import { pointerToNdc } from "../../lib/three/picking";
 import type { SceneRegistryEntry } from "../../lib/three/sceneRegistry";
@@ -66,6 +67,11 @@ import { RenderController } from "../../lib/three/renderController";
 import { FloorReflection } from "../../lib/three/floorReflection";
 import { FrontWheelSteer, steerAngleForPreset } from "../../lib/three/steering";
 import type { LampMode } from "../../lib/three/vehicleLights";
+import { DoorRig } from "../../lib/three/doors";
+import { driverEyeFromSteeringWheel } from "../../lib/three/interiorView";
+import { buildDimensionsOverlay, disposeDimensionsOverlay, type DimensionLabel, type DimensionSpec } from "../../lib/three/dimensions";
+import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples, visibleStandIn, type Hotspot } from "../../lib/three/hotspots";
+import type { CustomizationCategory } from "../../lib/types/customization";
 import { prefersReducedMotion, prefersReducedMotionLive } from "../../lib/three/motionPreference";
 import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
 import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
@@ -191,9 +197,32 @@ type Props = {
   /** Reports which lamp modes this vehicle's scene map can actually show, once it settles; `[]` hides
    * the control. */
   onLampModesAvailable?: (modes: LampMode[]) => void;
+  /** Feature hotspots (`lib/three/hotspots.ts`) for these catalog categories; empty/omitted = none. */
+  hotspotCategories?: readonly CustomizationCategory[];
+  showHotspots?: boolean;
+  /** A hotspot was activated — the chrome opens `category`. */
+  onHotspotActivate?: (category: CustomizationCategory) => void;
+  /** Dimensions overlay (`lib/three/dimensions.ts`), labelled with these catalog figures. */
+  showDimensions?: boolean;
+  dimensionSpecs?: readonly DimensionSpec[];
+  /** Opens every door/lid the vehicle models separately (`threeDConfig.doors`). */
+  doorsOpen?: boolean;
+  onDoorsAvailable?: (available: boolean) => void;
+  /** Whether this vehicle yields any hotspot — the chrome offers Features only when it does. */
+  onHotspotsAvailable?: (available: boolean) => void;
+  /**
+   * Changes whenever the configured selections do. The dimensions overlay is measured off visible
+   * geometry, so a newly fitted roof rack or lift kit has to re-measure it.
+   */
+  configurationKey?: string;
+  /** Driver's-seat camera (`lib/three/interiorView.ts`). */
+  driverView?: boolean;
+  onDriverViewAvailable?: (available: boolean) => void;
+  /** The view left the seat on its own (a camera preset, Home) — the chrome should un-toggle. */
+  onDriverViewExit?: () => void;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, onHotspotsAvailable, configurationKey, driverView = false, onDriverViewAvailable, onDriverViewExit }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -245,6 +274,25 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const steerRef = useRef<FrontWheelSteer | null>(null);
   const lampModeRef = useRef(lampMode);
   const onLampModesAvailableRef = useRef(onLampModesAvailable);
+  const doorRigRef = useRef<DoorRig | null>(null);
+  const driverEyeRef = useRef<THREE.Vector3 | null>(null);
+  const onDoorsAvailableRef = useRef(onDoorsAvailable);
+  const onHotspotsAvailableRef = useRef(onHotspotsAvailable);
+  const onDriverViewAvailableRef = useRef(onDriverViewAvailable);
+  const onDriverViewExitRef = useRef(onDriverViewExit);
+  const driverViewRef = useRef(driverView);
+  /** Scene-owned overlay state read by the per-frame tick, which cannot see React props. */
+  const overlayRef = useRef<{
+    hotspots: Hotspot[];
+    showHotspots: boolean;
+    hotspotElements: Map<string, HTMLButtonElement>;
+    labels: DimensionLabel[];
+    labelElements: Map<string, HTMLSpanElement>;
+    dimensions: THREE.Group | null;
+    frame: number;
+  }>({ hotspots: [], showHotspots: false, hotspotElements: new Map(), labels: [], labelElements: new Map(), dimensions: null, frame: 0 });
+  const [hotspots, setHotspots] = useState<Hotspot[]>([]);
+  const [dimensionLabels, setDimensionLabels] = useState<DimensionLabel[]>([]);
   useEffect(() => {
     onReadyRef.current = onReady;
     onErrorRef.current = onError;
@@ -263,7 +311,12 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onQualityNeedsReloadRef.current = onQualityNeedsReload;
     lampModeRef.current = lampMode;
     onLampModesAvailableRef.current = onLampModesAvailable;
-  }, [lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
+    onDoorsAvailableRef.current = onDoorsAvailable;
+    onHotspotsAvailableRef.current = onHotspotsAvailable;
+    onDriverViewAvailableRef.current = onDriverViewAvailable;
+    onDriverViewExitRef.current = onDriverViewExit;
+    driverViewRef.current = driverView;
+  }, [onDoorsAvailable, onHotspotsAvailable, onDriverViewAvailable, onDriverViewExit, driverView, lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -626,6 +679,82 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       canvasElement.addEventListener("pointercancel", handlePointerLeave);
       canvasElement.addEventListener("dblclick", handleDoubleClick);
 
+      /**
+       * Positions the DOM overlays (hotspot buttons, dimension labels) over the canvas. Writes
+       * `style.transform` directly: React state per frame would cost more than the frame.
+       * Hotspot anchors need raycasts (occlusion) against the whole vehicle, so they are only
+       * re-resolved when the view changes — the camera or the vehicle moved — and then one hotspot
+       * per frame, round-robin. A still view costs no raycasts at all.
+       */
+      const driverEyeWorld = new THREE.Vector3();
+      const hotspotAnchors = new Map<string, THREE.Vector3 | null>();
+      const hotspotSamples = new Map<string, THREE.Vector3[]>();
+      const lastCamera = new THREE.Matrix4();
+      const lastRoot = new THREE.Matrix4();
+      let lastHotspots: Hotspot[] | null = null;
+      let viewDirty = true;
+      let pendingAnchors: string[] = [];
+      const updateOverlays = () => {
+        const overlay = overlayRef.current;
+        overlay.frame += 1;
+        const width = canvasElement.clientWidth;
+        const height = canvasElement.clientHeight;
+        const place = (element: HTMLElement, point: THREE.Vector3 | null | undefined) => {
+          const screen = point ? projectToScreen(point, camera, width, height) : null;
+          element.hidden = !screen;
+          if (screen) element.style.transform = `translate(${screen.x}px, ${screen.y}px) translate(-50%, -50%)`;
+        };
+        if (overlay.showHotspots && controller && !cameraController.isDriverView) {
+          // Camera pose and vehicle placement (lift) together decide what is visible. Samples are
+          // world-space, so only a vehicle move (or a new vehicle) invalidates them.
+          if (overlay.hotspots !== lastHotspots || !controller.root.matrixWorld.equals(lastRoot)) {
+            lastHotspots = overlay.hotspots;
+            lastRoot.copy(controller.root.matrixWorld);
+            hotspotSamples.clear();
+            hotspotAnchors.clear();
+            pendingAnchors = [];
+            viewDirty = true;
+          }
+          if (!camera.matrixWorld.equals(lastCamera)) {
+            lastCamera.copy(camera.matrixWorld);
+            viewDirty = true;
+          }
+          // Configuration changes (a wheel package swapping in, a door opening) change what is
+          // visible without moving anything, so a still view is also re-checked about once a second.
+          if (overlay.frame % 60 === 0) viewDirty = true;
+          // Finish a pass before starting the next, so a continuous orbit still reaches every hotspot.
+          if (viewDirty && pendingAnchors.length === 0) {
+            viewDirty = false;
+            pendingAnchors = overlay.hotspots.map((hotspot) => hotspot.partId);
+          }
+          const partId = pendingAnchors.shift();
+          if (partId) {
+            const part = controller.getPart(partId);
+            const category = overlay.hotspots.find((hotspot) => hotspot.partId === partId)?.category;
+            const target = part && category ? visibleStandIn(part.object, controller.root, category) : null;
+            // Keyed by the object anchored to, not the part: a package swap changes the target.
+            let samples = target ? hotspotSamples.get(target.uuid) : undefined;
+            if (target && !samples) {
+              samples = surfaceSamples(target);
+              hotspotSamples.set(target.uuid, samples);
+            }
+            hotspotAnchors.set(partId, target ? resolveHotspotAnchor(target, controller.root, camera, samples) : null);
+          }
+          for (const hotspot of overlay.hotspots) {
+            const element = overlay.hotspotElements.get(hotspot.partId);
+            if (element) place(element, hotspotAnchors.get(hotspot.partId));
+          }
+        } else {
+          hotspotAnchors.clear();
+          lastHotspots = null;
+          for (const element of overlay.hotspotElements.values()) element.hidden = true;
+        }
+        for (const label of overlay.labels) {
+          const element = overlay.labelElements.get(label.key);
+          if (element) place(element, overlay.dimensions ? label.anchor : null);
+        }
+      };
+
       // Start the render loop before the ~28 MiB GLB settles so the placeholder paints
       // immediately. Quality governance, idle suspension, WebGL context loss/restoration, rAF
       // scheduling, and frame-stat publishing are all `RenderController`'s own job now (Mission
@@ -646,6 +775,17 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         const lights = sceneControllerRef.current?.lights;
         if (lights?.currentMode === "hazard") lights.update(performance.now(), prefersReducedMotionLive());
         floorReflection.sync();
+        // Seated: follow the vehicle (a lift change moves the cabin; the head must go with it).
+        const seatRoot = rootRef.current;
+        if (cameraController.isDriverView && seatRoot && driverEyeRef.current) {
+          cameraController.moveDriverEye(seatRoot.localToWorld(driverEyeWorld.copy(driverEyeRef.current)));
+        }
+        // The seat can be left by a camera preset, Home or the tour without the chrome asking; tell it.
+        if (driverViewRef.current && !cameraController.isDriverView) {
+          driverViewRef.current = false;
+          onDriverViewExitRef.current?.();
+        }
+        updateOverlays();
       });
 
       // Assign cleanup before any await so an unmount mid-load still tears the renderer down.
@@ -669,6 +809,12 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         canvasElement.removeEventListener("pointercancel", handlePointerLeave);
         canvasElement.removeEventListener("dblclick", handleDoubleClick);
         sceneControllerRef.current = null;
+        doorRigRef.current = null;
+        driverEyeRef.current = null;
+        if (overlayRef.current.dimensions) {
+          disposeDimensionsOverlay(overlayRef.current.dimensions);
+          overlayRef.current.dimensions = null;
+        }
         steerRef.current = null;
         floorReflection.dispose();
         environmentControllerRef.current?.dispose();
@@ -757,6 +903,17 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           : null;
         if (steer) steer.setAngle(steerAngleForPreset(cameraPresetRef.current.id, threeDConfig.heroSteer?.degrees));
         steerRef.current = steer;
+
+        const isPlaceholder = root.userData.__progressivePlaceholder === true;
+        // Doors: only assets that model them separately, and never the procedural stand-in.
+        const doors = !isPlaceholder && threeDConfig.doors?.length ? new DoorRig(root, threeDConfig.doors) : null;
+        doorRigRef.current = doors && doors.available.length > 0 ? doors : null;
+        onDoorsAvailableRef.current?.(doorRigRef.current !== null);
+        // Driver's seat: only with interior geometry to sit in.
+        // Kept in the vehicle's own space: Lift moves the root after this, and the seat moves with it.
+        const eye = isPlaceholder ? null : driverEyeFor(root, threeDConfig.driverView?.steeringWheelNodeNames);
+        driverEyeRef.current = eye ? root.worldToLocal(eye) : null;
+        onDriverViewAvailableRef.current?.(driverEyeRef.current !== null);
         rootRef.current = root;
         groundedYRef.current = root.position.y;
         setSceneRevision((revision) => revision + 1);
@@ -874,7 +1031,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           attachSettledRoot(detailed, true);
           progressive = reduceProgressiveLoad(progressive, { type: "settled" });
         } else {
-          // Promote the placeholder to the permanent fallback root.
+          // Promote the placeholder to the permanent fallback root. It is no longer "in flight", so
+          // the marker goes: dimensions (and anything else that waits out the placeholder) must
+          // treat it as the vehicle for the rest of the session.
+          delete placeholder.userData.__progressivePlaceholder;
           scene.remove(placeholder);
           prepareSettledRoot(placeholder);
           attachSettledRoot(placeholder);
@@ -1025,6 +1185,83 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   }, [cameraPreset.id, sceneRevision, threeDConfig.heroSteer?.degrees]);
 
   useEffect(() => {
+    const doors = doorRigRef.current;
+    if (!doors) return;
+    const proxy = { amount: doors.openAmount };
+    const tween = gsap.to(proxy, {
+      amount: doorsOpen ? 1 : 0,
+      duration: motionDuration(0.9),
+      ease: "power2.inOut",
+      onUpdate: () => doors.setOpenAmount(proxy.amount),
+    });
+    return () => {
+      tween.kill();
+    };
+  }, [doorsOpen, sceneRevision]);
+
+  useEffect(() => {
+    const camera = cameraControllerRef.current;
+    const eye = driverEyeRef.current;
+    const root = rootRef.current;
+    if (!camera) return;
+    if (driverView && eye && root && !camera.isDriverView) camera.enterDriverView(root.localToWorld(eye.clone()));
+    else if (!driverView && camera.isDriverView) camera.exitDriverView();
+  }, [driverView, sceneRevision]);
+
+  useEffect(() => {
+    // Hotspots are chosen once per settled vehicle from its registered parts and the categories the
+    // chrome says it serves.
+    const controller = sceneControllerRef.current;
+    const next = controller && hotspotCategories?.length
+      ? selectHotspots(controller.listParts(), new Set(hotspotCategories))
+      : [];
+    overlayRef.current.hotspots = next;
+    setHotspots(next);
+    onHotspotsAvailableRef.current?.(next.length > 0);
+  }, [hotspotCategories, sceneRevision]);
+
+  useEffect(() => {
+    overlayRef.current.showHotspots = showHotspots;
+  }, [showHotspots]);
+
+  useEffect(() => {
+    // Rebuilt on lift changes too: the lines are measured off the model where it currently sits.
+    const overlay = overlayRef.current;
+    if (overlay.dimensions) {
+      disposeDimensionsOverlay(overlay.dimensions);
+      overlay.dimensions = null;
+    }
+    const root = rootRef.current;
+    const scene = root?.parent;
+    if (!showDimensions || !root || !scene || root.userData.__progressivePlaceholder === true) {
+      overlay.labels = [];
+      setDimensionLabels([]);
+      return;
+    }
+    let cancelled = false;
+    // After the lift tween lands (~0.35 s), so the lines are drawn where the vehicle ends up.
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      // Measured with the doors shut: the catalog figures describe the closed vehicle, and an open
+      // door would otherwise stretch the lines (differently depending on toggle order).
+      const doors = doorRigRef.current;
+      const openAmount = doors?.openAmount ?? 0;
+      doors?.setOpenAmount(0);
+      const closedBounds = visibleBounds(root);
+      doors?.setOpenAmount(openAmount);
+      const { group, labels } = buildDimensionsOverlay(closedBounds, dimensionSpecs ?? []);
+      scene.add(group);
+      overlay.dimensions = group;
+      overlay.labels = labels;
+      setDimensionLabels(labels);
+    }, motionDuration(0.4) * 1000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [showDimensions, dimensionSpecs, lift, sceneRevision, configurationKey]);
+
+  useEffect(() => {
     if (!lampMode) return;
     sceneControllerRef.current?.lights.setMode(lampMode);
   }, [lampMode]);
@@ -1125,6 +1362,42 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           "directly to select it; double-click to zoom to it."
         }
       />
+      <div className="scene-overlay" aria-hidden={hotspots.length === 0 && dimensionLabels.length === 0 ? true : undefined}>
+        {showHotspots
+          ? hotspots.map((hotspot) => (
+              <button
+                key={hotspot.partId}
+                type="button"
+                className="scene-hotspot"
+                hidden
+                ref={(element) => {
+                  const map = overlayRef.current.hotspotElements;
+                  if (element) map.set(hotspot.partId, element);
+                  else map.delete(hotspot.partId);
+                }}
+                aria-label={`${hotspot.label}: customize`}
+                title={`${hotspot.label} — customize`}
+                onClick={() => onHotspotActivate?.(hotspot.category)}
+              >
+                <span aria-hidden="true" />
+              </button>
+            ))
+          : null}
+        {dimensionLabels.map((label) => (
+          <span
+            key={label.key}
+            className="scene-dimension"
+            hidden
+            ref={(element) => {
+              const map = overlayRef.current.labelElements;
+              if (element) map.set(label.key, element);
+              else map.delete(label.key);
+            }}
+          >
+            {label.text}
+          </span>
+        ))}
+      </div>
       {modelStatus ? (
         <CanvasModelStatus
           kind={modelStatus}
@@ -1359,4 +1632,28 @@ function boundsOf(root: THREE.Object3D, nodeNames?: string[]): THREE.Box3 | null
     any = true;
   }
   return any ? box : new THREE.Box3().setFromObject(root);
+}
+
+/** The driver's eye, placed from the configured steering-wheel nodes; `null` (no Driver view) when
+ * none is configured or none resolves in this asset. */
+function driverEyeFor(root: THREE.Object3D, nodeNames: readonly string[] | undefined): THREE.Vector3 | null {
+  const wheel = (nodeNames ?? []).map((name) => findNodeByName(root, name)).filter((node): node is THREE.Object3D => Boolean(node));
+  if (wheel.length === 0) return null;
+  root.updateWorldMatrix(true, true);
+  const bounds = worldBoundsOf(wheel);
+  return bounds.isEmpty() ? null : driverEyeFromSteeringWheel(bounds);
+}
+
+/** Bounds of the visible geometry only. `Box3.setFromObject` counts hidden nodes too — the hidden
+ * procedural accessories and runtime kit would otherwise stretch a measurement. */
+function visibleBounds(root: THREE.Object3D): THREE.Box3 {
+  root.updateWorldMatrix(true, true);
+  const box = new THREE.Box3();
+  const visit = (object: THREE.Object3D) => {
+    if (!object.visible) return;
+    if (object instanceof THREE.Mesh) box.expandByObject(object, false);
+    for (const child of object.children) visit(child);
+  };
+  visit(root);
+  return box.isEmpty() ? new THREE.Box3().setFromObject(root) : box;
 }

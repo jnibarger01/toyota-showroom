@@ -1028,3 +1028,25 @@ button { font: inherit; color: inherit; }
 .compare-share-row button {
   margin-left: auto;
 }
+
+/* Showroom view overlays (lib/three/hotspots.ts, lib/three/dimensions.ts). Same box as the canvas;
+ * the layer ignores the pointer so orbiting still works, only its buttons take it. Positions are
+ * written per frame from VehicleCanvas as `transform`, never via layout properties. */
+.scene-overlay { position: absolute; inset: 0 0 84px; pointer-events: none; overflow: hidden; }
+.scene-hotspot, .scene-dimension { position: absolute; left: 0; top: 0; will-change: transform; }
+.scene-hotspot {
+  pointer-events: auto; width: 28px; height: 28px; border-radius: 50%; padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.9); background: rgba(215, 38, 45, 0.85);
+  box-shadow: 0 0 0 4px rgba(215, 38, 45, 0.25); cursor: pointer;
+}
+.scene-hotspot span { display: block; width: 8px; height: 8px; margin: auto; border-radius: 50%; background: white; }
+.scene-hotspot:focus-visible { outline: 2px solid white; outline-offset: 3px; }
+.scene-dimension {
+  padding: 3px 7px; border-radius: 6px; background: rgba(12, 16, 21, 0.85); color: #ffd6d6;
+  font-size: 11px; white-space: nowrap; border: 1px solid rgba(255, 107, 107, 0.6);
+}
+.view-tools { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-flow: initial; }
+@media (prefers-reduced-motion: no-preference) {
+  .scene-hotspot { transition: box-shadow 0.2s ease; }
+  .scene-hotspot:hover { box-shadow: 0 0 0 7px rgba(215, 38, 45, 0.3); }
+}

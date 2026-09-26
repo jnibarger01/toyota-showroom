@@ -6,6 +6,11 @@ import { motionDuration, prefersReducedMotion } from "./motionPreference";
 import { createCinematicTour, type CinematicTour, type TourStatus } from "./cinematicTour";
 import { publishViewerState, subscribeViewerControl } from "./viewerControlEvents";
 
+/** Driver's-seat lens: see `enterDriverView`. */
+export const DRIVER_FOV = 72;
+export const DRIVER_NEAR = 0.01;
+import { DriverLook } from "./interiorView";
+
 export type { TourStatus };
 
 export interface CameraControllerLimits {
@@ -157,7 +162,12 @@ export class CameraController {
       options.presets,
       {
         onStatusChange: options.onTourStatusChange,
-        onStep: options.onTourStep,
+        // The tour's shots are the active preset while it plays and after it stops; without this a
+        // later "back to the preset" (leaving the driver's seat) jumped to the pre-tour shot.
+        onStep: (preset, index) => {
+          this.activePresetId = preset.id;
+          options.onTourStep?.(preset, index);
+        },
       },
     );
 
@@ -190,6 +200,9 @@ export class CameraController {
   }
 
   playTour(): void {
+    // The tour flies OrbitControls' camera; from the seat it would fly a camera that `update()`
+    // no longer drives, with the cabin lens still on.
+    this.leaveDriverSeat();
     this.setAutoRotate(false);
     this.tour.play();
   }
@@ -242,7 +255,94 @@ export class CameraController {
     this.controls.enabled = enabled;
   }
 
+  /** Non-null while the driver's-seat view owns the camera. See `enterDriverView`. */
+  private driverLook: DriverLook | null = null;
+  /** The one pointer steering the driver's head; other contacts (a second finger) are ignored. */
+  private driverDrag: { pointerId: number; x: number; y: number } | null = null;
+  /** The showroom lens, restored on leaving the driver's seat. */
+  private showroomLens: { fov: number; near: number } | null = null;
+  private readonly handleDriverPointerDown = (event: PointerEvent) => {
+    if (this.driverDrag) return;
+    this.driverDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+  };
+  private readonly handleDriverPointerMove = (event: PointerEvent) => {
+    if (!this.driverDrag || !this.driverLook || event.pointerId !== this.driverDrag.pointerId) return;
+    this.driverLook.dragBy(event.clientX - this.driverDrag.x, event.clientY - this.driverDrag.y);
+    this.driverDrag.x = event.clientX;
+    this.driverDrag.y = event.clientY;
+  };
+  private readonly handleDriverPointerUp = (event: PointerEvent) => {
+    if (this.driverDrag && event.pointerId === this.driverDrag.pointerId) this.driverDrag = null;
+  };
+
+  get isDriverView(): boolean {
+    return this.driverLook !== null;
+  }
+
+  /**
+   * Puts the camera at `eye`, looking forward out of the vehicle, and turns pointer drag into head
+   * turns. `OrbitControls` is disabled for the duration rather than fought with: it would keep
+   * re-deriving the pose from its own target on every `update()`.
+   */
+  enterDriverView(eye: THREE.Vector3): void {
+    if (this.isTourActive) this.tour.cancel();
+    this.setAutoRotate(false);
+    gsap.killTweensOf(this.camera.position);
+    gsap.killTweensOf(this.controls.target);
+    this.controls.enabled = false;
+    // The showroom's long lens, from a metre off the dash, frames one switch. A cabin wants a wide
+    // lens (roughly what a driver takes in without turning their head) and a near plane short
+    // enough that the A-pillars and wheel rim a few centimetres away are not clipped.
+    this.showroomLens ??= { fov: this.camera.fov, near: this.camera.near };
+    this.camera.fov = DRIVER_FOV;
+    this.camera.near = DRIVER_NEAR;
+    this.camera.updateProjectionMatrix();
+    this.driverLook = new DriverLook(this.camera, eye);
+    this.driverLook.apply();
+    const element = this.controls.domElement as HTMLElement;
+    element.addEventListener("pointerdown", this.handleDriverPointerDown);
+    element.addEventListener("pointermove", this.handleDriverPointerMove);
+    element.addEventListener("pointerup", this.handleDriverPointerUp);
+    element.addEventListener("pointerleave", this.handleDriverPointerUp);
+    element.addEventListener("pointercancel", this.handleDriverPointerUp);
+  }
+
+  /** Follows the vehicle while seated: the eye is re-placed each frame from the vehicle's pose. */
+  moveDriverEye(eye: THREE.Vector3): void {
+    this.driverLook?.moveEye(eye);
+  }
+
+  /** Leaves the driver's seat, back to `preset`'s framing. */
+  exitDriverView(preset?: CameraPresetConfig): void {
+    if (!this.leaveDriverSeat()) return;
+    const target = preset ?? this.presets.find((item) => item.id === this.activePresetId) ?? this.presets[0];
+    if (target) this.resetToPreset(target);
+  }
+
+  /** Hands the camera back to OrbitControls with the showroom lens, without re-framing. */
+  private leaveDriverSeat(): boolean {
+    if (!this.driverLook) return false;
+    this.driverLook = null;
+    this.driverDrag = null;
+    const element = this.controls.domElement as HTMLElement;
+    element.removeEventListener("pointerdown", this.handleDriverPointerDown);
+    element.removeEventListener("pointermove", this.handleDriverPointerMove);
+    element.removeEventListener("pointerup", this.handleDriverPointerUp);
+    element.removeEventListener("pointerleave", this.handleDriverPointerUp);
+    element.removeEventListener("pointercancel", this.handleDriverPointerUp);
+    this.controls.enabled = true;
+    if (this.showroomLens) {
+      this.camera.fov = this.showroomLens.fov;
+      this.camera.near = this.showroomLens.near;
+      this.camera.updateProjectionMatrix();
+      this.showroomLens = null;
+    }
+    return true;
+  }
+
   update(): void {
+    // The driver view aims the camera itself; OrbitControls must not re-derive it from its target.
+    if (this.driverLook) return;
     this.controls.update();
   }
 
@@ -252,6 +352,8 @@ export class CameraController {
   }
 
   transitionToPreset(preset: CameraPresetConfig): void {
+    // Picking a camera angle is a request to leave the seat.
+    if (this.driverLook) this.exitDriverView(preset);
     this.setAutoRotate(false);
     this.activePresetId = preset.id;
     const duration = motionDuration(PRESET_TRANSITION_SECONDS);
@@ -272,6 +374,10 @@ export class CameraController {
   }
 
   resetToPreset(preset: CameraPresetConfig): void {
+    if (this.driverLook) {
+      this.exitDriverView(preset);
+      return;
+    }
     this.setAutoRotate(false);
     if (this.isTourActive) this.tour.cancel();
     this.activePresetId = preset.id;
@@ -281,6 +387,11 @@ export class CameraController {
   }
 
   orbitBy(deltaTheta: number, deltaPhi: number): void {
+    // Arrow keys look around from the driver's seat instead of orbiting the car.
+    if (this.driverLook) {
+      this.driverLook.turnBy(-deltaTheta, -deltaPhi);
+      return;
+    }
     this.setAutoRotate(false);
     if (this.isTourActive) this.tour.cancel();
     const offset = this.camera.position.clone().sub(this.controls.target);
@@ -294,6 +405,7 @@ export class CameraController {
   }
 
   dollyBy(deltaMeters: number): void {
+    if (this.driverLook) return; // the driver's head does not zoom
     this.setAutoRotate(false);
     if (this.isTourActive) this.tour.cancel();
     const offset = this.camera.position.clone().sub(this.controls.target);
@@ -304,6 +416,7 @@ export class CameraController {
   }
 
   focusPoint(center: readonly [number, number, number], radius: number, padding = DEFAULT_FOCUS_PADDING): void {
+    if (this.driverLook) return;
     this.setAutoRotate(false);
     if (this.isTourActive) this.tour.cancel();
 
@@ -337,6 +450,7 @@ export class CameraController {
 
   dispose(): void {
     if (this.disposed) return;
+    this.exitDriverView();
     this.disposed = true;
     this.unsubscribeViewerControl();
     this.controls.removeEventListener("start", this.handleControlsStart);

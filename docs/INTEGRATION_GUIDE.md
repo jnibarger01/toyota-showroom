@@ -1928,3 +1928,38 @@ Run against a production or `npm run build` preview, not only desktop DevTools d
 - `tests/mobileCameraTouch.test.ts` — CSS contract for `touch-action` / overscroll / user-select.
 - `tests/components/BuilderApp.test.tsx` — Recenter cancels tour and is not named “Reset”.
 - `tests/viewerControlBridge.test.ts` — dock “reset-camera” reaches `CameraController.resetToPreset`.
+
+## 21. Showroom View Tools: Hotspots, Dimensions, Doors, Driver's Seat
+
+The stage's **View** row, beside Terrain and Environment. All four are viewing aids: nothing they do
+is saved, priced or put in undo history.
+
+**Showroom frame.** Every vehicle is placed nose toward world −Z, right-hand side +X, up +Y
+(`lib/three/showroomFrame.ts`; `tests/showroomFeatures.test.ts` checks each vehicle's front preset
+against it). Doors, the dimension lines and the driver's eye are all derived in that frame, so they
+work on every asset whatever orientation it was authored in.
+
+**Feature hotspots** (`lib/three/hotspots.ts`). One DOM button per customisable category the vehicle
+actually offers, anchored to a part the scene map registers; clicking opens that category. Real
+buttons over the canvas, so keyboard and screen-reader reachable. Occlusion is a raycast from the
+camera to the part's bounds centre and then to a dozen points sampled from its own surface, looking
+through glass and lenses; it runs only when the camera or vehicle moves, one hotspot per frame.
+
+**Dimensions** (`lib/three/dimensions.ts`). Lines measured off the loaded model, labelled with the
+catalog's `length_in` / `width_in` / `height_in`. A dimension the catalog does not publish is not
+drawn: the model's extents include mirrors and mounted runtime parts, so a measured stand-in reads
+as authoritative while being off by centimetres.
+
+**Doors** (`lib/three/doors.ts`, `threeDConfig.doors`). Only parts verified to be separate meshes in
+the asset. Hinges are derived from each door's geometry (front edge for side doors, top edge for
+boot lids and tailgates), so no per-asset pivot data is authored.
+
+**Driver's seat** (`lib/three/interiorView.ts`, `threeDConfig.driverView`). The eye is placed from
+the named steering-wheel nodes — `EYE_BEHIND_WHEEL` behind and `EYE_ABOVE_WHEEL` above its centre —
+which also settles left- vs right-hand drive. Deriving it from the body's bounds put it in the
+Camry's dashboard and on the Supra's bonnet. While seated the camera switches to a wide lens with a
+short near plane and drag / arrow keys turn the head; leaving restores the showroom lens. Only set
+`driverView` for an asset whose cabin you have looked at from the seat.
+
+Coverage: `tests/showroomFeatures.test.ts`, `tests/cameraController.test.ts` (driver view),
+`tests/e2e/view-tools.spec.ts`.
