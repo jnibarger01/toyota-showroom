@@ -507,7 +507,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         : "Play cinematic tour";
 
   const xrEnabled = xrControlEnabled(xrCapability);
-  const xrLabel = xrControlLabel(xrPresenting);
+  const xrLabel = xrControlLabel(xrPresenting, xrCapability);
   const xrCapabilityMessage = describeXrCapability(xrCapability);
   const xrTitle = xrCapabilityMessage ?? xrLabel;
 
@@ -1519,6 +1519,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               enterXrSignal={enterXrSignal}
               exitXrSignal={exitXrSignal}
               onXrSupported={(supported) => setXrCapability(supported ? "supported" : "unsupported")}
+              onQuickLookSupported={(supported) => {
+                if (supported) setXrCapability("quicklook");
+              }}
               onXrPresentingChange={setXrPresenting}
               onXrError={setXrError}
               qualityPreference={qualityPreference}

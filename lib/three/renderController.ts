@@ -64,7 +64,14 @@ export type RendererLike = {
   /** Present on both real renderers. Used only when handing the loop to an XR device — rAF cannot
    * pace frames for a headset or phone compositor. Optional so test doubles need not provide it. */
   setAnimationLoop?: (callback: ((time: number, frame?: unknown) => void) | null) => void | Promise<void>;
-  xr?: { enabled: boolean; setSession(session: unknown): Promise<void> | void };
+  xr?: {
+    enabled: boolean;
+    setSession(session: unknown): Promise<void> | void;
+    /** The session's active reference space (`local-floor` when granted) — hit poses are read in it. */
+    getReferenceSpace?: () => unknown;
+    /** The XR camera rig; its world position is the viewer's head. */
+    getCamera?: () => THREE.Camera;
+  };
   toneMapping: THREE.ToneMapping;
   toneMappingExposure: number;
   /** Both real renderers have it (three r15x+); optional so test doubles need not. Compiles every
@@ -96,6 +103,8 @@ export interface RenderControllerOptions {
    * rather than listening only to `visibilitychange`, which misses intersection resumes.
    */
   onIdleChange?: (suspended: boolean) => void;
+  /** Each XR frame's `XRFrame`, before it renders — what hit-testing (`ArPlacement`) reads. */
+  onXrFrame?: (frame: unknown) => void;
 }
 
 export class RenderController {
@@ -410,7 +419,10 @@ export class RenderController {
 
     if (presenting) {
       this.cancelPendingRaf();
-      void this.renderer.setAnimationLoop?.(() => this.loop());
+      void this.renderer.setAnimationLoop?.((_time, frame) => {
+        this.options.onXrFrame?.(frame);
+        this.loop();
+      });
       return;
     }
 

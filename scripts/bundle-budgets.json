@@ -1,6 +1,6 @@
 {
   "BuilderApp": 25600,
-  "buildTools": 199680,
+  "buildTools": 30720,
   "client": 3072,
   "compareDeepLink": 2048,
   "configJson": 2048,
@@ -25,8 +25,10 @@
   "rotate-ccw": 1024,
   "router": 4096,
   "ShareQrCard": 1024,
+  "three.module": 182272,
   "triangle-alert": 1024,
   "truck": 1024,
+  "USDZExporter": 11264,
   "useFocusTrap": 1024,
   "ValidatedLeadForm": 3072,
   "VehicleCanvas": 278528,
