@@ -139,7 +139,11 @@ which silently disabled both this prefetch and the WebGPU IBL path on that deplo
 `lib/three/xrSession.ts` owns `immersive-ar` session lifecycle only. The builder always exposes the
 AR control: when `navigator.xr.isSessionSupported("immersive-ar")` is false (desktop browsers, iOS
 Safari today, insecure contexts) the control stays disabled and `lib/three/xrCapability.ts` supplies
-the unsupported-device message. Enter and exit both come from that one control so phone browsers that
+the unsupported-device message — unless the browser opens `<a rel="ar">` links in Apple Quick Look
+(iOS / iPadOS Safari). There the same control reads "View in AR (Quick Look)": `lib/three/quickLook.ts`
+exports the *current* build (paint, wheels, fitted accessories; hidden nodes dropped) to USDZ at true
+scale and hands it to Quick Look, which does its own placement and lighting. `USDZExporter` is a
+dynamic import in its own chunk, fetched only on that tap. Enter and exit both come from that one control so phone browsers that
 keep page chrome visible while presenting can leave AR without hunting for a system button.
 
 The load-bearing detail is frame pacing. `RenderController` normally drives its own
@@ -181,8 +185,16 @@ stubbed `navigator.xr` (ordering of the renderer handover, declined permission, 
 exit, unmount during the permission prompt). Builder chrome coverage pins enter/exit wiring and
 unsupported messaging via a mocked `VehicleCanvas` — Playwright CI has no WebXR runtime, so a
 device-only e2e would be flaky and is intentionally omitted. Whether AR *looks* correct on a phone
-is not something any test here can claim. No hit-testing or placement UI: `local-floor` puts the
-vehicle on the viewer's real floor, which is enough to walk around it. Configured paint, wheels, and
+is not something any test here can claim. `tests/e2e/ar-quicklook.spec.ts` does drive the Quick
+Look path in Chromium (reporting `rel="ar"` support and capturing the anchor click) and checks that a
+real USDZ blob is produced — the export, not Quick Look itself.
+
+**Placement.** `hit-test` is also an optional feature. When granted, the vehicle is hidden on entry
+and a reticle tracks the real floor under the centre of the view; a tap (`select`) sets the vehicle
+down there, side-on to the viewer (`lib/three/arPlacement.ts`). It is placed at **true scale**: the
+model's measured length scaled to the catalog's `length_in` (`trueScaleFactor`; corrections outside
+0.5–2× are treated as a unit mismatch and ignored). Without hit-testing the vehicle stays where
+`local-floor` put it. Leaving AR restores the showroom pose. Configured paint, wheels, and
 accessories are the same `VehicleSceneController` scene the desktop path already paints — XR does
 not fork materials.
 

@@ -23,6 +23,8 @@
  *
  * ## What is deliberately not here
  *
+ * (Superseded: tap-to-place on a hit-tested floor now lives in `arPlacement.ts`, and `hit-test` is
+ * requested below as an optional feature.) The original reasoning, kept for context:
  * No hit-testing, plane detection, or placement UI. Those are a real feature on their own and
  * `local-floor` puts the vehicle at the viewer's floor level, which is enough to walk around it —
  * the thing #16 actually asks for. Adding anchors before anyone has used this would be guessing.
@@ -65,7 +67,7 @@ const XR_MODE: XRSessionMode = "immersive-ar";
  * immersive sessions, so requesting both optionally means the session always starts and the best
  * available space is chosen afterwards.
  */
-const SESSION_INIT: XRSessionInit = { optionalFeatures: ["local-floor", "local"] };
+const SESSION_INIT: XRSessionInit = { optionalFeatures: ["local-floor", "local", "hit-test"] };
 
 export class XrSessionController {
   private readonly renderer: XrCapableRenderer;
@@ -97,6 +99,11 @@ export class XrSessionController {
       // Some browsers reject rather than resolving false in a non-secure context.
       return false;
     }
+  }
+
+  /** The live session, for features layered on it (`ArPlacement`). `null` when not presenting. */
+  get currentSession(): XRSession | null {
+    return this.session;
   }
 
   get isPresenting(): boolean {

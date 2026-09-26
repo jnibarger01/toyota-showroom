@@ -228,6 +228,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   /** True once VehicleCanvas has settled and attached a scene controller (not merely hydrated). */
   const [sceneReady, setSceneReady] = useState(false);
+  /** Catalog thumbnail shown as the stage poster until the 3D scene paints over it. */
+  // Already base-path-resolved: lib/api/client.ts rewrites every media URL it hands out.
+  const posterUrl = bootstrap?.vehicle.media.thumbnails[0]?.url;
   const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [lift, setLift] = useState(0);
   const [gradeChanging, setGradeChanging] = useState(false);
@@ -267,6 +270,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
    * `supported` / `unsupported` arrive from `VehicleCanvas.onXrSupported` once the vehicle settles.
    */
   const [xrCapability, setXrCapability] = useState<XrCapability>("pending");
+  /** Pre-exported USDZ of the current build on a Quick Look device; `null` while one is being made. */
+  const [quickLookUrl, setQuickLookUrl] = useState<string | null>(null);
   const [xrPresenting, setXrPresenting] = useState(false);
   /** XR permission / start failures — kept off `loadError` so a declined camera prompt is dismissible noise, not a broken build. */
   const [xrError, setXrError] = useState<string | null>(null);
@@ -509,7 +514,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         : "Play cinematic tour";
 
   const xrEnabled = xrControlEnabled(xrCapability);
-  const xrLabel = xrControlLabel(xrPresenting);
+  const xrLabel = xrControlLabel(xrPresenting, xrCapability);
   const xrCapabilityMessage = describeXrCapability(xrCapability);
   const xrTitle = xrCapabilityMessage ?? xrLabel;
 
@@ -1435,6 +1440,22 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               >
                 <RotateCcw size={17} />
               </button>
+              {xrCapability === "quicklook" ? (
+                quickLookUrl ? (
+                  // A real link rather than a button that clicks one later: Safari hands an
+                  // `<a rel="ar">` to Quick Look only when the viewer's own tap activates it, and it
+                  // requires the anchor's first child to be an <img>.
+                  <a data-testid="xr-walkaround" className="viewport-link" rel="ar" href={quickLookUrl} title={xrLabel} aria-label={xrLabel}>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- Quick Look's required marker, never displayed */}
+                    <img alt="" hidden />
+                    <Move3d size={17} aria-hidden />
+                  </a>
+                ) : (
+                  <button type="button" data-testid="xr-walkaround" title="Preparing AR model…" aria-label={xrLabel} disabled>
+                    <Move3d size={17} aria-hidden />
+                  </button>
+                )
+              ) : (
               <button
                 type="button"
                 data-testid="xr-walkaround"
@@ -1452,6 +1473,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               >
                 <Move3d size={17} aria-hidden />
               </button>
+              )}
               <button title="Zoom"><ZoomIn size={17} /></button>
               {/*
                 * A native <select> rather than an icon button opening a popover. It is keyboard
@@ -1509,7 +1531,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             * throws from the Suspense boundary itself, so a boundary nested within it never sees it.
             */}
           <CanvasErrorBoundary fallbackImage={vehicle.media.hero} onError={(error) => setLoadError(error.message)}>
-            <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
+            <Suspense
+              fallback={
+                <div
+                  className="vehicle-canvas vehicle-canvas-loading"
+                  data-poster={posterUrl ? "1" : undefined}
+                  style={posterUrl ? { backgroundImage: `url("${posterUrl}")` } : undefined}
+                >
+                  <Loader2 size={28} className="spin" />
+                </div>
+              }
+            >
             <VehicleCanvas
               threeDConfig={vehicle.threeDConfig}
               slug={vehicle.slug}
@@ -1523,6 +1555,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               enterXrSignal={enterXrSignal}
               exitXrSignal={exitXrSignal}
               onXrSupported={(supported) => setXrCapability(supported ? "supported" : "unsupported")}
+              onQuickLookSupported={(supported) => {
+                if (supported) setXrCapability("quicklook");
+              }}
+              onQuickLookUrl={setQuickLookUrl}
               onXrPresentingChange={setXrPresenting}
               onXrError={setXrError}
               qualityPreference={qualityPreference}
@@ -1530,6 +1566,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onQualityNeedsReload={setQualityNeedsReload}
               lampMode={lampMode}
               onLampModesAvailable={setLampModes}
+              posterUrl={posterUrl}
               hotspotCategories={hotspotCategories}
               showHotspots={showHotspots}
               onHotspotActivate={(category) => {

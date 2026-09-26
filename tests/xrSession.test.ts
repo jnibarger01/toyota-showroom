@@ -152,6 +152,9 @@ describe("XrSessionController", () => {
       // required `local-floor` turns the entry control into one that fails on tap.
       expect(init.requiredFeatures ?? []).not.toContain("local-floor");
       expect(init.optionalFeatures ?? []).toContain("local-floor");
+      // Tap-to-place (arPlacement.ts) needs hit-testing, optionally for the same reason.
+      expect(init.optionalFeatures ?? []).toContain("hit-test");
+      expect(init.requiredFeatures ?? []).not.toContain("hit-test");
     });
   });
 

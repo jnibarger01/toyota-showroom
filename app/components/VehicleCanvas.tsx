@@ -71,6 +71,8 @@ import { DoorRig } from "../../lib/three/doors";
 import { driverEyeFromSteeringWheel } from "../../lib/three/interiorView";
 import { buildDimensionsOverlay, disposeDimensionsOverlay, type DimensionLabel, type DimensionSpec } from "../../lib/three/dimensions";
 import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples, visibleStandIn, type Hotspot } from "../../lib/three/hotspots";
+import { ArPlacement, trueScaleFactor, type HitTestFrame, type PlacementSession } from "../../lib/three/arPlacement";
+import { exportQuickLookUrl, supportsQuickLook } from "../../lib/three/quickLook";
 import type { CustomizationCategory } from "../../lib/types/customization";
 import { prefersReducedMotion, prefersReducedMotionLive } from "../../lib/three/motionPreference";
 import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
@@ -220,9 +222,28 @@ type Props = {
   onDriverViewAvailable?: (available: boolean) => void;
   /** The view left the seat on its own (a camera preset, Home) — the chrome should un-toggle. */
   onDriverViewExit?: () => void;
+  /** No WebXR AR, but iOS Quick Look is available — the chrome then offers `onQuickLookUrl`'s link. */
+  onQuickLookSupported?: (supported: boolean) => void;
+  /**
+   * On a Quick Look device: a USDZ blob URL of the build as it stands, or `null` while the build is
+   * changing and a fresh export is pending. Exported ahead of the tap because Safari only opens
+   * Quick Look from a link activated within the user gesture — an export started by the tap
+   * (dynamic import + USDZ encode) outlives the gesture and the navigation is dropped.
+   */
+  onQuickLookUrl?: (url: string | null) => void;
+  /**
+   * Still image of this vehicle (the catalog thumbnail, rendered from the same GLB by
+   * `npm run assets:thumbnails`) shown behind the canvas until the renderer's first opaque frame
+   * covers it — so the stage shows the car, not an empty dark box, while the 3D chunk, renderer
+   * and model load.
+   */
+  posterUrl?: string;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, onHotspotsAvailable, configurationKey, driverView = false, onDriverViewAvailable, onDriverViewExit }: Props) {
+/** Quiet period after the last build change before the Quick Look USDZ is re-exported. */
+const QUICK_LOOK_EXPORT_DELAY_MS = 400;
+
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, onHotspotsAvailable, configurationKey, driverView = false, onDriverViewAvailable, onDriverViewExit, onQuickLookSupported, onQuickLookUrl, posterUrl }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -236,6 +257,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
+  /** True when AR means Quick Look on this device rather than a WebXR session. */
+  const [quickLookAvailable, setQuickLookAvailable] = useState(false);
+  /** Bumped by `VehicleSceneController.onBuildChange`; drives the Quick Look re-export. */
+  const [buildVersion, setBuildVersion] = useState(0);
   /**
    * Asset-path empty/error notice (#75). Distinct from CanvasErrorBoundary: this covers GLB
    * fetch/decode failure (and vehicles with no detailed model), not React render crashes.
@@ -280,6 +305,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const onHotspotsAvailableRef = useRef(onHotspotsAvailable);
   const onDriverViewAvailableRef = useRef(onDriverViewAvailable);
   const onDriverViewExitRef = useRef(onDriverViewExit);
+  const onQuickLookSupportedRef = useRef(onQuickLookSupported);
+  const onQuickLookUrlRef = useRef(onQuickLookUrl);
+  const dimensionSpecsRef = useRef(dimensionSpecs);
   const driverViewRef = useRef(driverView);
   /** Scene-owned overlay state read by the per-frame tick, which cannot see React props. */
   const overlayRef = useRef<{
@@ -315,13 +343,20 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onHotspotsAvailableRef.current = onHotspotsAvailable;
     onDriverViewAvailableRef.current = onDriverViewAvailable;
     onDriverViewExitRef.current = onDriverViewExit;
+    onQuickLookSupportedRef.current = onQuickLookSupported;
+    onQuickLookUrlRef.current = onQuickLookUrl;
+    dimensionSpecsRef.current = dimensionSpecs;
     driverViewRef.current = driverView;
-  }, [onDoorsAvailable, onHotspotsAvailable, onDriverViewAvailable, onDriverViewExit, driverView, lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
+  }, [onQuickLookSupported, onQuickLookUrl, dimensionSpecs, onDoorsAvailable, onHotspotsAvailable, onDriverViewAvailable, onDriverViewExit, driverView, lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     /** Declared out here so the effect's cleanup can cancel it even if setup fails part-way. */
     let prefetcher: PrefetchScheduler | null = null;
+    /** Tap-to-place while an AR session is live (`lib/three/arPlacement.ts`). */
+    let arPlacement: ArPlacement | null = null;
+    /** The vehicle's showroom pose, restored when the AR session ends. */
+    let showroomPose: { position: THREE.Vector3; quaternion: THREE.Quaternion; scale: THREE.Vector3; visible: boolean } | null = null;
     let cancelled = false;
 
     void (async () => {
@@ -356,6 +391,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         onIdleChange: (suspended) => {
           if (!suspended) prefetcher?.start();
         },
+        onXrFrame: (frame) => arPlacement?.update(frame as HitTestFrame | undefined),
       });
       if (cancelled) {
         renderController.dispose();
@@ -531,6 +567,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       const uninstallMetricsFlush = installMetricsFlush();
 
       let contactShadow: THREE.Mesh | null = null;
+      // The baked showroom shadow sits at the showroom origin; in AR it would float on the camera
+      // feed away from the placed car, so it stays hidden for the whole session.
+      let hideContactShadow = false;
       let controller: VehicleSceneController | null = null;
 
       /**
@@ -894,6 +933,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           disposeContactShadow(contactShadow);
         }
         contactShadow = createContactShadow(footprint);
+        contactShadow.visible = !hideContactShadow;
         scene.add(contactShadow);
         scene.add(root);
         floorReflection.setSource(root);
@@ -1095,8 +1135,22 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           }
 
           renderController.setXrPresenting(presenting);
+          hideContactShadow = presenting;
+          if (contactShadow) contactShadow.visible = !presenting;
+
+          const root = rootRef.current;
+          if (presenting && root) startArPlacement(root);
 
           if (!presenting) {
+            arPlacement?.dispose();
+            arPlacement = null;
+            if (root && showroomPose) {
+              root.position.copy(showroomPose.position);
+              root.quaternion.copy(showroomPose.quaternion);
+              root.scale.copy(showroomPose.scale);
+              root.visible = showroomPose.visible;
+            }
+            showroomPose = null;
             environmentControllerRef.current?.setPassthrough(false);
             cameraController.setControlsEnabled(true);
           }
@@ -1110,8 +1164,49 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         },
       });
       xrControllerRef.current = xrController;
+
+      /**
+       * Hides the vehicle until the viewer taps a spot on the real floor, then sets it down there at
+       * true scale. Without hit-testing (not granted, or unsupported) the vehicle simply stays where
+       * `local-floor` put it — the pre-placement behaviour.
+       */
+      const startArPlacement = (root: THREE.Object3D) => {
+        const session = xrController.currentSession as unknown as PlacementSession | null;
+        const space = renderController.renderer.xr?.getReferenceSpace?.();
+        if (!session || !space) return;
+        showroomPose = { position: root.position.clone(), quaternion: root.quaternion.clone(), scale: root.scale.clone(), visible: root.visible };
+        const catalogLength = dimensionSpecsRef.current?.find((spec) => spec.key === "length")?.inches;
+        const scale = trueScaleFactor(visibleBounds(root).getSize(new THREE.Vector3()).z, catalogLength);
+        const baseQuaternion = root.quaternion.clone();
+        const baseScale = root.scale.clone();
+        const placement = new ArPlacement(
+          session,
+          (position, yaw) => {
+            root.scale.copy(baseScale).multiplyScalar(scale);
+            root.quaternion.copy(baseQuaternion).premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw));
+            root.position.set(0, 0, 0);
+            root.updateWorldMatrix(true, true);
+            const bounds = visibleBounds(root);
+            const center = bounds.getCenter(new THREE.Vector3());
+            root.position.set(position.x - center.x, position.y - bounds.min.y, position.z - center.z);
+            root.visible = true;
+          },
+          () => new THREE.Vector3().setFromMatrixPosition((renderController.renderer.xr?.getCamera?.() ?? camera).matrixWorld),
+        );
+        arPlacement = placement;
+        scene.add(placement.reticle);
+        void placement.start(space).then((hitTesting) => {
+          if (hitTesting && arPlacement === placement && !placement.isPlaced) root.visible = false;
+        });
+      };
+
       void xrController.isSupported().then((supported) => {
-        if (!cancelled) onXrSupportedRef.current?.(supported);
+        if (cancelled) return;
+        onXrSupportedRef.current?.(supported);
+        // iOS has no WebXR AR but opens USDZ in Quick Look; the same control drives that instead.
+        const quickLook = !supported && supportsQuickLook();
+        setQuickLookAvailable(quickLook);
+        onQuickLookSupportedRef.current?.(quickLook);
       });
 
       if (import.meta.env.DEV) {
@@ -1301,6 +1396,48 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   }, [enterXrSignal]);
 
   useEffect(() => {
+    if (!quickLookAvailable) return;
+    const controller = sceneControllerRef.current;
+    if (!controller) return;
+    return controller.onBuildChange(() => setBuildVersion((version) => version + 1));
+  }, [quickLookAvailable, sceneRevision]);
+
+  useEffect(() => {
+    if (!quickLookAvailable) return;
+    const root = rootRef.current;
+    if (!root) return;
+    let cancelled = false;
+    let url: string | null = null;
+    // Debounced: a configuration replay fires one build change per option, and the export walks
+    // and encodes the whole vehicle on the main thread.
+    const timer = window.setTimeout(() => {
+      const catalogLength = dimensionSpecsRef.current?.find((spec) => spec.key === "length")?.inches;
+      const scale = trueScaleFactor(visibleBounds(root).getSize(new THREE.Vector3()).z, catalogLength);
+      exportQuickLookUrl(root, scale)
+        .then((next) => {
+          if (cancelled) {
+            URL.revokeObjectURL(next);
+            return;
+          }
+          url = next;
+          onQuickLookUrlRef.current?.(next);
+        })
+        .catch((error: unknown) => {
+          // Background preparation: the control stays in its "preparing" state rather than raising
+          // an error for something the viewer has not asked for yet.
+          if (!cancelled) console.warn("[quick-look] USDZ export failed", error);
+        });
+    }, QUICK_LOOK_EXPORT_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      // Withdraw the link before the build moves on, so a tap can never open a stale build.
+      onQuickLookUrlRef.current?.(null);
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [quickLookAvailable, sceneRevision, buildVersion, doorsOpen]);
+
+  useEffect(() => {
     if (exitXrSignal === undefined) return;
     void xrControllerRef.current?.exit();
   }, [exitXrSignal]);
@@ -1354,6 +1491,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         // navigation keys everywhere inside it in exchange for nothing this needs.
         tabIndex={0}
         role="group"
+        style={posterUrl ? { backgroundImage: `url("${posterUrl}")` } : undefined}
+        data-poster={posterUrl ? "1" : undefined}
         aria-label={
           "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
           "and Home to return to the selected camera angle. Use the right and left bracket keys " +

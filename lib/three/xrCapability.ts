@@ -6,7 +6,12 @@
  * `xrSession.ts`; this module only answers "what should the chrome say".
  */
 
-export type XrCapability = "pending" | "supported" | "unsupported";
+/**
+ * `quicklook`: no WebXR `immersive-ar`, but the browser opens USDZ in Apple Quick Look (iOS/iPadOS
+ * Safari) — the same control exports the current build and hands it to the system AR viewer
+ * (`lib/three/quickLook.ts`).
+ */
+export type XrCapability = "pending" | "supported" | "quicklook" | "unsupported";
 
 /** Shown when `immersive-ar` is unavailable (desktop browsers, iOS Safari today, insecure contexts). */
 export const XR_UNSUPPORTED_MESSAGE =
@@ -28,11 +33,14 @@ export function describeXrCapability(capability: XrCapability): string | null {
 }
 
 /** Label for the viewport AR control. Presenting swaps enter → exit so one control covers both. */
-export function xrControlLabel(presenting: boolean): string {
-  return presenting ? XR_EXIT_LABEL : XR_ENTER_LABEL;
+export function xrControlLabel(presenting: boolean, capability?: XrCapability): string {
+  if (presenting) return XR_EXIT_LABEL;
+  return capability === "quicklook" ? XR_QUICK_LOOK_LABEL : XR_ENTER_LABEL;
 }
+
+export const XR_QUICK_LOOK_LABEL = "View in AR (Quick Look)";
 
 /** Whether the control can start or end a session from a user gesture. */
 export function xrControlEnabled(capability: XrCapability): boolean {
-  return capability === "supported";
+  return capability === "supported" || capability === "quicklook";
 }
