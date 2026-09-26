@@ -50,6 +50,24 @@ describe("FrontWheelSteer", () => {
     });
   });
 
+  it("skips empty mounts and never turns a listed node that sits under another listed node", () => {
+    const root = new THREE.Group();
+    const emptyMount = new THREE.Group();
+    emptyMount.name = "MOUNT_FRONT_LEFT"; // low tier: no authored wheel attached
+    const stock = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3), new THREE.MeshBasicMaterial());
+    stock.name = "STOCK_FRONT_LEFT";
+    stock.position.set(-0.8, 0.4, -1.5);
+    const nestedTyre = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.1), new THREE.MeshBasicMaterial());
+    nestedTyre.name = "TYRE_FRONT_LEFT";
+    stock.add(nestedTyre);
+    root.add(emptyMount, stock);
+    root.updateWorldMatrix(true, true);
+    const steer = new FrontWheelSteer(root, ["MOUNT_FRONT_LEFT", "STOCK_FRONT_LEFT", "TYRE_FRONT_LEFT"]);
+    expect(steer.wheelCount).toBe(1); // only the stock wheel; its tyre turns with it
+    steer.setAngle(THREE.MathUtils.degToRad(20));
+    expect(nestedTyre.quaternion.angleTo(new THREE.Quaternion())).toBeLessThan(1e-9);
+  });
+
   it("returns exactly to the rest pose at zero", () => {
     const { root, wheel } = vehicleWithOffsetWheel();
     const restPosition = wheel.position.clone();

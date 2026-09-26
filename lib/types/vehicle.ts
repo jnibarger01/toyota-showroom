@@ -153,11 +153,12 @@ export interface Vehicle3DConfig {
   paintableMaterialNames: string[];
   wheelMountNames: string[];
   /**
-   * Front wheels turned for the hero camera preset (`lib/three/steering.ts`). `nodeNames` are the two
-   * front wheel nodes; `degrees` is signed (positive = counter-clockwise seen from above) and picked
+   * Front wheels turned for the hero camera preset (`lib/three/steering.ts`). `nodeNames` are the
+   * front wheel nodes — mounts and stock wheels may both be listed; empty mounts are skipped and a
+   * node under another listed node is never turned twice. `degrees` is signed (positive = counter-clockwise seen from above) and picked
    * per vehicle so the wheel face turns toward the hero camera. Omitted = wheels stay straight.
    */
-  heroSteer?: { nodeNames: [string, string]; degrees: number };
+  heroSteer?: { nodeNames: readonly string[]; degrees: number };
   /** Optional replacement running gear loaded from standalone glTF assets. */
   wheelAndTireAssets?: WheelAndTireAssetConfig;
   interiorMaterialNames: string[];
