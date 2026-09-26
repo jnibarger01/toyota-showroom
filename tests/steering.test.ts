@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 import { FrontWheelSteer, steerAngleForPreset } from "../lib/three/steering";
+import { buildWheelPackage } from "../lib/three/proceduralWheels";
+import { WHEEL_PACKAGES } from "../lib/data/wheelPackages";
 
 /** A wheel whose origin is NOT at its centre — the case that makes pivoting about bounds necessary. */
 function vehicleWithOffsetWheel() {
@@ -25,6 +27,27 @@ describe("FrontWheelSteer", () => {
     root.updateWorldMatrix(true, true);
     expect(centreOf(wheel).distanceTo(before)).toBeLessThan(0.02);
     expect(wheel.quaternion.angleTo(new THREE.Quaternion())).toBeCloseTo(THREE.MathUtils.degToRad(18), 4);
+  });
+
+  it("also steers the front corners of procedural wheel packages, which sit outside the wheel nodes", () => {
+    const root = new THREE.Group();
+    const at = (x: number, z: number) => ({ position: new THREE.Vector3(x, 0.4, z), radius: 0.4, width: 0.28, side: (x > 0 ? 1 : -1) as 1 | -1 });
+    // Nose at −Z: the z = −1.5 pair is the front axle.
+    const pack = buildWheelPackage(WHEEL_PACKAGES[0]!, [at(-0.8, -1.5), at(0.8, -1.5), at(-0.8, 1.5), at(0.8, 1.5)]);
+    root.add(pack);
+    root.updateWorldMatrix(true, true);
+    const steer = new FrontWheelSteer(root, []);
+    expect(steer.wheelCount).toBe(4); // two front rim assemblies + their two tyres
+    const tagged: THREE.Object3D[] = [];
+    pack.traverse((object) => {
+      if (object.userData.wheelPackageCorner) tagged.push(object);
+    });
+    const rest = tagged.map((object) => object.quaternion.clone());
+    steer.setAngle(THREE.MathUtils.degToRad(-18));
+    tagged.forEach((object, index) => {
+      const turned = object.quaternion.angleTo(rest[index]!) > 0.1;
+      expect(turned, `z=${object.position.z}`).toBe(object.position.z < 0);
+    });
   });
 
   it("returns exactly to the rest pose at zero", () => {

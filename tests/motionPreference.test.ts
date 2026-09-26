@@ -21,6 +21,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("prefersReducedMotionLive (render-loop reads)", () => {
+  it("creates one media-query list and follows its live value", async () => {
+    vi.resetModules();
+    const list = { matches: false, media: "", addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    const matchMedia = vi.fn(() => list);
+    vi.stubGlobal("matchMedia", matchMedia);
+    const { prefersReducedMotionLive } = await import("../lib/three/motionPreference");
+    for (let frame = 0; frame < 120; frame += 1) expect(prefersReducedMotionLive()).toBe(false);
+    list.matches = true; // the user turns reduced motion on mid-session
+    expect(prefersReducedMotionLive()).toBe(true);
+    expect(matchMedia).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("prefersReducedMotion", () => {
   it("reports the user's preference", () => {
     stubMatchMedia(true);

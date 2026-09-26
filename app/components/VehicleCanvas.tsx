@@ -66,7 +66,7 @@ import { RenderController } from "../../lib/three/renderController";
 import { FloorReflection } from "../../lib/three/floorReflection";
 import { FrontWheelSteer, steerAngleForPreset } from "../../lib/three/steering";
 import type { LampMode } from "../../lib/three/vehicleLights";
-import { prefersReducedMotion } from "../../lib/three/motionPreference";
+import { prefersReducedMotion, prefersReducedMotionLive } from "../../lib/three/motionPreference";
 import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
 import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
@@ -631,7 +631,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         environmentController.setFloorReflective(reflect);
         // Only hazards animate; checked first so a steady lamp mode costs no media query per frame.
         const lights = sceneControllerRef.current?.lights;
-        if (lights?.currentMode === "hazard") lights.update(performance.now(), prefersReducedMotion());
+        if (lights?.currentMode === "hazard") lights.update(performance.now(), prefersReducedMotionLive());
         floorReflection.sync();
       });
 
