@@ -10,6 +10,7 @@ import { MaterialWriter } from "./materials";
 import { resolveMeshes, resolveNodes } from "./nodes";
 import { attachToMount, detachFromMount, disposeSubtree, instantiateAsset, loadAsset } from "./assets";
 import type { PaintStudioState } from "../types/paintStudio";
+import { finishForCustomMetalness } from "./paintFinish";
 import {
   materialConfigFromPaintStudio,
   PAINT_CUSTOM_OPTION_ID,
@@ -318,7 +319,10 @@ export class VehicleSceneController {
 
     const meshes = resolveMeshes(this.root, nodes);
     if (meshes.length === 0) return false;
-    const config = materialConfigFromPaintStudio(paintStudio.material);
+    const config = {
+      ...materialConfigFromPaintStudio(paintStudio.material),
+      finish: finishForCustomMetalness(paintStudio.material.metalness),
+    };
     return this.writer.applyMaterialConfig(meshes, materials, config) > 0;
   }
 
@@ -326,6 +330,9 @@ export class VehicleSceneController {
     if (!option.materialConfig) return false;
     const meshes = resolveMeshes(this.root, option.targetNodes ?? []);
     if (meshes.length === 0) return false;
+    // A `finish` (flake / pearl layer) arrives only on the paint-finish options
+    // (`lib/data/paintFinishes.ts`); colours leave it alone, so the two groups compose the same way
+    // their surface numbers already do.
     return this.writer.applyMaterialConfig(meshes, option.targetMaterials, option.materialConfig) > 0;
   }
 

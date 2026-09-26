@@ -14,6 +14,11 @@ import { expect, test, type Page } from "@playwright/test";
 test.describe.configure({ mode: "serial", timeout: 60_000 });
 
 async function waitForSettledCanvas(page: Page) {
+  // Pinned to `low` for the same reason as partInteraction.spec.ts: this file tests picking and
+  // scene mutation, not rendering, and under the harness's software GL the IBL-lit medium/high tiers
+  // run at about a frame per second — every canvas capture and pointer step waits on one. Rendered
+  // output per tier is covered by visual-3d.spec.ts.
+  await page.addInitScript(() => localStorage.setItem("toyota-showroom:quality", "low"));
   await page.goto("rav4/");
   await expect(page.getByRole("button", { name: "Super White" })).toBeVisible({ timeout: 45_000 });
   await expect

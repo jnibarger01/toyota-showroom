@@ -63,12 +63,13 @@ import {
   type EnvironmentPreset,
 } from "../../lib/three/environmentController";
 import { RenderController } from "../../lib/three/renderController";
+import { FloorReflection } from "../../lib/three/floorReflection";
 import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
 import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
 import { readQualityPreference, writeQualityPreference, type QualityPreference } from "../../lib/three/qualityPreference";
 import { prefetchHdriPreset } from "../../lib/three/hdriEnvironment";
-import { HDRI_PRESETS } from "../../lib/data/paintStudio";
+import { DEFAULT_HDRI_PRESET_ID, HDRI_PRESETS } from "../../lib/data/paintStudio";
 import { installMetricsFlush, recordMetric } from "../../lib/observability/clientMetrics";
 
 export type { Terrain, EnvironmentPreset };
@@ -101,8 +102,12 @@ type Props = {
   /**
    * Fired once the model is loaded, cleaned up, and verified. The controller is the caller's
    * handle for every subsequent scene mutation — the canvas itself never applies an option.
+   *
+   * For the detailed model this fires *before* the model replaces the placeholder: a returned
+   * promise (the saved build being applied) is awaited, capped, so the shader precompile sees the
+   * configured materials rather than the GLB's originals.
    */
-  onReady: (controller: VehicleSceneController, applicable: CustomizationOption[]) => void;
+  onReady: (controller: VehicleSceneController, applicable: CustomizationOption[]) => void | Promise<void>;
   onError: (message: string) => void;
   /**
    * Download progress for the main vehicle asset, 0..1. Optional, and deliberately not a substitute
@@ -320,6 +325,18 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         starfieldCount: renderController.currentQuality.starfieldCount,
       });
       environmentControllerRef.current = environmentController;
+      // Started now, in parallel with the model download, rather than from the effect below (which
+      // first runs once a vehicle settles): the precompile step waits briefly on this so it can
+      // compile the environment-lit shader variants that will actually be drawn.
+      const initialHdriPresetId = hdriPresetId ?? DEFAULT_HDRI_PRESET_ID;
+      // With no saved HDRI the default map still supplies reflections, but its palette is not
+      // applied: the Terrain/Environment controls own the lights and background in that case.
+      void environmentController.applyHdri(renderController.renderer, initialHdriPresetId, { palette: hdriPresetId !== undefined }).then((committed) => {
+        if (committed) canvasElement.dataset.environment = initialHdriPresetId;
+      });
+
+      const floorReflection = new FloorReflection();
+      scene.add(floorReflection.group);
 
       renderController.attachScene(scene, camera);
       // Only now that camera/environment exist does `onResize` (camera aspect) have something to
@@ -568,7 +585,19 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       // scheduling, and frame-stat publishing are all `RenderController`'s own job now (Mission
       // Priority 6) — `tick` is the one per-frame hook it doesn't own: the camera update that has
       // to happen before each paint.
-      renderController.start(() => cameraController.update());
+      renderController.start(() => {
+        cameraController.update();
+        // Read live every frame rather than pushed from effects: the tier (governor), terrain and
+        // AR passthrough all change it, from three different owners. All three setters are
+        // idempotent, so a steady state costs a few boolean compares.
+        const reflect =
+          renderController.currentQuality.floorReflection &&
+          environmentController.currentTerrain === "Studio" &&
+          !environmentController.isPassthrough;
+        floorReflection.setEnabled(reflect);
+        environmentController.setFloorReflective(reflect);
+        floorReflection.sync();
+      });
 
       // Assign cleanup before any await so an unmount mid-load still tears the renderer down.
       cleanup = () => {
@@ -589,6 +618,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         canvasElement.removeEventListener("pointerup", handlePointerUp);
         canvasElement.removeEventListener("pointerleave", handlePointerLeave);
         canvasElement.removeEventListener("pointercancel", handlePointerLeave);
+        floorReflection.dispose();
         environmentControllerRef.current?.dispose();
         environmentControllerRef.current = null;
         renderControllerRef.current?.dispose();
@@ -636,19 +666,15 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           console.warn(`[scene] part "${unsatisfied.entry.id}" has no matching geometry in this asset: ${unsatisfied.reason}`);
         }
         keyboardPartIndex = -1;
-        onReadyRef.current(controller, report.satisfied);
+        return onReadyRef.current(controller, report.satisfied);
       };
 
-      const mountSettledRoot = (root: THREE.Object3D) => {
+      /** Everything that changes which shader programs `root` needs — texture stripping, shadow
+       * flags, the procedural kit's materials — so `precompile` compiles the variants that will
+       * actually be drawn. Nothing here touches the live scene. */
+      const prepareSettledRoot = (root: THREE.Object3D) => {
         prepareVehicleRoot(root, threeDConfig);
         root.updateWorldMatrix(true, true);
-        const footprint = new THREE.Box3().setFromObject(root);
-        if (contactShadow) {
-          scene.remove(contactShadow);
-          disposeContactShadow(contactShadow);
-        }
-        contactShadow = createContactShadow(footprint);
-        scene.add(contactShadow);
         buildProceduralAccessories(root);
         buildRuntimeModificationKit(root, slug);
         // Measured off this vehicle's own running gear, so it must run after the root is prepared
@@ -656,11 +682,24 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         // after the runtime mod kit so its own `RUNTIME_MOD_*` meshes are already excluded from
         // anything either builder measures.
         installProceduralWheelPackages(root, slug);
+      };
+
+      /** `published`: `publishReady` already ran for this root (the detailed path publishes before
+       * it precompiles). */
+      const attachSettledRoot = (root: THREE.Object3D, published = false) => {
+        const footprint = new THREE.Box3().setFromObject(root);
+        if (contactShadow) {
+          scene.remove(contactShadow);
+          disposeContactShadow(contactShadow);
+        }
+        contactShadow = createContactShadow(footprint);
+        scene.add(contactShadow);
         scene.add(root);
+        floorReflection.setSource(root);
         rootRef.current = root;
         groundedYRef.current = root.position.y;
         setSceneRevision((revision) => revision + 1);
-        publishReady(root);
+        if (!published) void publishReady(root);
       };
 
       const wantsDetailedModel = Boolean(threeDConfig.hasModel && threeDConfig.modelUrl);
@@ -674,7 +713,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           disposeSubtree(root);
           return;
         }
-        mountSettledRoot(root);
+        prepareSettledRoot(root);
+        attachSettledRoot(root);
       } else {
         // Progressive path: paint a procedural stand-in first, then swap when the GLB settles.
         progressive = reduceProgressiveLoad(progressive, { type: "start-placeholder" });
@@ -686,6 +726,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         placeholder.position.y = 0;
         placeholder.rotation.y = Math.PI;
         scene.add(placeholder);
+        floorReflection.setSource(placeholder);
         rootRef.current = placeholder;
         groundedYRef.current = placeholder.position.y;
         setSceneRevision((revision) => revision + 1);
@@ -737,22 +778,45 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
               console.warn("[customization] supplied wheel and tyre glTFs could not be loaded.", error);
             }
           }
+          prepareSettledRoot(detailed);
+          // `scene.environment` is part of every physical material's program key, so compiling
+          // before the HDR lands would warm variants that are about to be replaced. Wait for it,
+          // briefly: a slow HDR must not hold the vehicle back — those programs then compile on
+          // first draw, exactly as before.
+          await Promise.race([environmentController.whenHdriSettled(), new Promise((resolve) => setTimeout(resolve, 2000))]);
+          // The saved build is applied before compiling, too: a Metallic or Pearl paint adds a flake
+          // normal map and iridescence, both part of the program key, so compiling the GLB's own
+          // materials would leave the first configured frame to compile the real ones. Capped like
+          // the HDR wait — a slow restore (an option's asset fetch) must not hold the vehicle back.
+          let published = false;
+          if (!cancelled) {
+            published = true;
+            const restored = Promise.resolve(publishReady(detailed)).catch(() => undefined);
+            await Promise.race([restored, new Promise((resolve) => setTimeout(resolve, 2000))]);
+          }
+          // Compiled while the placeholder is still the thing on screen, so the swap below lands on
+          // a frame that only has to draw, not compile.
+          if (!cancelled) await renderController.precompile(detailed, scene);
           if (cancelled) {
-            disposeSubtree(detailed);
+            // Once published, `detailed` belongs to the scene controller, which the effect cleanup
+            // has already disposed.
+            if (!published) disposeSubtree(detailed);
             scene.remove(placeholder);
             disposeSubtree(placeholder);
             rootRef.current = null;
             return;
           }
+          floorReflection.setSource(null);
           scene.remove(placeholder);
           disposeSubtree(placeholder);
           setModelStatus(null);
-          mountSettledRoot(detailed);
+          attachSettledRoot(detailed, true);
           progressive = reduceProgressiveLoad(progressive, { type: "settled" });
         } else {
           // Promote the placeholder to the permanent fallback root.
           scene.remove(placeholder);
-          mountSettledRoot(placeholder);
+          prepareSettledRoot(placeholder);
+          attachSettledRoot(placeholder);
         }
       }
 
@@ -764,7 +828,13 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       // parsed and PMREM-filtered while the viewer waits on a preset they have already been shown.
       prefetcher = createPrefetchScheduler({
         load: prefetchHdriPreset,
-        ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl).map((preset) => preset.id),
+        // Not the preset already on screen: its map is loaded, and on the medium tier's one-item
+        // budget a cache hit on it would spend the whole budget warming nothing.
+        // Read when the scheduler is built (after the vehicle settles), so a preset picked during the
+        // load is the one skipped, not the one the page opened with.
+        ids: HDRI_PRESETS.filter(
+          (preset) => preset.hdrUrl && preset.id !== (environmentController.requestedHdriPresetId ?? initialHdriPresetId),
+        ).map((preset) => preset.id),
         // Read live, not snapshotted: the governor can downgrade after this scheduler is built, and
         // a frozen tier would keep fetching on exactly the device that just told us it is struggling.
         tier: () => renderController.currentQuality.tier,
@@ -937,11 +1007,19 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   useEffect(() => {
     const environmentController = environmentControllerRef.current;
     const renderController = renderControllerRef.current;
-    if (!environmentController || !renderController || !hdriPresetId) return;
+    if (!environmentController || !renderController) return;
+    // A configuration saved before paint-studio existed carries no preset; it still gets the default
+    // lighting and its environment map rather than none at all.
+    const presetId = hdriPresetId ?? DEFAULT_HDRI_PRESET_ID;
     // Supersession (a slower, superseded request's late-arriving result being discarded) is
     // EnvironmentController's own job now — see `applyHdri`'s doc comment — so this effect no
     // longer needs its own `cancelled` flag/cleanup for that race.
-    void environmentController.applyHdri(renderController.renderer, hdriPresetId);
+    void environmentController.applyHdri(renderController.renderer, presetId, { palette: hdriPresetId !== undefined }).then((committed) => {
+      // Which preset's lighting is actually live — the 3D visual snapshots wait on this, since the
+      // HDR fetch + PMREM lands asynchronously after the model settles. Only on a real commit: a
+      // failed fetch or a superseded request must not claim a preset whose map is not installed.
+      if (committed) renderController.canvas.dataset.environment = presetId;
+    });
   }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 
   return (

@@ -67,6 +67,10 @@ export type RendererLike = {
   xr?: { enabled: boolean; setSession(session: unknown): Promise<void> | void };
   toneMapping: THREE.ToneMapping;
   toneMappingExposure: number;
+  /** Both real renderers have it (three r15x+); optional so test doubles need not. Compiles every
+   * program `object` needs, lit as `targetScene` is, using the driver's parallel compile where the
+   * platform offers it (`KHR_parallel_shader_compile` / WebGPU async pipelines). */
+  compileAsync?: (object: THREE.Object3D, camera: THREE.Camera, targetScene?: THREE.Scene | null) => Promise<unknown>;
   /** Real on `THREE.WebGLRenderer` (constructor sets it `true`), absent on `WebGPURenderer` —
    * `EnvironmentController.applyHdri`'s WebGL-only PMREM guard keys off exactly this. */
   isWebGLRenderer?: boolean;
@@ -162,8 +166,12 @@ export class RenderController {
     if (this.gpuTimer) this.canvas.dataset.gpuTimer = this.gpuTimer.source;
 
     applyRendererQuality(renderer, quality);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
+    // Khronos PBR Neutral rather than ACES Filmic. ACES shifts hue as it compresses highlights —
+    // saturated reds drift toward orange, blues toward purple — which for a paint configurator means
+    // the vehicle on screen stops matching the swatch the viewer just picked. Neutral is designed to
+    // keep base colour faithful for product rendering and only rolls off the brightest highlights.
+    renderer.toneMapping = THREE.NeutralToneMapping;
+    renderer.toneMappingExposure = 1.0;
     this.canvas.dataset.renderer = mode;
     recordMetric({ name: "renderer_selected", labels: { renderer: mode, tier: quality.tier } });
     this.canvas.dataset.quality = quality.tier;
@@ -429,6 +437,49 @@ export class RenderController {
    */
   getGpuFrameMs(): number | null {
     return this.gpuTimer?.lastGpuMs() ?? null;
+  }
+
+  /**
+   * Compiles `object`'s shader programs against `targetScene`'s lights, environment and fog before
+   * it is added to that scene.
+   *
+   * Without this the first frame that draws a freshly loaded vehicle compiles every one of its
+   * programs synchronously — tens of materials, each a distinct program once lights, shadows and the
+   * environment map are folded in — and the render loop stalls for that whole time, a visible
+   * freeze exactly at the moment the placeholder hands over to the real model. `compileAsync` does
+   * the same work off the critical path while the placeholder keeps animating.
+   *
+   * Best-effort by design: a renderer without `compileAsync`, a rejected compile, or one that takes
+   * longer than `timeoutMs` all fall back to the old behaviour (compile on first draw) rather than
+   * holding the vehicle back. Resolves to the milliseconds spent, or `null` when skipped.
+   */
+  async precompile(object: THREE.Object3D, targetScene: THREE.Scene, timeoutMs = 4000): Promise<number | null> {
+    if (!this.renderer.compileAsync || !this.camera || this.disposed) return null;
+    const startedAt = performance.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = Symbol("timed out");
+    try {
+      const outcome = await Promise.race([
+        this.renderer.compileAsync(object, this.camera, targetScene),
+        new Promise<typeof timedOut>((resolve) => {
+          timer = setTimeout(() => resolve(timedOut), timeoutMs);
+        }),
+      ]);
+      // A timeout is the fallback (compile on first draw), not a precompile: recording it as one
+      // would hide exactly the drivers and platforms this metric exists to find.
+      if (outcome === timedOut) {
+        recordMetric({ name: "shaders_precompile_timeout", value: timeoutMs, labels: { renderer: this.mode } });
+        return null;
+      }
+    } catch (error) {
+      console.warn("[canvas] shader precompile failed; programs will compile on first draw.", error);
+      return null;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+    const elapsed = Math.round(performance.now() - startedAt);
+    recordMetric({ name: "shaders_precompiled", value: elapsed, labels: { renderer: this.mode } });
+    return elapsed;
   }
 
   /**

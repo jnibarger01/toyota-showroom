@@ -123,8 +123,16 @@ npm run test:e2e:update-visual
 git diff --stat tests/e2e/visual.spec.ts-snapshots/
 ```
 
-`test:e2e:update-visual` is the intentional visual-only refresh (`playwright test --update-snapshots
-tests/e2e/visual.spec.ts`). Prefer it over bare `test:e2e:update`, which would also rewrite any
+`test:e2e:update-visual` is the intentional visual-only refresh (`playwright test --update-snapshots`
+over `tests/e2e/visual.spec.ts` and `tests/e2e/visual-3d.spec.ts`).
+
+`visual-3d.spec.ts` is the one suite that compares the **3D scene's own pixels** (everything else masks
+the canvas). It is deterministic because CI rasterises WebGL in software (SwiftShader) on a pinned
+Chromium, and the spec removes every timing source: reduced motion, a pinned quality tier, and waits on
+`data-load-phase=ready` plus `data-environment` (the HDRI lands after the model). Anything that changes
+how the vehicle looks — tone mapping, materials, environment maps, the floor reflection — shows up
+here. It is slow (software rasterisation runs at about one frame per second), so keep the shot list
+short and prefer light assets. Prefer it over bare `test:e2e:update`, which would also rewrite any
 other snapshot-producing specs if they appear later.
 
 **Always review the image diff before committing it.** A snapshot update is an assertion that the

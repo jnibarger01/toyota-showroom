@@ -125,8 +125,9 @@ describe("RenderController", () => {
       expect(controller.canvas.dataset.quality).toBe(controller.currentQuality.tier);
       expect(fakeRenderer.setPixelRatioCalls.length).toBe(1);
       expect(fakeRenderer.shadowMap.enabled).toBe(controller.currentQuality.shadowsEnabled);
-      expect(fakeRenderer.toneMapping).toBe(THREE.ACESFilmicToneMapping);
-      expect(fakeRenderer.toneMappingExposure).toBeCloseTo(1.05, 5);
+      // Colour-faithful product tone mapping — ACES hue-shifts saturated paint (see the constructor).
+      expect(fakeRenderer.toneMapping).toBe(THREE.NeutralToneMapping);
+      expect(fakeRenderer.toneMappingExposure).toBeCloseTo(1.0, 5);
     });
 
     it("registers a ResizeObserver on the host", async () => {
@@ -343,6 +344,44 @@ describe("RenderController", () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe("precompile", () => {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera();
+    const object = new THREE.Group();
+
+    it("compiles the object against the target scene with the attached camera", async () => {
+      const compileAsync = vi.fn(async () => undefined);
+      const { controller } = await makeController({}, { compileAsync });
+      controller.attachScene(scene, camera);
+      await expect(controller.precompile(object, scene)).resolves.toEqual(expect.any(Number));
+      expect(compileAsync).toHaveBeenCalledWith(object, camera, scene);
+      controller.dispose();
+    });
+
+    it("skips when the renderer cannot compile ahead, or no camera is attached yet", async () => {
+      const { controller } = await makeController();
+      controller.attachScene(scene, camera);
+      await expect(controller.precompile(object, scene)).resolves.toBeNull();
+      const withCompile = await makeController({}, { compileAsync: vi.fn(async () => undefined) });
+      await expect(withCompile.controller.precompile(object, scene)).resolves.toBeNull();
+      controller.dispose();
+      withCompile.controller.dispose();
+    });
+
+    it("never holds the vehicle back: a failing or hanging compile falls through", async () => {
+      const failing = await makeController({}, { compileAsync: vi.fn(async () => Promise.reject(new Error("driver"))) });
+      failing.controller.attachScene(scene, camera);
+      await expect(failing.controller.precompile(object, scene)).resolves.toBeNull();
+
+      const hanging = await makeController({}, { compileAsync: vi.fn(() => new Promise<never>(() => {})) });
+      hanging.controller.attachScene(scene, camera);
+      // A timeout is the compile-on-first-draw fallback, not a precompile: no duration, no success.
+      await expect(hanging.controller.precompile(object, scene, 10)).resolves.toBeNull();
+      failing.controller.dispose();
+      hanging.controller.dispose();
     });
   });
 

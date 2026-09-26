@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { MaterialConfig } from "../types/customization";
 import { materialsOf } from "./nodes";
+import { applyPaintFinish } from "./paintFinish";
 
 /**
  * Material mutation with clone-on-write.
@@ -73,7 +74,7 @@ export class MaterialWriter {
   updateMaterials(
     meshes: readonly THREE.Mesh[],
     materialNames: readonly string[] | undefined,
-    update: (material: THREE.Material) => void,
+    update: (material: THREE.Material, mesh: THREE.Mesh) => void,
     options: { shared?: boolean } = {},
   ): number {
     let written = 0;
@@ -88,7 +89,7 @@ export class MaterialWriter {
 
         const target = this.writable(mesh, slotIndex, options.shared ?? false);
         if (!target) continue;
-        update(target);
+        update(target, mesh);
         target.needsUpdate = true;
         written++;
       }
@@ -106,7 +107,7 @@ export class MaterialWriter {
     return this.updateMaterials(
       meshes,
       materialNames,
-      (material) => {
+      (material, mesh) => {
         const standard = material as THREE.MeshStandardMaterial;
         const physical = material as THREE.MeshPhysicalMaterial;
 
@@ -116,6 +117,9 @@ export class MaterialWriter {
         if (config.clearcoat !== undefined && "clearcoat" in physical) physical.clearcoat = config.clearcoat;
         if (config.clearcoatRoughness !== undefined && "clearcoatRoughness" in physical) {
           physical.clearcoatRoughness = config.clearcoatRoughness;
+        }
+        if (config.finish !== undefined) {
+          applyPaintFinish(material, config.finish, Boolean(mesh.geometry?.getAttribute?.("uv")));
         }
       },
       options,

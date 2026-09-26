@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
@@ -24,7 +24,9 @@ export function useFocusTrap<T extends HTMLElement>(
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onEscapeRef = useRef(onEscape);
 
-  useEffect(() => {
+  // Layout effect, not a passive one: it runs in the same commit as the DOM update, so an Escape
+  // pressed right after a re-render (e.g. the moment "Copied" appears) never reaches a stale handler.
+  useLayoutEffect(() => {
     onEscapeRef.current = onEscape;
   }, [onEscape]);
 

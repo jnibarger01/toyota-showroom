@@ -1,6 +1,8 @@
 import * as THREE from "three";
-import { applyHdriPreset, type HdriEnvironmentHandle, type HdriLightRefs } from "./hdriEnvironment";
+import { applyHdriPalette, applyHdriPreset, type HdriEnvironmentHandle, type HdriLightRefs } from "./hdriEnvironment";
+import { getHdriPreset } from "../data/paintStudio";
 import { recordMetric } from "../observability/clientMetrics";
+import { FLOOR_REFLECTION_STRENGTH } from "./floorReflection";
 
 /**
  * Owns the runtime environment/lighting-rig authority `VehicleCanvas.tsx` used to keep as inline
@@ -93,6 +95,13 @@ export class EnvironmentController {
    * discarded instead of clobbering a newer one that already committed — see that method's own
    * doc comment for the race this guards. */
   private hdriGeneration = 0;
+  /** The preset whose environment is installed and intact right now; `undefined` while a load is
+   * in flight (it disposes the previous map up front) or after one failed. */
+  private hdriLivePresetId: string | undefined;
+  /** The preset most recently asked for, loaded or not — what speculative prefetch should skip. */
+  private hdriRequestedPresetId: string | undefined;
+  /** Settles when the latest `applyHdri` has — committed, failed or superseded. */
+  private hdriSettled: Promise<void> = Promise.resolve();
   private disposed = false;
   /** True while the staged environment is suppressed for AR passthrough. See `setPassthrough`. */
   private passthrough = false;
@@ -269,6 +278,20 @@ export class EnvironmentController {
     this.rocks.visible = false;
   }
 
+  /**
+   * Makes the floor partly transparent so a `FloorReflection` mirrored beneath it shows through as
+   * a polished-floor reflection. Only ever on together with that mirror: a transparent floor with
+   * nothing under it would just look washed out.
+   */
+  setFloorReflective(reflective: boolean): void {
+    const material = this.floor.material;
+    if (material.transparent === reflective) return;
+    material.transparent = reflective;
+    material.opacity = reflective ? 1 - FLOOR_REFLECTION_STRENGTH : 1;
+    // `transparent` changes blending state and program defines; three only rebuilds on this flag.
+    material.needsUpdate = true;
+  }
+
   /** Whether the staged environment is currently suppressed for AR passthrough. */
   get isPassthrough(): boolean {
     return this.passthrough;
@@ -305,15 +328,47 @@ export class EnvironmentController {
   async applyHdri(
     renderer: THREE.WebGLRenderer | { isWebGLRenderer?: boolean },
     hdriPresetId: string | undefined,
-  ): Promise<void> {
+    { palette = true }: { palette?: boolean } = {},
+  ): Promise<boolean> {
     const generation = (this.hdriGeneration += 1);
+    this.hdriRequestedPresetId = hdriPresetId;
     const refs: HdriLightRefs = { scene: this.scene, hemi: this.hemi, key: this.key, rim: this.rim, fill: this.fill };
-    const handle = await applyHdriPreset(refs, renderer, hdriPresetId, this.hdriHandle);
+
+    // Already live: only the palette can have been disturbed (a terrain or lighting change repaints
+    // the lights). Rebuilding would re-filter the same HDR — a synchronous PMREM pass on WebGL —
+    // and leave the scene without an environment in between.
+    const livePreset = hdriPresetId !== undefined && hdriPresetId === this.hdriLivePresetId ? getHdriPreset(hdriPresetId) : undefined;
+    if (livePreset) {
+      if (palette) applyHdriPalette(refs, livePreset);
+      if (this.passthrough) this.suppressEnvironment();
+      return true;
+    }
+
+    // `applyHdriPreset` disposes the current map before loading, so nothing is live until it commits.
+    this.hdriLivePresetId = undefined;
+    const pending = applyHdriPreset(
+      refs,
+      renderer,
+      hdriPresetId,
+      this.hdriHandle,
+      () => generation === this.hdriGeneration && !this.disposed,
+      palette,
+    );
+    this.hdriSettled = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    const handle = await pending;
     if (generation !== this.hdriGeneration || this.disposed) {
       handle?.dispose();
-      return;
+      return false;
     }
     this.hdriHandle = handle;
+    // Committed means the requested lighting is what is on screen: a procedural-only preset, or a
+    // preset whose map actually loaded. A failed fetch leaves the palette without its map.
+    const preset = getHdriPreset(hdriPresetId);
+    const committed = Boolean(preset && (!preset.hdrUrl || handle));
+    this.hdriLivePresetId = committed ? hdriPresetId : undefined;
     // `applyHdriPreset` writes `scene.background` for the preset's palette; same reasoning as in
     // `applyPalette`.
     if (this.passthrough) this.suppressEnvironment();
@@ -329,6 +384,17 @@ export class EnvironmentController {
         backend: isWebGLRendererLike(renderer) ? "webgl" : "webgpu",
       },
     });
+    return committed;
+  }
+
+  /** The HDRI preset most recently requested (in flight or live). */
+  get requestedHdriPresetId(): string | undefined {
+    return this.hdriRequestedPresetId;
+  }
+
+  /** Resolves once the most recent `applyHdri` has settled, however it ended. Never rejects. */
+  whenHdriSettled(): Promise<void> {
+    return this.hdriSettled;
   }
 
   dispose(): void {
@@ -336,6 +402,7 @@ export class EnvironmentController {
     this.disposed = true;
     this.hdriHandle?.dispose();
     this.hdriHandle = null;
+    this.hdriLivePresetId = undefined;
     this.floor.geometry.dispose();
     this.floor.material.dispose();
     this.grid.dispose();

@@ -6,6 +6,22 @@ import {
   type EnvironmentQualityInputs,
 } from "../lib/three/environmentController";
 
+/**
+ * Every catalog HDRI preset now carries an `hdrUrl` (docs/HDRI_PROVENANCE.md), so `applyHdri` always
+ * reaches the loader. The real `RGBELoader` needs a network fetch this environment cannot make, so
+ * it is replaced with one that resolves a named texture per URL — which also lets the supersession
+ * tests below assert *which* preset's map won, not only which palette.
+ */
+vi.mock("three/examples/jsm/loaders/RGBELoader.js", () => ({
+  RGBELoader: class {
+    loadAsync = async (url: string) => {
+      const texture = new THREE.DataTexture();
+      texture.name = url;
+      return texture;
+    };
+  },
+}));
+
 const HIGH_QUALITY: EnvironmentQualityInputs = { shadowsEnabled: true, shadowMapSize: 2048, secondaryLightScale: 1 };
 const LOW_QUALITY: EnvironmentQualityInputs = { shadowsEnabled: false, shadowMapSize: 512, secondaryLightScale: 0.6 };
 
@@ -257,22 +273,17 @@ describe("EnvironmentController", () => {
   });
 
   describe("applyHdri", () => {
-    // `hdri-studio`/`hdri-showroom`/`hdri-overcast` (lib/data/paintStudio.ts) are real catalog
-    // presets with no `hdrUrl` — procedural-lighting-only, so `applyHdriPreset` never reaches its
-    // RGBELoader/PMREM branch. That branch (a preset WITH a real hdrUrl, e.g. `hdri-sunset`) needs
-    // an actual network fetch and a real WebGLRenderer — neither available in this environment —
-    // and is exercised qualitatively by the paint-studio e2e coverage instead; no unit test here
-    // claims to cover it.
+    // The WebGL PMREM branch needs a real WebGLRenderer, unavailable here; it is exercised by the
+    // browser suites. A WebGPU-shaped renderer takes the direct-equirect branch, which is plain
+    // texture assignment and fully testable with the mocked loader above.
     const nonWebglRenderer = { isWebGLRenderer: false };
 
-    it("applies a real no-hdrUrl preset's lighting palette without touching scene.environment", () => {
+    it("applies the preset's lighting palette and its environment map", async () => {
       const { scene, controller } = makeController();
-      const before = scene.environment;
-      return controller.applyHdri(nonWebglRenderer, "hdri-showroom").then(() => {
-        expect(controller.hemi.color.getHexString()).toBe("dce9ff");
-        expect(controller.key.intensity).toBeCloseTo(3.6, 5);
-        expect(scene.environment).toBe(before); // still whatever it was — no PMREM path taken
-      });
+      await controller.applyHdri(nonWebglRenderer, "hdri-showroom");
+      expect(controller.hemi.color.getHexString()).toBe("dce9ff");
+      expect(controller.key.intensity).toBeCloseTo(3.6, 5);
+      expect(scene.environment?.name).toMatch(/photo_studio_loft_hall_512\.hdr$/);
     });
 
     it("clears scene.environment for an unknown preset id instead of throwing", async () => {
@@ -289,23 +300,58 @@ describe("EnvironmentController", () => {
       expect(scene.environment).toBeNull();
     });
 
-    it("a WebGPU-shaped (non-WebGLRenderer) renderer never reaches the WebGL-only PMREM path even for a real hdrUrl preset", async () => {
+    it("a WebGPU-shaped (non-WebGLRenderer) renderer gets the equirect map directly, never the WebGL-only PMREM path", async () => {
       const { scene, controller } = makeController();
-      // hdri-sunset has a real hdrUrl, but the WebGL-only guard must reject it before any fetch —
-      // proven by the call resolving immediately with no thrown network error.
-      await expect(controller.applyHdri(nonWebglRenderer, "hdri-sunset")).resolves.toBeUndefined();
-      expect(scene.environment).toBeNull();
+      // A PMREM attempt against a test double would throw inside three; resolving cleanly with the
+      // loader's own texture assigned is the proof the WebGL-only branch was not taken.
+      await expect(controller.applyHdri(nonWebglRenderer, "hdri-sunset")).resolves.toBe(true);
+      expect(scene.environment?.name).toMatch(/venice_sunset_512\.hdr$/);
+    });
+
+    it("reports a commit only when the requested lighting is actually installed", async () => {
+      const { controller } = makeController();
+      const superseded = controller.applyHdri(nonWebglRenderer, "hdri-studio");
+      const current = controller.applyHdri(nonWebglRenderer, "hdri-showroom");
+      await expect(superseded).resolves.toBe(false);
+      await expect(current).resolves.toBe(true);
+      await expect(controller.applyHdri(nonWebglRenderer, "does-not-exist")).resolves.toBe(false);
+    });
+
+    it("re-applying the live preset restores its palette without rebuilding its map", async () => {
+      const { scene, controller } = makeController();
+      await controller.applyHdri(nonWebglRenderer, "hdri-showroom");
+      const map = scene.environment;
+      controller.key.intensity = 0; // a terrain/lighting change repainted the lights
+      await expect(controller.applyHdri(nonWebglRenderer, "hdri-showroom")).resolves.toBe(true);
+      expect(scene.environment).toBe(map);
+      expect(controller.key.intensity).toBeCloseTo(3.6, 5);
+    });
+
+    it("can install a preset's map without its palette, leaving the environment controls in charge", async () => {
+      const { scene, controller } = makeController();
+      controller.setTerrainAndPreset("Studio", "Sunset");
+      const sunsetKey = controller.key.color.getHexString();
+      await expect(controller.applyHdri(nonWebglRenderer, "hdri-showroom", { palette: false })).resolves.toBe(true);
+      expect(scene.environment?.name).toMatch(/photo_studio_loft_hall_512\.hdr$/);
+      expect(controller.key.color.getHexString()).toBe(sunsetKey);
+      expect(controller.requestedHdriPresetId).toBe("hdri-showroom");
+    });
+
+    it("exposes when the latest request has settled, including a failed one", async () => {
+      const { controller } = makeController();
+      void controller.applyHdri(nonWebglRenderer, "hdri-overcast");
+      await expect(controller.whenHdriSettled()).resolves.toBeUndefined();
     });
 
     it("a later call's final state wins over an earlier call resolved after it", async () => {
-      const { controller } = makeController();
+      const { scene, controller } = makeController();
       const first = controller.applyHdri(nonWebglRenderer, "hdri-studio");
       const second = controller.applyHdri(nonWebglRenderer, "hdri-showroom");
       await Promise.all([first, second]);
-      // Both presets have no hdrUrl, so this asserts on the lighting palette each call applies —
-      // the second call's palette (showroom) must be the one left standing, regardless of which
-      // internal promise happened to settle first.
+      // The second call's palette *and* map (showroom) must be the ones left standing, regardless of
+      // which internal promise happened to settle first.
       expect(controller.key.intensity).toBeCloseTo(3.6, 5); // showroom's key intensity
+      expect(scene.environment?.name).toMatch(/photo_studio_loft_hall_512\.hdr$/);
     });
   });
 
@@ -331,8 +377,8 @@ describe("EnvironmentController", () => {
       const pending = controller.applyHdri({ isWebGLRenderer: false }, "hdri-studio");
       controller.dispose();
       await pending;
-      // Nothing to assert on `hdriHandle` directly (private), but the call must not throw, and
-      // scene.environment (untouched by a no-hdrUrl preset either way) stays consistent.
+      // The load resolved after dispose; its handle must be released rather than left assigned
+      // into a torn-down scene.
       expect(scene.environment).toBeNull();
     });
   });

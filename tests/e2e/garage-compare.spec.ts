@@ -27,6 +27,10 @@ async function dismissOwnerTokenDialogIfShown(page: import("@playwright/test").P
 }
 
 test("garage compare shows 2–4 slots and a visible spec delta", async ({ page }) => {
+  // Pinned to `low`: this is a persistence/garage flow through the builder chrome, not a rendering
+  // test, and under the harness's software GL the IBL-lit medium/high tiers render at about a frame
+  // per second, starving every click of main-thread time (same reasoning as partInteraction.spec.ts).
+  await page.addInitScript(() => localStorage.setItem("toyota-showroom:quality", "low"));
   await page.goto("4runner/");
 
   await expect(page.getByTestId("persistence-mode-banner")).toBeVisible({ timeout: 15_000 });

@@ -19,7 +19,7 @@
     "test:e2e": "playwright test",
     "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
     "test:e2e:update": "playwright test --update-snapshots",
-    "test:e2e:update-visual": "playwright test tests/e2e/visual.spec.ts --update-snapshots=all",
+    "test:e2e:update-visual": "playwright test tests/e2e/visual.spec.ts tests/e2e/visual-3d.spec.ts --update-snapshots=all",
     "typecheck": "tsc --noEmit",
     "assets:optimize": "node scripts/optimize-models.mjs",
     "assets:thumbnails": "tsx scripts/render-thumbnails.ts",
