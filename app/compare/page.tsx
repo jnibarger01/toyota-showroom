@@ -1,6 +1,6 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Component, lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { ArrowLeft, Share2, Truck, Warehouse } from "lucide-react";
 import { compareVehicles, listVehicles, pageUrl, MAX_COMPARE, MIN_COMPARE } from "../../lib/api/client";
 import type { SpecCategory, Vehicle, VehicleSummary } from "../../lib/types/vehicle";
@@ -21,7 +21,7 @@ import {
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
 import { formatCurrency } from "../../lib/shared/currency";
 import { getVehicle } from "../../lib/api/client";
-import { canOfferCompare3d } from "../../lib/three/compareLayout";
+import { canOfferCompare3d, COMPARE_3D_MIN_MODELS, withCompareModels } from "../../lib/three/compareLayout";
 
 // Its own chunk: three.js, the GLTF loader and the models only load once someone asks for 3D.
 const CompareStage = lazy(() => import("../components/CompareStage").then((module) => ({ default: module.CompareStage })));
@@ -45,6 +45,32 @@ function compare3dSnapshot(): boolean {
   }
   return canOfferCompare3d({ width: window.innerWidth, ...compare3dCapabilities });
 }
+/**
+ * Keeps a failed 3D stage — most often its lazy chunk 404ing after a deploy replaced hashed assets
+ * under an open page — from reaching the route boundary and taking the spec table with it. 3D is
+ * optional here; the table is the page.
+ */
+class CompareStageBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown): void {
+    console.error("[compare] 3D comparison failed to load", error);
+  }
+
+  render(): ReactNode {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <p className="panel-empty" role="alert">
+        The 3D comparison could not be loaded. The comparison table below is unaffected.
+      </p>
+    );
+  }
+}
+
 function subscribeToViewport(onChange: () => void): () => void {
   window.addEventListener("resize", onChange);
   return () => window.removeEventListener("resize", onChange);
@@ -398,17 +424,21 @@ export default function ComparePage() {
             </p>
           ) : null}
 
-          {vehicles && canCompareCatalog && compare3dAvailable ? (
+          {vehicles && canCompareCatalog && compare3dAvailable && withCompareModels(vehicles).length >= COMPARE_3D_MIN_MODELS ? (
             <div className="compare-3d-toggle">
               <button type="button" aria-pressed={show3d} className={show3d ? "active" : ""} onClick={() => setShow3d((value) => !value)}>
                 {show3d ? "Hide 3D comparison" : "Compare in 3D"}
               </button>
             </div>
           ) : null}
-          {vehicles && canCompareCatalog && show3d ? (
-            <Suspense fallback={<p className="panel-empty">Loading 3D comparison…</p>}>
-              <CompareStage vehicles={vehicles} />
-            </Suspense>
+          {/* Gated on the same conditions as the toggle, so narrowing the window below the 3D
+              breakpoint unmounts the stage rather than stranding it without its Hide control. */}
+          {vehicles && canCompareCatalog && compare3dAvailable && withCompareModels(vehicles).length >= COMPARE_3D_MIN_MODELS && show3d ? (
+            <CompareStageBoundary>
+              <Suspense fallback={<p className="panel-empty">Loading 3D comparison…</p>}>
+                <CompareStage vehicles={vehicles} />
+              </Suspense>
+            </CompareStageBoundary>
           ) : null}
 
           {vehicles && canCompareCatalog ? (

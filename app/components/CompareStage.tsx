@@ -19,19 +19,23 @@ import type { Vehicle } from "../../lib/types/vehicle";
 import { getGltfLoader, disposeSubtree } from "../../lib/three/assets";
 import { resolveAssetUrl } from "../../lib/three/assetUrl";
 import { trueScaleFactor } from "../../lib/three/arPlacement";
-import { columnViewports, fitDistance } from "../../lib/three/compareLayout";
+import { columnViewports, compareKeyAction, fitDistance, withCompareModels } from "../../lib/three/compareLayout";
 import { prepareVehicleRoot } from "./VehicleCanvas";
 import { prefersReducedMotion } from "../../lib/three/motionPreference";
 
 type Props = { vehicles: readonly Vehicle[] };
 
 const FOV = 30;
+/** The opening three-quarter view (front-right, slightly above), as a direction from the target. */
+const OPENING_DIRECTION = new THREE.Vector3(0.62, 0.3, -0.72).normalize();
 
 export function CompareStage({ vehicles }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState(0);
   const [failed, setFailed] = useState<string[]>([]);
-  const withModels = vehicles.filter((vehicle) => vehicle.threeDConfig.hasModel && vehicle.threeDConfig.modelUrl);
+  const withModels = withCompareModels(vehicles);
+  // Named rather than silently dropped: a column the viewer asked for should not just vanish.
+  const withoutModels = vehicles.filter((vehicle) => !withModels.includes(vehicle));
 
   useEffect(() => {
     const host = hostRef.current;
@@ -66,6 +70,9 @@ export function CompareStage({ vehicles }: Props) {
       return scene;
     });
     const radii: number[] = withModels.map(() => 0);
+    /** Distance that fits the largest vehicle loaded so far. */
+    const requiredDistance = () => fitDistance(Math.max(...radii, 1), FOV, camera.aspect);
+    let framed = false;
 
     let frameRequested = false;
     const requestFrame = () => {
@@ -104,6 +111,31 @@ export function CompareStage({ vehicles }: Props) {
     resize();
     controls.addEventListener("change", requestFrame);
 
+    // Keyboard equivalents of drag and wheel, as on the builder's viewer: OrbitControls only
+    // listens to pointer input, and a control with no keyboard path locks keyboard users out.
+    const spherical = new THREE.Spherical();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const action = compareKeyAction(event.key);
+      if (!action) return;
+      event.preventDefault();
+      if (action.kind === "reset") {
+        camera.position.copy(controls.target).addScaledVector(OPENING_DIRECTION, requiredDistance());
+      } else {
+        spherical.setFromVector3(camera.position.clone().sub(controls.target));
+        if (action.kind === "orbit") {
+          spherical.theta += action.theta;
+          spherical.phi = THREE.MathUtils.clamp(spherical.phi + action.phi, 0.1, controls.maxPolarAngle);
+        } else {
+          spherical.radius = THREE.MathUtils.clamp(spherical.radius * action.factor, controls.minDistance, controls.maxDistance);
+        }
+        camera.position.copy(controls.target).add(new THREE.Vector3().setFromSpherical(spherical));
+      }
+      camera.lookAt(controls.target);
+      controls.update();
+      requestFrame();
+    };
+    host.addEventListener("keydown", handleKeyDown);
+
     withModels.forEach((vehicle, index) => {
       const config = vehicle.threeDConfig;
       const url = config.lodModelUrl ?? config.modelUrl!;
@@ -125,9 +157,16 @@ export function CompareStage({ vehicles }: Props) {
           root.updateWorldMatrix(true, true);
           radii[index] = new THREE.Box3().setFromObject(root).getBoundingSphere(new THREE.Sphere()).radius;
           scenes[index]!.add(root);
-          // The first time the largest vehicle is known, frame it.
-          const distance = fitDistance(Math.max(...radii), FOV, camera.aspect);
-          camera.position.copy(controls.target).add(new THREE.Vector3(0.62, 0.3, -0.72).normalize().multiplyScalar(distance));
+          // Frame once, on the first vehicle. Later arrivals only back the camera off, along the
+          // direction the viewer has orbited to, and only when a larger vehicle needs the room: a
+          // slow second model must not snap away a view someone has already chosen.
+          const offset = camera.position.clone().sub(controls.target);
+          if (!framed) {
+            framed = true;
+            camera.position.copy(controls.target).addScaledVector(OPENING_DIRECTION, requiredDistance());
+          } else if (offset.length() < requiredDistance()) {
+            camera.position.copy(controls.target).add(offset.setLength(requiredDistance()));
+          }
           setLoaded((count) => count + 1);
           requestFrame();
         })
@@ -138,6 +177,7 @@ export function CompareStage({ vehicles }: Props) {
 
     return () => {
       disposed = true;
+      host.removeEventListener("keydown", handleKeyDown);
       observer.disconnect();
       controls.dispose();
       // Floors, lights and every loaded vehicle; the shared environment map is released once below.
@@ -157,8 +197,9 @@ export function CompareStage({ vehicles }: Props) {
       <div
         ref={hostRef}
         className="compare-stage-canvas"
-        role="img"
-        aria-label={`3D view of ${withModels.map((vehicle) => `${vehicle.year} ${vehicle.model}`).join(", ")} side by side at true scale. Drag to orbit all of them together.`}
+        tabIndex={0}
+        role="group"
+        aria-label={`3D view of ${withModels.map((vehicle) => `${vehicle.year} ${vehicle.model}`).join(", ")} side by side at true scale. Drag or use the arrow keys to orbit all of them together, plus and minus to zoom, and Home to return to the opening view.`}
       />
       <div className="compare-stage-labels" aria-hidden="true">
         {withModels.map((vehicle) => (
@@ -171,6 +212,7 @@ export function CompareStage({ vehicles }: Props) {
         {loaded < withModels.length && failed.length === 0 ? `Loading ${withModels.length - loaded} model${withModels.length - loaded === 1 ? "" : "s"}…` : null}
         {failed.length > 0 ? `Could not load: ${failed.join(", ")}.` : null}
         {loaded === withModels.length ? "Shown at true relative scale. Drag to orbit together." : null}
+        {withoutModels.length > 0 ? ` No 3D model yet: ${withoutModels.map((vehicle) => `${vehicle.year} ${vehicle.model}`).join(", ")}.` : null}
       </p>
     </section>
   );

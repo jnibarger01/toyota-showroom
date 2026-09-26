@@ -48,3 +48,32 @@ test("the builder stage shows the vehicle's rendered thumbnail as a poster while
   const poster = await stage.evaluate((element) => getComputedStyle(element).backgroundImage.replace(/^url\("?|"?\)$/g, ""));
   expect((await page.request.get(poster)).status()).toBe(200);
 });
+
+test("3D is not offered when fewer than two chosen vehicles have a model", async ({ page }) => {
+  // The Tacoma has no 3D model yet, so Tacoma + Camry would be a one-car "comparison".
+  await page.goto("compare/?vehicles=tacoma,camry");
+  await page.waitForSelector(".compare-table");
+  await expect(page.getByRole("button", { name: "Compare in 3D" })).toHaveCount(0);
+});
+
+test("the stage takes keyboard orbit/zoom/reset, and unmounts when the window gets too narrow for it", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("compare/?vehicles=camry,rav4-hybrid");
+  await page.waitForSelector(".compare-table");
+  await page.getByRole("button", { name: "Compare in 3D" }).click();
+  const stage = page.getByRole("region", { name: "3D size comparison" });
+  await expect(stage.getByRole("status")).toHaveText(/Shown at true relative scale/, { timeout: 150_000 });
+
+  const viewer = stage.getByRole("group", { name: /arrow keys to orbit/ });
+  await viewer.focus();
+  await expect(viewer).toBeFocused();
+  for (const key of ["ArrowLeft", "ArrowUp", "+", "-", "Home"]) await page.keyboard.press(key);
+
+  await page.setViewportSize({ width: 800, height: 900 });
+  await expect(stage).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /3D/ })).toHaveCount(0);
+  await expect(page.locator(".compare-table")).toBeVisible();
+  expect(errors).toEqual([]);
+});

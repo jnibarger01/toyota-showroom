@@ -44,3 +44,46 @@ export function fitDistance(largestRadius: number, verticalFovDegrees: number, c
 export function canOfferCompare3d(env: { width: number; hasWebGL2: boolean; saveData: boolean }): boolean {
   return env.width >= 900 && env.hasWebGL2 && !env.saveData;
 }
+
+/** Vehicles the 3D stage can actually show: those that ship a model. */
+export function withCompareModels<V extends { threeDConfig: { hasModel?: boolean; modelUrl?: string } }>(vehicles: readonly V[]): V[] {
+  return vehicles.filter((vehicle) => vehicle.threeDConfig.hasModel && vehicle.threeDConfig.modelUrl);
+}
+
+/**
+ * A comparison needs something to compare: with fewer than two modelled vehicles the stage would be
+ * a one-car "comparison" labelled "at true relative scale", so it is not offered at all.
+ */
+export const COMPARE_3D_MIN_MODELS = 2;
+
+export type CompareKeyAction = { kind: "orbit"; theta: number; phi: number } | { kind: "zoom"; factor: number } | { kind: "reset" };
+
+/** Radians per arrow-key press; small enough to aim, large enough that a held key moves briskly. */
+export const COMPARE_KEY_ORBIT_STEP = Math.PI / 24;
+
+/**
+ * Keyboard equivalents of the stage's pointer controls, matching the builder viewer's scheme:
+ * arrows orbit, plus/minus zoom, Home re-frames. `null` for keys the stage leaves alone (Tab, etc.).
+ */
+export function compareKeyAction(key: string): CompareKeyAction | null {
+  switch (key) {
+    case "ArrowLeft":
+      return { kind: "orbit", theta: -COMPARE_KEY_ORBIT_STEP, phi: 0 };
+    case "ArrowRight":
+      return { kind: "orbit", theta: COMPARE_KEY_ORBIT_STEP, phi: 0 };
+    case "ArrowUp":
+      return { kind: "orbit", theta: 0, phi: -COMPARE_KEY_ORBIT_STEP };
+    case "ArrowDown":
+      return { kind: "orbit", theta: 0, phi: COMPARE_KEY_ORBIT_STEP };
+    case "+":
+    case "=":
+      return { kind: "zoom", factor: 0.9 };
+    case "-":
+    case "_":
+      return { kind: "zoom", factor: 1 / 0.9 };
+    case "Home":
+      return { kind: "reset" };
+    default:
+      return null;
+  }
+}

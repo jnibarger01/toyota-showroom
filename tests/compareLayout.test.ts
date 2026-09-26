@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { canOfferCompare3d, columnViewports, fitDistance } from "../lib/three/compareLayout";
+import { canOfferCompare3d, columnViewports, compareKeyAction, fitDistance, withCompareModels } from "../lib/three/compareLayout";
+import { VEHICLES } from "../lib/data/vehicles";
 
 describe("compare stage layout", () => {
   it("splits the canvas into equal columns that never overlap", () => {
@@ -25,5 +26,21 @@ describe("compare stage layout", () => {
     expect(canOfferCompare3d({ width: 700, hasWebGL2: true, saveData: false })).toBe(false);
     expect(canOfferCompare3d({ width: 1280, hasWebGL2: false, saveData: false })).toBe(false);
     expect(canOfferCompare3d({ width: 1280, hasWebGL2: true, saveData: true })).toBe(false);
+  });
+
+  it("counts only vehicles that ship a model (the Tacoma does not)", () => {
+    const bySlug = (slug: string) => VEHICLES.find((vehicle) => vehicle.slug === slug)!;
+    expect(withCompareModels([bySlug("tacoma"), bySlug("camry")]).map((vehicle) => vehicle.slug)).toEqual(["camry"]);
+    expect(withCompareModels([bySlug("camry"), bySlug("land-cruiser")])).toHaveLength(2);
+  });
+
+  it("maps arrows to orbit, plus/minus to zoom and Home to re-frame, leaving other keys alone", () => {
+    expect(compareKeyAction("ArrowLeft")).toMatchObject({ kind: "orbit", phi: 0 });
+    expect((compareKeyAction("ArrowLeft") as { theta: number }).theta).toBeLessThan(0);
+    expect((compareKeyAction("ArrowDown") as { phi: number }).phi).toBeGreaterThan(0);
+    expect((compareKeyAction("+") as { factor: number }).factor).toBeLessThan(1);
+    expect((compareKeyAction("-") as { factor: number }).factor).toBeGreaterThan(1);
+    expect(compareKeyAction("Home")).toEqual({ kind: "reset" });
+    expect(compareKeyAction("Tab")).toBeNull();
   });
 });
