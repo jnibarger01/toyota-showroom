@@ -583,3 +583,26 @@ describe("CameraController driver view", () => {
     controller.dispose();
   });
 });
+
+describe("CameraController driver view and the tour", () => {
+  it("leaves the seat (lens and OrbitControls restored) before the tour flies the camera", () => {
+    const controller = new CameraController({ domElement: document.createElement("canvas"), initialPreset: hero, presets: [hero, wheels] });
+    const showroomFov = controller.camera.fov;
+    controller.enterDriverView(new THREE.Vector3(-0.4, 1.2, -0.3));
+    controller.playTour();
+    expect(controller.isDriverView).toBe(false);
+    expect(controller.camera.fov).toBe(showroomFov);
+    controller.cancelTour();
+    controller.dispose();
+  });
+
+  it("follows the vehicle when it moves under a seated driver, keeping where they are looking", () => {
+    const controller = new CameraController({ domElement: document.createElement("canvas"), initialPreset: hero, presets: [hero, wheels] });
+    controller.enterDriverView(new THREE.Vector3(-0.4, 1.2, -0.3));
+    const facing = controller.camera.getWorldDirection(new THREE.Vector3());
+    controller.moveDriverEye(new THREE.Vector3(-0.4, 1.3, -0.3)); // a 10 cm lift
+    expect(controller.camera.position.y).toBeCloseTo(1.3, 6);
+    expect(controller.camera.getWorldDirection(new THREE.Vector3()).angleTo(facing)).toBeLessThan(1e-6);
+    controller.dispose();
+  });
+});

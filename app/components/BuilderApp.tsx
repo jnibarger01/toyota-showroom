@@ -1528,7 +1528,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onLampModesAvailable={setLampModes}
               hotspotCategories={hotspotCategories}
               showHotspots={showHotspots}
-              onHotspotActivate={setActiveCategory}
+              onHotspotActivate={(category) => {
+                setActiveCategory(category);
+                // At the mobile breakpoint the panel is off-screen until opened, so a hotspot has to
+                // open it too. The Customize trigger being displayed is that layout's own signal —
+                // on desktop the panel is always visible and must not become a focus trap.
+                const trigger = mobileTriggerRef.current;
+                if (trigger && getComputedStyle(trigger).display !== "none") {
+                  setTourOpen(false);
+                  setMobilePanelOpen(true);
+                }
+              }}
               showDimensions={showDimensions}
               dimensionSpecs={dimensionSpecs}
               doorsOpen={doorsOpen}

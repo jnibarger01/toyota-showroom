@@ -5,7 +5,8 @@ import { DoorRig, pickOpeningDirection } from "../lib/three/doors";
 import { buildDimensionsOverlay, formatDimension, scaleMismatch } from "../lib/three/dimensions";
 import { dimensionSpecsFrom } from "../lib/showroom/dimensionSpecs";
 import { DriverLook, driverEyeFromSteeringWheel, EYE_ABOVE_WHEEL, EYE_BEHIND_WHEEL, MAX_PITCH, MAX_YAW } from "../lib/three/interiorView";
-import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples } from "../lib/three/hotspots";
+import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples, visibleStandIn } from "../lib/three/hotspots";
+import { WHEEL_CORNER_TAG } from "../lib/three/proceduralWheels";
 import { RigidPivot } from "../lib/three/showroomFrame";
 
 describe("showroom frame convention", () => {
@@ -178,6 +179,40 @@ describe("hotspots", () => {
       { partId: "wheel.front-left", category: "wheels", label: "Front-left wheel" },
       { partId: "body.exterior", category: "paint", label: "Exterior paint" },
     ]);
+  });
+
+  it("covers brake, trim and accessory parts, filing each under the category the catalog serves", () => {
+    const parts = [
+      { id: "brakes.caliper", type: "brake", label: "Brake caliper" },
+      { id: "body.grille", type: "trim", label: "Grille" },
+      { id: "glass.windshield", type: "glass", label: "Windshield" },
+    ];
+    // Camry sells its caliper finish as an accessory; a vehicle with a Brakes category files it there.
+    expect(selectHotspots(parts, new Set(["accessory", "trim"]))).toEqual([
+      { partId: "brakes.caliper", category: "accessory", label: "Brake caliper" },
+      { partId: "body.grille", category: "trim", label: "Grille" },
+    ]);
+    expect(selectHotspots(parts, new Set(["brakes", "accessory"]))[0]).toMatchObject({ category: "brakes" });
+  });
+
+  it("anchors a hidden factory wheel's hotspot on the package corner shown in its place", () => {
+    const root = new THREE.Group();
+    const factoryWheel = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.8, 0.8), new THREE.MeshBasicMaterial());
+    factoryWheel.position.set(-0.8, 0.4, -1.5);
+    factoryWheel.visible = false; // a package is fitted
+    const corner = (x: number, z: number) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.8, 0.8), new THREE.MeshBasicMaterial());
+      mesh.position.set(x, 0.4, z);
+      mesh.userData[WHEEL_CORNER_TAG] = true;
+      return mesh;
+    };
+    const frontLeft = corner(-0.8, -1.5);
+    const rearRight = corner(0.8, 1.5);
+    root.add(factoryWheel, frontLeft, rearRight);
+    root.updateWorldMatrix(true, true);
+    expect(visibleStandIn(factoryWheel, root)).toBe(frontLeft);
+    factoryWheel.visible = true;
+    expect(visibleStandIn(factoryWheel, root)).toBe(factoryWheel);
   });
 
   it("projects into the viewport and drops points behind the camera", () => {

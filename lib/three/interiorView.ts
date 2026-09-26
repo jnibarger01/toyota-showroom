@@ -43,10 +43,21 @@ export class DriverLook {
   yaw = 0;
   pitch = THREE.MathUtils.degToRad(-6); // eyes on the road, slightly down, as a driver sits
 
+  private readonly eye = new THREE.Vector3();
+
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
-    private readonly eye: THREE.Vector3,
-  ) {}
+    eye: THREE.Vector3,
+  ) {
+    this.eye.copy(eye);
+  }
+
+  /** Moves the eye (the vehicle moved under it — a lift change) keeping the head's yaw/pitch. */
+  moveEye(eye: THREE.Vector3): void {
+    if (this.eye.equals(eye)) return;
+    this.eye.copy(eye);
+    this.apply();
+  }
 
   /** Positions and aims the camera for the current yaw/pitch. */
   apply(): void {

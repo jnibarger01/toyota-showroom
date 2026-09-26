@@ -195,6 +195,9 @@ export class CameraController {
   }
 
   playTour(): void {
+    // The tour flies OrbitControls' camera; from the seat it would fly a camera that `update()`
+    // no longer drives, with the cabin lens still on.
+    this.leaveDriverSeat();
     this.setAutoRotate(false);
     this.tour.play();
   }
@@ -295,9 +298,21 @@ export class CameraController {
     element.addEventListener("pointerleave", this.handleDriverPointerUp);
   }
 
+  /** Follows the vehicle while seated: the eye is re-placed each frame from the vehicle's pose. */
+  moveDriverEye(eye: THREE.Vector3): void {
+    this.driverLook?.moveEye(eye);
+  }
+
   /** Leaves the driver's seat, back to `preset`'s framing. */
   exitDriverView(preset?: CameraPresetConfig): void {
-    if (!this.driverLook) return;
+    if (!this.leaveDriverSeat()) return;
+    const target = preset ?? this.presets.find((item) => item.id === this.activePresetId) ?? this.presets[0];
+    if (target) this.resetToPreset(target);
+  }
+
+  /** Hands the camera back to OrbitControls with the showroom lens, without re-framing. */
+  private leaveDriverSeat(): boolean {
+    if (!this.driverLook) return false;
     this.driverLook = null;
     this.driverDrag = null;
     const element = this.controls.domElement as HTMLElement;
@@ -312,8 +327,7 @@ export class CameraController {
       this.camera.updateProjectionMatrix();
       this.showroomLens = null;
     }
-    const target = preset ?? this.presets.find((item) => item.id === this.activePresetId) ?? this.presets[0];
-    if (target) this.resetToPreset(target);
+    return true;
   }
 
   update(): void {
