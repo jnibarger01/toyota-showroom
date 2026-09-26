@@ -457,13 +457,20 @@ export class RenderController {
     if (!this.renderer.compileAsync || !this.camera || this.disposed) return null;
     const startedAt = performance.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = Symbol("timed out");
     try {
-      await Promise.race([
+      const outcome = await Promise.race([
         this.renderer.compileAsync(object, this.camera, targetScene),
-        new Promise((resolve) => {
-          timer = setTimeout(resolve, timeoutMs);
+        new Promise<typeof timedOut>((resolve) => {
+          timer = setTimeout(() => resolve(timedOut), timeoutMs);
         }),
       ]);
+      // A timeout is the fallback (compile on first draw), not a precompile: recording it as one
+      // would hide exactly the drivers and platforms this metric exists to find.
+      if (outcome === timedOut) {
+        recordMetric({ name: "shaders_precompile_timeout", value: timeoutMs, labels: { renderer: this.mode } });
+        return null;
+      }
     } catch (error) {
       console.warn("[canvas] shader precompile failed; programs will compile on first draw.", error);
       return null;

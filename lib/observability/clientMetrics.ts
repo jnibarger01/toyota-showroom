@@ -45,6 +45,8 @@ export type MetricName =
   | "quality_changed"
   | "environment_applied"
   | "shaders_precompiled"
+  // A precompile that hit its timeout: shaders fell back to compiling on first draw.
+  | "shaders_precompile_timeout"
   // Share / save funnel (#46) — see lib/observability/funnelTelemetry.ts
   | "build_started"
   | "option_changed"

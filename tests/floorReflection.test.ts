@@ -110,4 +110,23 @@ describe("EnvironmentController.setFloorReflective", () => {
     expect(controller.floor.material.transparent).toBe(false);
     expect(controller.floor.material.opacity).toBe(1);
   });
+
+  it("never lights the scene with mirrored copies of the vehicle's own lights", () => {
+    const root = new THREE.Group();
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
+    const fogLamp = new THREE.PointLight("#fff", 2);
+    fogLamp.visible = false;
+    root.add(fogLamp);
+    const reflection = new FloorReflection();
+    reflection.setSource(root);
+    reflection.setEnabled(true);
+    fogLamp.visible = true; // the accessory is switched on
+    reflection.sync();
+    const mirroredLights: THREE.Light[] = [];
+    reflection.group.traverse((object) => {
+      if (object instanceof THREE.Light) mirroredLights.push(object);
+    });
+    expect(mirroredLights).toHaveLength(1);
+    expect(mirroredLights[0]!.visible).toBe(false);
+  });
 });
