@@ -284,6 +284,52 @@ export class VehicleSceneController {
     }
   }
 
+  /**
+   * Runs a material write with hover/selection tints lifted and then put back. A tint is a clone
+   * sitting in `mesh.material` (`PartHighlighter`), so a write made while it is up lands on the
+   * hidden underlying material — invisible until the highlight clears — or, for a slot not yet
+   * cloned, clones the tint itself and records it as the "original".
+   */
+  private async withHighlightsLifted<T>(write: () => Promise<T> | T): Promise<T> {
+    this.highlighter.clearAll();
+    try {
+      return await write();
+    } finally {
+      this.repaintHighlights();
+    }
+  }
+
+  /** Shows `option` (a paint) on the vehicle for a swatch preview; hover and selection survive. */
+  previewPaint(option: CustomizationOption): Promise<boolean> {
+    return this.withHighlightsLifted(() => this.applyOption(option));
+  }
+
+  /**
+   * Puts the configured paint back after `previewPaint(previewed)`, touching only paint — a full
+   * `applyConfiguration` would also clear hover and selection, which a preview must never change.
+   * With no paint selected, the previewed slots go back to the asset's own material and any later
+   * paint group (a finish) is re-applied on top, exactly as a replay would leave them.
+   */
+  restorePaintAfterPreview(
+    previewed: CustomizationOption,
+    selected: CustomizationOption | undefined,
+    paintStudio: PaintStudioState | undefined,
+  ): Promise<void> {
+    return this.withHighlightsLifted(async () => {
+      if (paintStudio?.mode === "custom") {
+        this.applyPaintStudio(paintStudio);
+        return;
+      }
+      if (selected) {
+        await this.applyOption(selected);
+        return;
+      }
+      this.writer.restoreSlots(resolveMeshes(this.root, previewed.targetNodes ?? []), previewed.targetMaterials);
+      this.activeByGroup.delete(selectionGroupOf(previewed));
+      await this.reapplyDependentGroups(previewed);
+    });
+  }
+
   /** Reverses an option. Only meaningful for the accumulating categories (accessory, decal). */
   async removeOption(option: CustomizationOption): Promise<boolean> {
     if (option.operation === "mesh-replacement") {

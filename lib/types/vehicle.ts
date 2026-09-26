@@ -168,11 +168,12 @@ export interface Vehicle3DConfig {
   paintableMaterialNames: string[];
   wheelMountNames: string[];
   /**
-   * Front wheels turned for the hero camera preset (`lib/three/steering.ts`). `nodeNames` are the two
-   * front wheel nodes; `degrees` is signed (positive = counter-clockwise seen from above) and picked
+   * Front wheels turned for the hero camera preset (`lib/three/steering.ts`). `nodeNames` are the
+   * front wheel nodes — mounts and stock wheels may both be listed; empty mounts are skipped and a
+   * node under another listed node is never turned twice. `degrees` is signed (positive = counter-clockwise seen from above) and picked
    * per vehicle so the wheel face turns toward the hero camera. Omitted = wheels stay straight.
    */
-  heroSteer?: { nodeNames: [string, string]; degrees: number };
+  heroSteer?: { nodeNames: readonly string[]; degrees: number };
   /**
    * The driver's-seat view (`lib/three/interiorView.ts`), placed from the steering wheel: the nodes
    * that make it up. Only set for assets with a verified cabin; omitted = no Driver view offered.

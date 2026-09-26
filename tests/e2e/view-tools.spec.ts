@@ -63,3 +63,36 @@ test("a body-shell asset offers no driver's seat", async ({ page }) => {
   await expect(page.getByTestId("toggle-driver-view")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("dimension lines are measured from the closed vehicle, whichever toggle came first", async ({ page }) => {
+  const errors = await openBuilder(page, "camry");
+  const label = page.locator(".scene-dimension").first();
+  const dimensions = page.getByTestId("toggle-dimensions");
+
+  await dimensions.click();
+  await expect(label).toBeVisible({ timeout: 15_000 });
+  const closedFirst = await label.getAttribute("style");
+  await dimensions.click();
+
+  await page.getByTestId("toggle-doors").click();
+  await page.waitForTimeout(1500); // doors finish opening
+  await dimensions.click();
+  await expect(label).toBeVisible({ timeout: 15_000 });
+  expect(await label.getAttribute("style")).toBe(closedFirst);
+  expect(errors).toEqual([]);
+});
+
+test("on a phone, a hotspot opens the configuration panel at its category", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const errors = await openBuilder(page, "camry");
+  const customize = page.locator(".mobile-config-trigger");
+  await customize.click();
+  await page.getByTestId("toggle-hotspots").click();
+  await page.keyboard.press("Escape"); // close the panel to see the stage
+  await expect(customize).toHaveAttribute("aria-expanded", "false");
+  const hotspot = page.locator(".scene-hotspot:visible").first();
+  await expect(hotspot).toBeVisible({ timeout: 30_000 });
+  await hotspot.click();
+  await expect(customize).toHaveAttribute("aria-expanded", "true");
+  expect(errors).toEqual([]);
+});

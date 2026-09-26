@@ -132,9 +132,29 @@ describe("paint preview", () => {
     expect(configurationStore.getSnapshot().configuration?.selections.paint).toEqual([red.id]);
   });
 
+  it("previews visibly while the body is selected, and restores without losing the selection", async () => {
+    const { fixture, catalog, controller } = await attach();
+    const red = catalog.find((option) => option.id === "paint-3u5-barcelona-red")!;
+    const factoryHex = paintColor(fixture.root);
+    controller.selectPart("body.exterior");
+
+    // The selection tint is a clone in `mesh.material`; the preview must land on what is visible.
+    await configurationStore.previewOption(red);
+    expect(paintColor(fixture.root)).toBe(red.materialConfig!.color!.toLowerCase());
+    expect(controller.selectedPartId).toBe("body.exterior");
+
+    // No paint is configured on this fresh build: the slot returns to the asset's own material,
+    // and the part the viewer selected stays selected (a full replay would have cleared it).
+    await configurationStore.previewOption(null);
+    expect(paintColor(fixture.root)).toBe(factoryHex);
+    expect(controller.selectedPartId).toBe("body.exterior");
+    controller.clearSelection();
+    expect(paintColor(fixture.root)).toBe(factoryHex);
+  });
+
   it("never previews anything but paint", async () => {
     const { catalog, controller } = await attach();
-    const applySpy = vi.spyOn(controller, "applyOption");
+    const applySpy = vi.spyOn(controller, "previewPaint");
     const notPaint = catalog.find((option) => option.category !== "paint")!;
     await configurationStore.previewOption(notPaint);
     expect(applySpy).not.toHaveBeenCalled();

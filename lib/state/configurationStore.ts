@@ -1,6 +1,7 @@
 import {
   isMultiSelect,
   isSelected,
+  selectionGroupOf,
   withOptionDeselected,
   withOptionSelected,
   type CustomizationOption,
@@ -206,31 +207,20 @@ export class ConfigurationStore {
         const previewable = option.category === "paint" && option.operation === "material-update";
         if (!previewable || isSelected(current.selections, option)) return;
         this.previewing = option;
-        await controller.applyOption(option);
+        await controller.previewPaint(option);
         return;
       }
 
-      if (!this.previewing) return;
+      const previewed = this.previewing;
+      if (!previewed) return;
       this.previewing = null;
-      await this.restorePaint(controller, current);
+      // The configured option in the previewed swatch's own selection group, if any.
+      const group = selectionGroupOf(previewed);
+      const selected = (current.selections.paint ?? [])
+        .map((id) => this.state.catalog.find((candidate) => candidate.id === id))
+        .find((candidate): candidate is CustomizationOption => candidate !== undefined && selectionGroupOf(candidate) === group);
+      await controller.restorePaintAfterPreview(previewed, selected, current.paintStudio);
     });
-  }
-
-  /** Re-applies whatever paint the configuration actually holds, after a preview. */
-  private async restorePaint(controller: VehicleSceneController, current: VehicleConfiguration): Promise<void> {
-    if (current.paintStudio?.mode === "custom") {
-      controller.applyPaintStudio(current.paintStudio);
-      return;
-    }
-    const selected = (current.selections.paint ?? [])
-      .map((id) => this.state.catalog.find((candidate) => candidate.id === id))
-      .find((candidate): candidate is CustomizationOption => Boolean(candidate));
-    if (selected) {
-      await controller.applyOption(selected);
-      return;
-    }
-    // No catalog paint selected: only a full replay returns the slot to the asset's own material.
-    await controller.applyConfiguration(current.selections, current.paintStudio);
   }
 
   private async selectOptionSerialized(option: CustomizationOption): Promise<void> {

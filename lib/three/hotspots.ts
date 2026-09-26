@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { CustomizationCategory } from "../types/customization";
+import { WHEEL_CORNER_TAG } from "./proceduralWheels";
 
 /**
  * Feature hotspots: small labelled buttons pinned to parts of the vehicle, each opening the
@@ -16,13 +17,22 @@ import type { CustomizationCategory } from "../types/customization";
  * every few frames.
  */
 
-/** Which configurator category a part type leads to. Types with no customisation get no hotspot. */
-const CATEGORY_FOR_PART_TYPE: Record<string, CustomizationCategory> = {
-  body: "paint",
-  wheel: "wheels",
-  tire: "tires",
-  light: "lighting",
-  interior: "interior",
+/**
+ * Which configurator categories a part type can lead to, in preference order; the first one the
+ * vehicle's catalog actually serves wins. Scene maps type parts coarsely ("brake", "trim"), and
+ * catalogs differ in where they file the same thing — a brake caliper is a Brakes option on one
+ * vehicle and an Accessory on another — so a type lists every category it can stand for rather
+ * than guessing one. Types with no customisation (glass, badge, mirror) get no hotspot.
+ */
+const CATEGORIES_FOR_PART_TYPE: Record<string, readonly CustomizationCategory[]> = {
+  body: ["paint"],
+  wheel: ["wheels"],
+  tire: ["tires"],
+  light: ["lighting"],
+  interior: ["interior"],
+  brake: ["brakes", "accessory"],
+  trim: ["trim"],
+  accessory: ["accessory"],
 };
 
 /** Preferred anchor part per category, when the scene map has it — the most recognisable instance. */
@@ -53,8 +63,8 @@ export interface Hotspot {
 export function selectHotspots(parts: readonly HotspotPart[], availableCategories: ReadonlySet<CustomizationCategory>): Hotspot[] {
   const byCategory = new Map<CustomizationCategory, HotspotPart>();
   for (const part of parts) {
-    const category = CATEGORY_FOR_PART_TYPE[part.type];
-    if (!category || !availableCategories.has(category)) continue;
+    const category = CATEGORIES_FOR_PART_TYPE[part.type]?.find((candidate) => availableCategories.has(candidate));
+    if (!category) continue;
     const current = byCategory.get(category);
     if (!current || part.id === PREFERRED_PART[category]) byCategory.set(category, part);
   }
@@ -133,6 +143,28 @@ export function resolveHotspotAnchor(
     if (first && isWithin(first.object, part)) return first.point;
   }
   return null;
+}
+
+/**
+ * What a hotspot should anchor to right now. Normally the part itself; but a wheel package hides
+ * the factory wheel a `wheel.*` / `tire.*` part names and shows its own corner in the same spot,
+ * so for a hidden part the nearest visible package corner stands in. `null` when neither is shown.
+ */
+export function visibleStandIn(part: THREE.Object3D, root: THREE.Object3D): THREE.Object3D | null {
+  if (isVisibleInScene(part)) return part;
+  const partCenter = new THREE.Box3().setFromObject(part).getCenter(new THREE.Vector3());
+  let best: THREE.Object3D | null = null;
+  let bestDistance = Infinity;
+  const center = new THREE.Vector3();
+  root.traverse((object) => {
+    if (!object.userData[WHEEL_CORNER_TAG] || !isVisibleInScene(object)) return;
+    const distance = new THREE.Box3().setFromObject(object).getCenter(center).distanceTo(partCenter);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = object;
+    }
+  });
+  return best;
 }
 
 function isWithin(object: THREE.Object3D, ancestor: THREE.Object3D): boolean {

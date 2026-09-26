@@ -304,8 +304,33 @@ describe("EnvironmentController", () => {
       const { scene, controller } = makeController();
       // A PMREM attempt against a test double would throw inside three; resolving cleanly with the
       // loader's own texture assigned is the proof the WebGL-only branch was not taken.
-      await expect(controller.applyHdri(nonWebglRenderer, "hdri-sunset")).resolves.toBeUndefined();
+      await expect(controller.applyHdri(nonWebglRenderer, "hdri-sunset")).resolves.toBe(true);
       expect(scene.environment?.name).toMatch(/venice_sunset_512\.hdr$/);
+    });
+
+    it("reports a commit only when the requested lighting is actually installed", async () => {
+      const { controller } = makeController();
+      const superseded = controller.applyHdri(nonWebglRenderer, "hdri-studio");
+      const current = controller.applyHdri(nonWebglRenderer, "hdri-showroom");
+      await expect(superseded).resolves.toBe(false);
+      await expect(current).resolves.toBe(true);
+      await expect(controller.applyHdri(nonWebglRenderer, "does-not-exist")).resolves.toBe(false);
+    });
+
+    it("re-applying the live preset restores its palette without rebuilding its map", async () => {
+      const { scene, controller } = makeController();
+      await controller.applyHdri(nonWebglRenderer, "hdri-showroom");
+      const map = scene.environment;
+      controller.key.intensity = 0; // a terrain/lighting change repainted the lights
+      await expect(controller.applyHdri(nonWebglRenderer, "hdri-showroom")).resolves.toBe(true);
+      expect(scene.environment).toBe(map);
+      expect(controller.key.intensity).toBeCloseTo(3.6, 5);
+    });
+
+    it("exposes when the latest request has settled, including a failed one", async () => {
+      const { controller } = makeController();
+      void controller.applyHdri(nonWebglRenderer, "hdri-overcast");
+      await expect(controller.whenHdriSettled()).resolves.toBeUndefined();
     });
 
     it("a later call's final state wins over an earlier call resolved after it", async () => {

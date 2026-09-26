@@ -70,11 +70,11 @@ import type { LampMode } from "../../lib/three/vehicleLights";
 import { DoorRig } from "../../lib/three/doors";
 import { driverEyeFromSteeringWheel } from "../../lib/three/interiorView";
 import { buildDimensionsOverlay, disposeDimensionsOverlay, type DimensionLabel, type DimensionSpec } from "../../lib/three/dimensions";
-import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples, type Hotspot } from "../../lib/three/hotspots";
+import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples, visibleStandIn, type Hotspot } from "../../lib/three/hotspots";
 import { ArPlacement, trueScaleFactor, type HitTestFrame, type PlacementSession } from "../../lib/three/arPlacement";
 import { exportQuickLookUrl, openQuickLook, supportsQuickLook } from "../../lib/three/quickLook";
 import type { CustomizationCategory } from "../../lib/types/customization";
-import { prefersReducedMotion } from "../../lib/three/motionPreference";
+import { prefersReducedMotion, prefersReducedMotionLive } from "../../lib/three/motionPreference";
 import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
 import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
@@ -395,6 +395,13 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         starfieldCount: renderController.currentQuality.starfieldCount,
       });
       environmentControllerRef.current = environmentController;
+      // Started now, in parallel with the model download, rather than from the effect below (which
+      // first runs once a vehicle settles): the precompile step waits briefly on this so it can
+      // compile the environment-lit shader variants that will actually be drawn.
+      const initialHdriPresetId = hdriPresetId ?? DEFAULT_HDRI_PRESET_ID;
+      void environmentController.applyHdri(renderController.renderer, initialHdriPresetId).then((committed) => {
+        if (committed) canvasElement.dataset.environment = initialHdriPresetId;
+      });
 
       const floorReflection = new FloorReflection();
       scene.add(floorReflection.group);
@@ -679,6 +686,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
        * re-resolved when the view changes — the camera or the vehicle moved — and then one hotspot
        * per frame, round-robin. A still view costs no raycasts at all.
        */
+      const driverEyeWorld = new THREE.Vector3();
       const hotspotAnchors = new Map<string, THREE.Vector3 | null>();
       const hotspotSamples = new Map<string, THREE.Vector3[]>();
       const lastCamera = new THREE.Matrix4();
@@ -711,6 +719,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
             lastCamera.copy(camera.matrixWorld);
             viewDirty = true;
           }
+          // Configuration changes (a wheel package swapping in, a door opening) change what is
+          // visible without moving anything, so a still view is also re-checked about once a second.
+          if (overlay.frame % 60 === 0) viewDirty = true;
           // Finish a pass before starting the next, so a continuous orbit still reaches every hotspot.
           if (viewDirty && pendingAnchors.length === 0) {
             viewDirty = false;
@@ -719,12 +730,14 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           const partId = pendingAnchors.shift();
           if (partId) {
             const part = controller.getPart(partId);
-            let samples = hotspotSamples.get(partId);
-            if (part && !samples) {
-              samples = surfaceSamples(part.object);
-              hotspotSamples.set(partId, samples);
+            const target = part ? visibleStandIn(part.object, controller.root) : null;
+            // Keyed by the object anchored to, not the part: a package swap changes the target.
+            let samples = target ? hotspotSamples.get(target.uuid) : undefined;
+            if (target && !samples) {
+              samples = surfaceSamples(target);
+              hotspotSamples.set(target.uuid, samples);
             }
-            hotspotAnchors.set(partId, part ? resolveHotspotAnchor(part.object, controller.root, camera, samples) : null);
+            hotspotAnchors.set(partId, target ? resolveHotspotAnchor(target, controller.root, camera, samples) : null);
           }
           for (const hotspot of overlay.hotspots) {
             const element = overlay.hotspotElements.get(hotspot.partId);
@@ -759,9 +772,14 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         environmentController.setFloorReflective(reflect);
         // Only hazards animate; checked first so a steady lamp mode costs no media query per frame.
         const lights = sceneControllerRef.current?.lights;
-        if (lights?.currentMode === "hazard") lights.update(performance.now(), prefersReducedMotion());
+        if (lights?.currentMode === "hazard") lights.update(performance.now(), prefersReducedMotionLive());
         floorReflection.sync();
-        // The seat can be left by a camera preset or Home without the chrome asking; tell it.
+        // Seated: follow the vehicle (a lift change moves the cabin; the head must go with it).
+        const seatRoot = rootRef.current;
+        if (cameraController.isDriverView && seatRoot && driverEyeRef.current) {
+          cameraController.moveDriverEye(seatRoot.localToWorld(driverEyeWorld.copy(driverEyeRef.current)));
+        }
+        // The seat can be left by a camera preset, Home or the tour without the chrome asking; tell it.
         if (driverViewRef.current && !cameraController.isDriverView) {
           driverViewRef.current = false;
           onDriverViewExitRef.current?.();
@@ -889,7 +907,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         doorRigRef.current = doors && doors.available.length > 0 ? doors : null;
         onDoorsAvailableRef.current?.(doorRigRef.current !== null);
         // Driver's seat: only with interior geometry to sit in.
-        driverEyeRef.current = isPlaceholder ? null : driverEyeFor(root, threeDConfig.driverView?.steeringWheelNodeNames);
+        // Kept in the vehicle's own space: Lift moves the root after this, and the seat moves with it.
+        const eye = isPlaceholder ? null : driverEyeFor(root, threeDConfig.driverView?.steeringWheelNodeNames);
+        driverEyeRef.current = eye ? root.worldToLocal(eye) : null;
         onDriverViewAvailableRef.current?.(driverEyeRef.current !== null);
         rootRef.current = root;
         groundedYRef.current = root.position.y;
@@ -974,6 +994,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
             }
           }
           prepareSettledRoot(detailed);
+          // `scene.environment` is part of every physical material's program key, so compiling
+          // before the HDR lands would warm variants that are about to be replaced. Wait for it,
+          // briefly: a slow HDR must not hold the vehicle back — those programs then compile on
+          // first draw, exactly as before.
+          await Promise.race([environmentController.whenHdriSettled(), new Promise((resolve) => setTimeout(resolve, 2000))]);
           // Compiled while the placeholder is still the thing on screen, so the swap below lands on
           // a frame that only has to draw, not compile.
           await renderController.precompile(detailed, scene);
@@ -1006,7 +1031,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       // parsed and PMREM-filtered while the viewer waits on a preset they have already been shown.
       prefetcher = createPrefetchScheduler({
         load: prefetchHdriPreset,
-        ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl).map((preset) => preset.id),
+        // Not the preset already on screen: its map is loaded, and on the medium tier's one-item
+        // budget a cache hit on it would spend the whole budget warming nothing.
+        ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl && preset.id !== initialHdriPresetId).map((preset) => preset.id),
         // Read live, not snapshotted: the governor can downgrade after this scheduler is built, and
         // a frozen tier would keep fetching on exactly the device that just told us it is struggling.
         tier: () => renderController.currentQuality.tier,
@@ -1205,8 +1232,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   useEffect(() => {
     const camera = cameraControllerRef.current;
     const eye = driverEyeRef.current;
+    const root = rootRef.current;
     if (!camera) return;
-    if (driverView && eye && !camera.isDriverView) camera.enterDriverView(eye);
+    if (driverView && eye && root && !camera.isDriverView) camera.enterDriverView(root.localToWorld(eye.clone()));
     else if (!driverView && camera.isDriverView) camera.exitDriverView();
   }, [driverView, sceneRevision]);
 
@@ -1243,7 +1271,14 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     // After the lift tween lands (~0.35 s), so the lines are drawn where the vehicle ends up.
     const timer = window.setTimeout(() => {
       if (cancelled) return;
-      const { group, labels } = buildDimensionsOverlay(visibleBounds(root), dimensionSpecs ?? []);
+      // Measured with the doors shut: the catalog figures describe the closed vehicle, and an open
+      // door would otherwise stretch the lines (differently depending on toggle order).
+      const doors = doorRigRef.current;
+      const openAmount = doors?.openAmount ?? 0;
+      doors?.setOpenAmount(0);
+      const closedBounds = visibleBounds(root);
+      doors?.setOpenAmount(openAmount);
+      const { group, labels } = buildDimensionsOverlay(closedBounds, dimensionSpecs ?? []);
       scene.add(group);
       overlay.dimensions = group;
       overlay.labels = labels;
@@ -1345,10 +1380,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     // Supersession (a slower, superseded request's late-arriving result being discarded) is
     // EnvironmentController's own job now — see `applyHdri`'s doc comment — so this effect no
     // longer needs its own `cancelled` flag/cleanup for that race.
-    void environmentController.applyHdri(renderController.renderer, presetId).then(() => {
+    void environmentController.applyHdri(renderController.renderer, presetId).then((committed) => {
       // Which preset's lighting is actually live — the 3D visual snapshots wait on this, since the
-      // HDR fetch + PMREM lands asynchronously after the model settles.
-      renderController.canvas.dataset.environment = presetId;
+      // HDR fetch + PMREM lands asynchronously after the model settles. Only on a real commit: a
+      // failed fetch or a superseded request must not claim a preset whose map is not installed.
+      if (committed) renderController.canvas.dataset.environment = presetId;
     });
   }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 
