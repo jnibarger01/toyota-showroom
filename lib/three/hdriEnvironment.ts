@@ -178,6 +178,9 @@ export async function applyHdriPreset(
   hdriPresetId: string | undefined,
   previous?: HdriEnvironmentHandle | null,
   isCurrent: () => boolean = () => true,
+  /** `false` installs only the environment map, leaving the lights and background to the scene's
+   * own environment preset (the default map on a build that never picked an HDRI). */
+  applyPalette = true,
 ): Promise<HdriEnvironmentHandle | null> {
   previous?.dispose();
 
@@ -187,7 +190,7 @@ export async function applyHdriPreset(
     return null;
   }
 
-  const palette = applyHdriPalette(refs, preset);
+  const palette = applyPalette ? applyHdriPalette(refs, preset) : LIGHTING[preset.lightingKey];
 
   if (!preset.hdrUrl) {
     refs.scene.environment = null;

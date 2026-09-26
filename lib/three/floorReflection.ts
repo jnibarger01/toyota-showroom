@@ -35,6 +35,8 @@ export class FloorReflection {
   private source: THREE.Object3D | null = null;
   private mirror: THREE.Object3D | null = null;
   private pairs: Array<[THREE.Object3D, THREE.Object3D]> = [];
+  /** Each source node's children when the mirror was built — the structure `sync()` checks against. */
+  private childrenAtBuild = new Map<THREE.Object3D, THREE.Object3D[]>();
   private enabled = false;
 
   constructor() {
@@ -69,8 +71,11 @@ export class FloorReflection {
   /** Copies the source's live state onto the mirror. Call once per frame; a no-op while disabled. */
   sync(): void {
     if (!this.enabled || !this.source || !this.mirror) return;
-    for (const [from, to] of this.pairs) {
-      if (from.children.length !== to.children.length) {
+    // Structure check by identity, not just count: replacing a mounted part swaps one child for
+    // another and leaves the count unchanged, and the mirror would keep syncing the detached one.
+    for (const [from] of this.pairs) {
+      const recorded = this.childrenAtBuild.get(from);
+      if (!recorded || recorded.length !== from.children.length || recorded.some((child, index) => child !== from.children[index])) {
         this.rebuild();
         return;
       }
@@ -98,8 +103,10 @@ export class FloorReflection {
     const mirror = this.source.clone(true);
     mirror.name = "FLOOR_REFLECTION_ROOT";
     const pairs: Array<[THREE.Object3D, THREE.Object3D]> = [];
+    this.childrenAtBuild = new Map();
     const walk = (from: THREE.Object3D, to: THREE.Object3D) => {
       pairs.push([from, to]);
+      this.childrenAtBuild.set(from, [...from.children]);
       // Never picked (the raycaster would otherwise find a part "under the floor"), never casts or
       // receives shadow (the real vehicle already does, and a mirrored caster would double it).
       to.raycast = () => {};
