@@ -138,7 +138,7 @@ jobs:
                                     name
                                     status
                                     conclusion
-                                    app { slug }
+                                    checkSuite { app { slug } }
                                   }
                                   ... on StatusContext {
                                     context
