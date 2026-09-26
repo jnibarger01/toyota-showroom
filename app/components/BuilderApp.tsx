@@ -228,6 +228,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   /** True once VehicleCanvas has settled and attached a scene controller (not merely hydrated). */
   const [sceneReady, setSceneReady] = useState(false);
+  /** Catalog thumbnail shown as the stage poster until the 3D scene paints over it. */
+  // Already base-path-resolved: lib/api/client.ts rewrites every media URL it hands out.
+  const posterUrl = bootstrap?.vehicle.media.thumbnails[0]?.url;
   const [preset, setPreset] = useState<CameraPreset | null>(null);
   const [lift, setLift] = useState(0);
   const [gradeChanging, setGradeChanging] = useState(false);
@@ -1505,7 +1508,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             * throws from the Suspense boundary itself, so a boundary nested within it never sees it.
             */}
           <CanvasErrorBoundary fallbackImage={vehicle.media.hero} onError={(error) => setLoadError(error.message)}>
-            <Suspense fallback={<div className="vehicle-canvas vehicle-canvas-loading"><Loader2 size={28} className="spin" /></div>}>
+            <Suspense
+              fallback={
+                <div
+                  className="vehicle-canvas vehicle-canvas-loading"
+                  data-poster={posterUrl ? "1" : undefined}
+                  style={posterUrl ? { backgroundImage: `url("${posterUrl}")` } : undefined}
+                >
+                  <Loader2 size={28} className="spin" />
+                </div>
+              }
+            >
             <VehicleCanvas
               threeDConfig={vehicle.threeDConfig}
               slug={vehicle.slug}
@@ -1529,6 +1542,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onQualityNeedsReload={setQualityNeedsReload}
               lampMode={lampMode}
               onLampModesAvailable={setLampModes}
+              posterUrl={posterUrl}
               hotspotCategories={hotspotCategories}
               showHotspots={showHotspots}
               onHotspotActivate={(category) => {

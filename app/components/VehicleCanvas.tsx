@@ -213,9 +213,16 @@ type Props = {
   onDriverViewExit?: () => void;
   /** No WebXR AR, but iOS Quick Look is available — `enterXrSignal` then exports and opens a USDZ. */
   onQuickLookSupported?: (supported: boolean) => void;
+  /**
+   * Still image of this vehicle (the catalog thumbnail, rendered from the same GLB by
+   * `npm run assets:thumbnails`) shown behind the canvas until the renderer's first opaque frame
+   * covers it — so the stage shows the car, not an empty dark box, while the 3D chunk, renderer
+   * and model load.
+   */
+  posterUrl?: string;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, driverView = false, onDriverViewAvailable, onDriverViewExit, onQuickLookSupported }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, driverView = false, onDriverViewAvailable, onDriverViewExit, onQuickLookSupported, posterUrl }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -1399,6 +1406,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         // navigation keys everywhere inside it in exchange for nothing this needs.
         tabIndex={0}
         role="group"
+        style={posterUrl ? { backgroundImage: `url("${posterUrl}")` } : undefined}
+        data-poster={posterUrl ? "1" : undefined}
         aria-label={
           "Vehicle viewer. Use arrow keys to orbit the vehicle, plus and minus to zoom, " +
           "and Home to return to the selected camera angle. Use the right and left bracket keys " +
