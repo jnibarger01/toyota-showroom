@@ -30,5 +30,6 @@
   "useFocusTrap": 1024,
   "ValidatedLeadForm": 3072,
   "VehicleCanvas": 278528,
+  "vehicleLights": 2048,
   "viewerControlEvents": 1024
 }
