@@ -127,5 +127,13 @@ export const camry: Vehicle = {
     paintableMaterialNames: ["CarPaint"],
     wheelMountNames: [],
     interiorMaterialNames: ["Seat_Letaher_Color"],
+    driverView: { steeringWheelNodeNames: ["CAMRY_IN_STEERING_WHEEL_MESH"] },
+    doors: [
+      { id: "front-left", label: "Driver door", kind: "side", nodeNames: ["CAMRY_EX_FL_DOOR_MESH"] },
+      { id: "front-right", label: "Passenger door", kind: "side", nodeNames: ["CAMRY_EX_FR_DOOR_MESH"] },
+      { id: "rear-left", label: "Rear left door", kind: "side", nodeNames: ["CAMRY_EX_RL_DOOR_MESH"] },
+      { id: "rear-right", label: "Rear right door", kind: "side", nodeNames: ["CAMRY_EX_RR_DOOR_MESH"] },
+      { id: "trunk", label: "Trunk", kind: "lid", nodeNames: ["CAMRY_EX_BOOT_DOOR_MESH"] },
+    ],
   },
 };

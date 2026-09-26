@@ -6,6 +6,11 @@ import { motionDuration, prefersReducedMotion } from "./motionPreference";
 import { createCinematicTour, type CinematicTour, type TourStatus } from "./cinematicTour";
 import { publishViewerState, subscribeViewerControl } from "./viewerControlEvents";
 
+/** Driver's-seat lens: see `enterDriverView`. */
+export const DRIVER_FOV = 72;
+export const DRIVER_NEAR = 0.01;
+import { DriverLook } from "./interiorView";
+
 export type { TourStatus };
 
 export interface CameraControllerLimits {
@@ -242,7 +247,78 @@ export class CameraController {
     this.controls.enabled = enabled;
   }
 
+  /** Non-null while the driver's-seat view owns the camera. See `enterDriverView`. */
+  private driverLook: DriverLook | null = null;
+  private driverDrag: { x: number; y: number } | null = null;
+  /** The showroom lens, restored on leaving the driver's seat. */
+  private showroomLens: { fov: number; near: number } | null = null;
+  private readonly handleDriverPointerDown = (event: PointerEvent) => {
+    this.driverDrag = { x: event.clientX, y: event.clientY };
+  };
+  private readonly handleDriverPointerMove = (event: PointerEvent) => {
+    if (!this.driverDrag || !this.driverLook) return;
+    this.driverLook.dragBy(event.clientX - this.driverDrag.x, event.clientY - this.driverDrag.y);
+    this.driverDrag = { x: event.clientX, y: event.clientY };
+  };
+  private readonly handleDriverPointerUp = () => {
+    this.driverDrag = null;
+  };
+
+  get isDriverView(): boolean {
+    return this.driverLook !== null;
+  }
+
+  /**
+   * Puts the camera at `eye`, looking forward out of the vehicle, and turns pointer drag into head
+   * turns. `OrbitControls` is disabled for the duration rather than fought with: it would keep
+   * re-deriving the pose from its own target on every `update()`.
+   */
+  enterDriverView(eye: THREE.Vector3): void {
+    if (this.isTourActive) this.tour.cancel();
+    this.setAutoRotate(false);
+    gsap.killTweensOf(this.camera.position);
+    gsap.killTweensOf(this.controls.target);
+    this.controls.enabled = false;
+    // The showroom's long lens, from a metre off the dash, frames one switch. A cabin wants a wide
+    // lens (roughly what a driver takes in without turning their head) and a near plane short
+    // enough that the A-pillars and wheel rim a few centimetres away are not clipped.
+    this.showroomLens ??= { fov: this.camera.fov, near: this.camera.near };
+    this.camera.fov = DRIVER_FOV;
+    this.camera.near = DRIVER_NEAR;
+    this.camera.updateProjectionMatrix();
+    this.driverLook = new DriverLook(this.camera, eye);
+    this.driverLook.apply();
+    const element = this.controls.domElement as HTMLElement;
+    element.addEventListener("pointerdown", this.handleDriverPointerDown);
+    element.addEventListener("pointermove", this.handleDriverPointerMove);
+    element.addEventListener("pointerup", this.handleDriverPointerUp);
+    element.addEventListener("pointerleave", this.handleDriverPointerUp);
+  }
+
+  /** Leaves the driver's seat, back to `preset`'s framing. */
+  exitDriverView(preset?: CameraPresetConfig): void {
+    if (!this.driverLook) return;
+    this.driverLook = null;
+    this.driverDrag = null;
+    const element = this.controls.domElement as HTMLElement;
+    element.removeEventListener("pointerdown", this.handleDriverPointerDown);
+    element.removeEventListener("pointermove", this.handleDriverPointerMove);
+    element.removeEventListener("pointerup", this.handleDriverPointerUp);
+    element.removeEventListener("pointerleave", this.handleDriverPointerUp);
+    this.controls.enabled = true;
+    if (this.showroomLens) {
+      this.camera.fov = this.showroomLens.fov;
+      this.camera.near = this.showroomLens.near;
+      this.camera.updateProjectionMatrix();
+      this.showroomLens = null;
+    }
+    const target = preset ?? this.presets.find((item) => item.id === this.activePresetId) ?? this.presets[0];
+    if (target) this.resetToPreset(target);
+  }
+
   update(): void {
+    // The driver view aims the camera itself; OrbitControls must not re-derive it from its target.
+    if (this.driverLook) return;
     this.controls.update();
   }
 
@@ -252,6 +328,8 @@ export class CameraController {
   }
 
   transitionToPreset(preset: CameraPresetConfig): void {
+    // Picking a camera angle is a request to leave the seat.
+    if (this.driverLook) this.exitDriverView(preset);
     this.setAutoRotate(false);
     this.activePresetId = preset.id;
     const duration = motionDuration(PRESET_TRANSITION_SECONDS);
@@ -272,6 +350,10 @@ export class CameraController {
   }
 
   resetToPreset(preset: CameraPresetConfig): void {
+    if (this.driverLook) {
+      this.exitDriverView(preset);
+      return;
+    }
     this.setAutoRotate(false);
     if (this.isTourActive) this.tour.cancel();
     this.activePresetId = preset.id;
@@ -281,6 +363,11 @@ export class CameraController {
   }
 
   orbitBy(deltaTheta: number, deltaPhi: number): void {
+    // Arrow keys look around from the driver's seat instead of orbiting the car.
+    if (this.driverLook) {
+      this.driverLook.turnBy(-deltaTheta, -deltaPhi);
+      return;
+    }
     this.setAutoRotate(false);
     if (this.isTourActive) this.tour.cancel();
     const offset = this.camera.position.clone().sub(this.controls.target);
@@ -294,6 +381,7 @@ export class CameraController {
   }
 
   dollyBy(deltaMeters: number): void {
+    if (this.driverLook) return; // the driver's head does not zoom
     this.setAutoRotate(false);
     if (this.isTourActive) this.tour.cancel();
     const offset = this.camera.position.clone().sub(this.controls.target);
@@ -304,6 +392,7 @@ export class CameraController {
   }
 
   focusPoint(center: readonly [number, number, number], radius: number, padding = DEFAULT_FOCUS_PADDING): void {
+    if (this.driverLook) return;
     this.setAutoRotate(false);
     if (this.isTourActive) this.tour.cancel();
 
@@ -337,6 +426,7 @@ export class CameraController {
 
   dispose(): void {
     if (this.disposed) return;
+    this.exitDriverView();
     this.disposed = true;
     this.unsubscribeViewerControl();
     this.controls.removeEventListener("start", this.handleControlsStart);

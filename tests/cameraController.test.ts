@@ -7,6 +7,8 @@ import {
   DEFAULT_CAMERA_LIMITS,
   FOCUS_PICK_MAX_RADIUS,
   FOCUS_PICK_MIN_RADIUS,
+  DRIVER_FOV,
+  DRIVER_NEAR,
   DESKTOP_DAMPING_FACTOR,
   DESKTOP_ROTATE_SPEED,
   DESKTOP_ZOOM_SPEED,
@@ -557,4 +559,27 @@ describe("CameraController interaction additions", () => {
   });
 });
 
+});
+
+describe("CameraController driver view", () => {
+  it("hands the camera to the seat, keeps OrbitControls out of it, and gives it back on a preset", () => {
+    const controller = new CameraController({ domElement: document.createElement("canvas"), initialPreset: hero, presets: [hero, wheels] });
+    const eye = new THREE.Vector3(-0.4, 1.2, -0.3);
+    const showroomFov = controller.camera.fov;
+    controller.enterDriverView(eye);
+    expect(controller.isDriverView).toBe(true);
+    expect(controller.camera.fov).toBe(DRIVER_FOV);
+    expect(controller.camera.near).toBe(DRIVER_NEAR);
+    expect(controller.camera.position.distanceTo(eye)).toBeLessThan(1e-9);
+    controller.update(); // must not let OrbitControls re-derive the pose
+    expect(controller.camera.position.distanceTo(eye)).toBeLessThan(1e-9);
+    controller.dollyBy(5); // no zoom from the seat
+    expect(controller.camera.position.distanceTo(eye)).toBeLessThan(1e-9);
+
+    controller.resetToPreset(wheels);
+    expect(controller.isDriverView).toBe(false);
+    expect(controller.camera.fov).toBe(showroomFov);
+    expect(controller.camera.position.toArray()).toEqual(expect.arrayContaining([expect.any(Number)]));
+    controller.dispose();
+  });
 });

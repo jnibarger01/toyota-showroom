@@ -134,6 +134,21 @@ export interface WheelAndTireAssetConfig {
   tireNodeNames: [string, string, string, string];
 }
 
+/** A door, boot lid or tailgate modelled as separate geometry — see `lib/three/doors.ts`. */
+export type DoorKind = "side" | "lid";
+
+export interface DoorSpec {
+  id: string;
+  label: string;
+  kind: DoorKind;
+  /** Exact node names (resolved GLTFLoader-sanitization-tolerantly), or… */
+  nodeNames?: string[];
+  /** …a name prefix for assets that split one door into many sibling nodes (the RAV4 Hybrid). */
+  nodePrefix?: string;
+  /** Opening angle. Defaults: 62° for a side door, 70° for a lid. */
+  openDegrees?: number;
+}
+
 /** Maps a vehicle to the assets and parameters the 3D viewer needs to render and configure it. */
 export interface Vehicle3DConfig {
   hasModel: boolean;
@@ -158,6 +173,16 @@ export interface Vehicle3DConfig {
    * per vehicle so the wheel face turns toward the hero camera. Omitted = wheels stay straight.
    */
   heroSteer?: { nodeNames: [string, string]; degrees: number };
+  /**
+   * The driver's-seat view (`lib/three/interiorView.ts`), placed from the steering wheel: the nodes
+   * that make it up. Only set for assets with a verified cabin; omitted = no Driver view offered.
+   */
+  driverView?: { steeringWheelNodeNames: string[] };
+  /**
+   * Doors, boot lids and tailgates the asset models as separate geometry (`lib/three/doors.ts`).
+   * Hinges are derived from the geometry; only list parts verified to be separate meshes.
+   */
+  doors?: DoorSpec[];
   /** Optional replacement running gear loaded from standalone glTF assets. */
   wheelAndTireAssets?: WheelAndTireAssetConfig;
   interiorMaterialNames: string[];
