@@ -98,6 +98,9 @@ export function tiresNodeName(packageId: string): string {
 }
 
 /** Material names procedural running gear exposes, matching the shipped 4Runner asset's own slots. */
+/** `userData` flag on each package corner's rim assembly and tyre — what steering turns (`steering.ts`). */
+export const WHEEL_CORNER_TAG = "wheelPackageCorner";
+
 export const WHEEL_MATERIAL_NAME = "wheel.metal";
 export const TIRE_MATERIAL_NAME = "tire.sidewall";
 export const ROTOR_MATERIAL_NAME = "brake.rotor";
@@ -170,6 +173,7 @@ export function buildWheelPackage(
     const rotor = new THREE.Mesh(geometry.rotor, rotorMaterial);
     const caliper = new THREE.Mesh(geometry.caliper, caliperMaterial);
     corner.add(rim, cap, rotor, caliper);
+    corner.userData[WHEEL_CORNER_TAG] = true;
     group.add(corner);
 
     // The tyre lives under `TIRES_<id>` rather than beside the rim so a `tire` catalog option can
@@ -178,6 +182,7 @@ export function buildWheelPackage(
     const tire = new THREE.Mesh(geometry.tire, tireMaterial);
     tire.position.copy(fitment.position);
     tire.rotation.z = corner.rotation.z;
+    tire.userData[WHEEL_CORNER_TAG] = true;
     tires.add(tire);
   }
 

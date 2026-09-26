@@ -183,6 +183,32 @@ export class MaterialWriter {
     this.slots.clear();
   }
 
+  /**
+   * Returns just the given meshes' written slots (optionally only those whose material is named in
+   * `materialNames`) to the material the asset supplied — `restoreOriginals`, scoped. Used to undo a
+   * paint preview on a build that selects no paint, without replaying (and resetting) everything.
+   */
+  restoreSlots(meshes: readonly THREE.Mesh[], materialNames?: readonly string[]): number {
+    const wanted = materialNames?.length ? new Set(materialNames) : null;
+    const targets = new Set(meshes);
+    let restored = 0;
+    for (const [key, slot] of this.slots) {
+      if (!targets.has(slot.mesh)) continue;
+      if (wanted && !wanted.has(slot.original.name)) continue;
+      if (Array.isArray(slot.mesh.material)) {
+        const next = [...slot.mesh.material];
+        next[slot.slotIndex] = slot.original;
+        slot.mesh.material = next;
+      } else {
+        slot.mesh.material = slot.original;
+      }
+      slot.clone.dispose();
+      this.slots.delete(key);
+      restored++;
+    }
+    return restored;
+  }
+
   dispose(): void {
     // Reinstall the originals rather than only dropping the clones. A caller's subsequent
     // `disposeSubtree` walks the scene's *current* materials; if the meshes still pointed at

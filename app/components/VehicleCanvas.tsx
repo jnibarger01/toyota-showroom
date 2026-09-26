@@ -72,7 +72,7 @@ import { driverEyeFromSteeringWheel } from "../../lib/three/interiorView";
 import { buildDimensionsOverlay, disposeDimensionsOverlay, type DimensionLabel, type DimensionSpec } from "../../lib/three/dimensions";
 import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples, type Hotspot } from "../../lib/three/hotspots";
 import type { CustomizationCategory } from "../../lib/types/customization";
-import { prefersReducedMotion } from "../../lib/three/motionPreference";
+import { prefersReducedMotion, prefersReducedMotionLive } from "../../lib/three/motionPreference";
 import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
 import { createPrefetchScheduler, prefetchBudgetForTier, type PrefetchScheduler } from "../../lib/three/prefetch";
 import { XrSessionController } from "../../lib/three/xrSession";
@@ -744,7 +744,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         environmentController.setFloorReflective(reflect);
         // Only hazards animate; checked first so a steady lamp mode costs no media query per frame.
         const lights = sceneControllerRef.current?.lights;
-        if (lights?.currentMode === "hazard") lights.update(performance.now(), prefersReducedMotion());
+        if (lights?.currentMode === "hazard") lights.update(performance.now(), prefersReducedMotionLive());
         floorReflection.sync();
         // The seat can be left by a camera preset or Home without the chrome asking; tell it.
         if (driverViewRef.current && !cameraController.isDriverView) {
