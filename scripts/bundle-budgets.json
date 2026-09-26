@@ -3,6 +3,8 @@
   "buildTools": 199680,
   "client": 3072,
   "compareDeepLink": 2048,
+  "compareLayout": 1024,
+  "CompareStage": 3072,
   "configJson": 2048,
   "createLucideIcon": 1024,
   "currency": 1024,

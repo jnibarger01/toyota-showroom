@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ArrowLeft, Share2, Truck, Warehouse } from "lucide-react";
 import { compareVehicles, listVehicles, pageUrl, MAX_COMPARE, MIN_COMPARE } from "../../lib/api/client";
 import type { SpecCategory, Vehicle, VehicleSummary } from "../../lib/types/vehicle";
@@ -21,6 +21,34 @@ import {
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
 import { formatCurrency } from "../../lib/shared/currency";
 import { getVehicle } from "../../lib/api/client";
+import { canOfferCompare3d } from "../../lib/three/compareLayout";
+
+// Its own chunk: three.js, the GLTF loader and the models only load once someone asks for 3D.
+const CompareStage = lazy(() => import("../components/CompareStage").then((module) => ({ default: module.CompareStage })));
+
+/**
+ * Whether to offer "Compare in 3D", as an external store: `false` in the prerendered HTML (no WebGL
+ * or viewport on the server), the browser's answer after hydration, and re-read on resize. WebGL2
+ * and Save-Data are probed once — creating a context per resize event would be wasteful.
+ */
+let compare3dCapabilities: { hasWebGL2: boolean; saveData: boolean } | null = null;
+function compare3dSnapshot(): boolean {
+  if (!compare3dCapabilities) {
+    let hasWebGL2 = false;
+    try {
+      hasWebGL2 = Boolean(document.createElement("canvas").getContext("webgl2"));
+    } catch {
+      hasWebGL2 = false;
+    }
+    const saveData = (navigator as { connection?: { saveData?: boolean } }).connection?.saveData === true;
+    compare3dCapabilities = { hasWebGL2, saveData };
+  }
+  return canOfferCompare3d({ width: window.innerWidth, ...compare3dCapabilities });
+}
+function subscribeToViewport(onChange: () => void): () => void {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
 
 const SPEC_CATEGORY_ORDER: SpecCategory[] = [
   "dimensions",
@@ -92,6 +120,8 @@ type CompareMode = "catalog" | "builds";
 
 export default function ComparePage() {
   const [mode, setMode] = useState<CompareMode>("catalog");
+  const [show3d, setShow3d] = useState(false);
+  const compare3dAvailable = useSyncExternalStore(subscribeToViewport, compare3dSnapshot, () => false);
   const [allSummaries, setAllSummaries] = useState<VehicleSummary[] | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[] | null>(null);
   const [builds, setBuilds] = useState<VehicleConfiguration[] | null>(null);
@@ -366,6 +396,19 @@ export default function ComparePage() {
             <p className="panel-empty">
               Select at least {MIN_COMPARE} vehicles above to compare them.
             </p>
+          ) : null}
+
+          {vehicles && canCompareCatalog && compare3dAvailable ? (
+            <div className="compare-3d-toggle">
+              <button type="button" aria-pressed={show3d} className={show3d ? "active" : ""} onClick={() => setShow3d((value) => !value)}>
+                {show3d ? "Hide 3D comparison" : "Compare in 3D"}
+              </button>
+            </div>
+          ) : null}
+          {vehicles && canCompareCatalog && show3d ? (
+            <Suspense fallback={<p className="panel-empty">Loading 3D comparison…</p>}>
+              <CompareStage vehicles={vehicles} />
+            </Suspense>
           ) : null}
 
           {vehicles && canCompareCatalog ? (
