@@ -436,7 +436,7 @@ export default function ComparePage() {
           {vehicles && canCompareCatalog && compare3dAvailable && withCompareModels(vehicles).length >= COMPARE_3D_MIN_MODELS && show3d ? (
             <CompareStageBoundary>
               <Suspense fallback={<p className="panel-empty">Loading 3D comparison…</p>}>
-                <CompareStage vehicles={vehicles} />
+                <CompareStage key={vehicles.map((vehicle) => vehicle.slug).join(",")} vehicles={vehicles} />
               </Suspense>
             </CompareStageBoundary>
           ) : null}

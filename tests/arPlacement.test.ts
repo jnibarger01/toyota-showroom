@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as THREE from "three";
 import { describe, expect, it, vi } from "vitest";
-import { ArPlacement, trueScaleFactor, type PlacementSession } from "../lib/three/arPlacement";
+import { ArPlacement, isFloorLike, trueScaleFactor, type PlacementSession } from "../lib/three/arPlacement";
 import { buildQuickLookRoot, supportsQuickLook } from "../lib/three/quickLook";
 import { describeXrCapability, xrControlEnabled, xrControlLabel, XR_QUICK_LOOK_LABEL } from "../lib/three/xrCapability";
 
@@ -45,6 +45,31 @@ describe("ArPlacement", () => {
     expect(placement.isPlaced).toBe(true);
     placement.dispose();
     expect(session.cancel).toHaveBeenCalled();
+  });
+
+  it("skips wall hits and uses the first floor-like hit behind them", async () => {
+    const session = fakeSession();
+    const onPlace = vi.fn();
+    const placement = new ArPlacement(session, onPlace, () => new THREE.Vector3(0, 1.6, 2));
+    await placement.start({ kind: "local-floor" });
+    // A wall facing the viewer: its normal (+Y of the pose) points along +Z, not up.
+    const wall = new THREE.Matrix4().makeRotationX(Math.PI / 2).setPosition(0, 1, -1).toArray();
+    const floor = new THREE.Matrix4().makeTranslation(0, 0, -2).toArray();
+    expect(isFloorLike(wall)).toBe(false);
+    expect(isFloorLike(floor)).toBe(true);
+    placement.update({ getHitTestResults: () => [{ getPose: () => ({ transform: { matrix: wall } }) }] });
+    expect(placement.reticle.visible).toBe(false);
+    session.tap();
+    expect(onPlace).not.toHaveBeenCalled();
+    placement.update({
+      getHitTestResults: () => [
+        { getPose: () => ({ transform: { matrix: wall } }) },
+        { getPose: () => ({ transform: { matrix: floor } }) },
+      ],
+    });
+    session.tap();
+    expect(onPlace.mock.calls[0]![0].z).toBeCloseTo(-2, 6);
+    placement.dispose();
   });
 
   it("does nothing on tap before the floor is found", async () => {

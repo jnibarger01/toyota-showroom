@@ -74,6 +74,10 @@ export function CompareStage({ vehicles }: Props) {
     const requiredDistance = () => fitDistance(Math.max(...radii, 1), FOV, camera.aspect);
     let framed = false;
 
+    // Set by a resize: a narrower column needs more distance to fit the same car, and a camera left
+    // at the old distance crops it. Checked once, not every frame, so the user can still zoom in.
+    let reframeOnNextFrame = false;
+
     let frameRequested = false;
     const requestFrame = () => {
       if (frameRequested || disposed) return;
@@ -92,6 +96,13 @@ export function CompareStage({ vehicles }: Props) {
       controls.minDistance = fitDistance(largest, FOV, columnAspect) * 0.6;
       controls.maxDistance = fitDistance(largest, FOV, columnAspect) * 2.2;
       camera.updateProjectionMatrix();
+      if (reframeOnNextFrame) {
+        reframeOnNextFrame = false;
+        const fit = fitDistance(largest, FOV, columnAspect);
+        const offset = camera.position.clone().sub(controls.target);
+        // Push out along the current view direction, keeping the user's orbit angle.
+        if (framed && offset.length() < fit) camera.position.copy(controls.target).addScaledVector(offset.normalize(), fit);
+      }
       // Damping needs a few more frames to settle after the pointer lets go.
       if (controls.update()) requestFrame();
       scenes.forEach((scene, index) => {
@@ -104,6 +115,7 @@ export function CompareStage({ vehicles }: Props) {
 
     const resize = () => {
       renderer.setSize(host.clientWidth, host.clientHeight);
+      reframeOnNextFrame = true;
       requestFrame();
     };
     const observer = new ResizeObserver(resize);

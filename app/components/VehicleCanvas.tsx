@@ -538,6 +538,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       const uninstallMetricsFlush = installMetricsFlush();
 
       let contactShadow: THREE.Mesh | null = null;
+      // The baked showroom shadow sits at the showroom origin; in AR it would float on the camera
+      // feed away from the placed car, so it stays hidden for the whole session.
+      let hideContactShadow = false;
       let controller: VehicleSceneController | null = null;
 
       /**
@@ -898,6 +901,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           disposeContactShadow(contactShadow);
         }
         contactShadow = createContactShadow(footprint);
+        contactShadow.visible = !hideContactShadow;
         scene.add(contactShadow);
         scene.add(root);
         floorReflection.setSource(root);
@@ -1080,6 +1084,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           }
 
           renderController.setXrPresenting(presenting);
+          hideContactShadow = presenting;
+          if (contactShadow) contactShadow.visible = !presenting;
 
           const root = rootRef.current;
           if (presenting && root) startArPlacement(root);

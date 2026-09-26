@@ -40,6 +40,22 @@ export function trueScaleFactor(measuredLengthMeters: number, catalogLengthInche
   return factor > 0.5 && factor < 2 ? factor : 1;
 }
 
+/** Surfaces tilted more than this from level are not a floor (a wall, a door, a steep ramp). */
+export const MAX_FLOOR_TILT_DEGREES = 15;
+
+/**
+ * Whether a hit-test pose lies on a floor-like surface. WebXR orients a hit result's pose so its
+ * +Y axis is the surface normal; a floor's normal points (nearly) straight up. A wall hit would
+ * otherwise set the vehicle down level at the wall's height — floating, or half inside the wall.
+ */
+export function isFloorLike(matrix: Float32Array | readonly number[]): boolean {
+  const upX = matrix[4] ?? 0;
+  const upY = matrix[5] ?? 0;
+  const upZ = matrix[6] ?? 0;
+  const length = Math.hypot(upX, upY, upZ) || 1;
+  return upY / length >= Math.cos(THREE.MathUtils.degToRad(MAX_FLOOR_TILT_DEGREES));
+}
+
 export class ArPlacement {
   /** Flat ring on the floor where the vehicle would land; added to the scene by the caller. */
   readonly reticle: THREE.Mesh;
@@ -83,15 +99,21 @@ export class ArPlacement {
     return this.placedOnce;
   }
 
-  /** Per XR frame: moves the reticle to the latest floor hit. */
+  /** Per XR frame: moves the reticle to the latest floor hit — the first one that is a floor. */
   update(frame: HitTestFrame | undefined): void {
     if (!frame || !this.hitTestSource || !this.referenceSpace) return;
-    const hit = frame.getHitTestResults(this.hitTestSource)[0];
-    const pose = hit?.getPose(this.referenceSpace);
-    this.hasHit = Boolean(pose);
+    let floorPose: Float32Array | number[] | null = null;
+    for (const hit of frame.getHitTestResults(this.hitTestSource)) {
+      const matrix = hit.getPose(this.referenceSpace)?.transform.matrix;
+      if (matrix && isFloorLike(matrix)) {
+        floorPose = matrix;
+        break;
+      }
+    }
+    this.hasHit = floorPose !== null;
     this.reticle.visible = this.hasHit;
-    if (pose) {
-      this.lastHit.fromArray(Array.from(pose.transform.matrix));
+    if (floorPose) {
+      this.lastHit.fromArray(Array.from(floorPose));
       this.reticle.matrix.copy(this.lastHit);
     }
   }
