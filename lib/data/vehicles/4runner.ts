@@ -138,7 +138,7 @@ export const fourRunner: Vehicle = {
       { id: "rear", label: "Rear", position: [0, 2.2, 10], target: [0, 1.0, 0] },
     ],
     paintableMaterialNames: ["body.carmain"],
-    heroSteer: { nodeNames: ["MOUNT_WHEEL_FRONT_LEFT", "MOUNT_WHEEL_FRONT_RIGHT"], degrees: 18 },
+    heroSteer: { nodeNames: ["MOUNT_WHEEL_FRONT_LEFT", "MOUNT_WHEEL_FRONT_RIGHT"], degrees: -18 },
     wheelMountNames: [
       "MOUNT_WHEEL_FRONT_LEFT",
       "MOUNT_WHEEL_FRONT_RIGHT",
