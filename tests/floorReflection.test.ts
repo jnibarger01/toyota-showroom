@@ -129,4 +129,24 @@ describe("EnvironmentController.setFloorReflective", () => {
     expect(mirroredLights).toHaveLength(1);
     expect(mirroredLights[0]!.visible).toBe(false);
   });
+
+  it("rebuilds when a mounted part is swapped for another (same child count, different child)", () => {
+    const root = new THREE.Group();
+    const mount = new THREE.Group();
+    const stockWheel = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+    mount.add(stockWheel);
+    root.add(mount);
+    const reflection = new FloorReflection();
+    reflection.setSource(root);
+    reflection.setEnabled(true);
+    const replacement = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ color: "#f00" }));
+    mount.remove(stockWheel);
+    mount.add(replacement);
+    reflection.sync();
+    const mirroredMaterials: THREE.Material[] = [];
+    reflection.group.traverse((object) => {
+      if (object instanceof THREE.Mesh) mirroredMaterials.push(object.material as THREE.Material);
+    });
+    expect(mirroredMaterials).toEqual([replacement.material]);
+  });
 });

@@ -98,6 +98,8 @@ export class EnvironmentController {
   /** The preset whose environment is installed and intact right now; `undefined` while a load is
    * in flight (it disposes the previous map up front) or after one failed. */
   private hdriLivePresetId: string | undefined;
+  /** The preset most recently asked for, loaded or not — what speculative prefetch should skip. */
+  private hdriRequestedPresetId: string | undefined;
   /** Settles when the latest `applyHdri` has — committed, failed or superseded. */
   private hdriSettled: Promise<void> = Promise.resolve();
   private disposed = false;
@@ -326,8 +328,10 @@ export class EnvironmentController {
   async applyHdri(
     renderer: THREE.WebGLRenderer | { isWebGLRenderer?: boolean },
     hdriPresetId: string | undefined,
+    { palette = true }: { palette?: boolean } = {},
   ): Promise<boolean> {
     const generation = (this.hdriGeneration += 1);
+    this.hdriRequestedPresetId = hdriPresetId;
     const refs: HdriLightRefs = { scene: this.scene, hemi: this.hemi, key: this.key, rim: this.rim, fill: this.fill };
 
     // Already live: only the palette can have been disturbed (a terrain or lighting change repaints
@@ -335,7 +339,7 @@ export class EnvironmentController {
     // and leave the scene without an environment in between.
     const livePreset = hdriPresetId !== undefined && hdriPresetId === this.hdriLivePresetId ? getHdriPreset(hdriPresetId) : undefined;
     if (livePreset) {
-      applyHdriPalette(refs, livePreset);
+      if (palette) applyHdriPalette(refs, livePreset);
       if (this.passthrough) this.suppressEnvironment();
       return true;
     }
@@ -348,6 +352,7 @@ export class EnvironmentController {
       hdriPresetId,
       this.hdriHandle,
       () => generation === this.hdriGeneration && !this.disposed,
+      palette,
     );
     this.hdriSettled = pending.then(
       () => undefined,
@@ -380,6 +385,11 @@ export class EnvironmentController {
       },
     });
     return committed;
+  }
+
+  /** The HDRI preset most recently requested (in flight or live). */
+  get requestedHdriPresetId(): string | undefined {
+    return this.hdriRequestedPresetId;
   }
 
   /** Resolves once the most recent `applyHdri` has settled, however it ended. Never rejects. */
