@@ -4,9 +4,9 @@ import { expect, test } from "@playwright/test";
  * The compare page's opt-in 3D stage: the stage, the 3D renderer chunk and the models stay off the
  * page until asked for, then the chosen vehicles load side by side and the stage says so.
  *
- * (`three.module` is not in that list: the catalog's option data imports node-name constants from
- * `lib/three/*` modules, which pulls three.js core into a chunk every page shares. That predates the
- * stage and is not something this toggle can defer.)
+ * (three.js core itself is not in that list: the catalog's option data imports node-name constants
+ * from `lib/three/*` modules, which pulls three.js core into the shared `buildTools` chunk. That
+ * predates the stage and is not something this toggle can defer.)
  */
 test.describe.configure({ timeout: 180_000 });
 
