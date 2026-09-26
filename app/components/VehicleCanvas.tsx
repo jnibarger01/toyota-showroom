@@ -72,7 +72,7 @@ import { driverEyeFromSteeringWheel } from "../../lib/three/interiorView";
 import { buildDimensionsOverlay, disposeDimensionsOverlay, type DimensionLabel, type DimensionSpec } from "../../lib/three/dimensions";
 import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples, visibleStandIn, type Hotspot } from "../../lib/three/hotspots";
 import { ArPlacement, trueScaleFactor, type HitTestFrame, type PlacementSession } from "../../lib/three/arPlacement";
-import { exportQuickLookUrl, openQuickLook, supportsQuickLook } from "../../lib/three/quickLook";
+import { exportQuickLookUrl, supportsQuickLook } from "../../lib/three/quickLook";
 import type { CustomizationCategory } from "../../lib/types/customization";
 import { prefersReducedMotion, prefersReducedMotionLive } from "../../lib/three/motionPreference";
 import { modelUrlForDetail, type QualitySettings } from "../../lib/three/quality";
@@ -218,8 +218,15 @@ type Props = {
   onDriverViewAvailable?: (available: boolean) => void;
   /** The view left the seat on its own (a camera preset, Home) — the chrome should un-toggle. */
   onDriverViewExit?: () => void;
-  /** No WebXR AR, but iOS Quick Look is available — `enterXrSignal` then exports and opens a USDZ. */
+  /** No WebXR AR, but iOS Quick Look is available — the chrome then offers `onQuickLookUrl`'s link. */
   onQuickLookSupported?: (supported: boolean) => void;
+  /**
+   * On a Quick Look device: a USDZ blob URL of the build as it stands, or `null` while the build is
+   * changing and a fresh export is pending. Exported ahead of the tap because Safari only opens
+   * Quick Look from a link activated within the user gesture — an export started by the tap
+   * (dynamic import + USDZ encode) outlives the gesture and the navigation is dropped.
+   */
+  onQuickLookUrl?: (url: string | null) => void;
   /**
    * Still image of this vehicle (the catalog thumbnail, rendered from the same GLB by
    * `npm run assets:thumbnails`) shown behind the canvas until the renderer's first opaque frame
@@ -229,7 +236,10 @@ type Props = {
   posterUrl?: string;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, onHotspotsAvailable, configurationKey, driverView = false, onDriverViewAvailable, onDriverViewExit, onQuickLookSupported, posterUrl }: Props) {
+/** Quiet period after the last build change before the Quick Look USDZ is re-exported. */
+const QUICK_LOOK_EXPORT_DELAY_MS = 400;
+
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, onHotspotsAvailable, configurationKey, driverView = false, onDriverViewAvailable, onDriverViewExit, onQuickLookSupported, onQuickLookUrl, posterUrl }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -243,6 +253,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
    * loading, finds no root, and never reruns because `lift` itself has not changed.
    */
   const [sceneRevision, setSceneRevision] = useState(0);
+  /** True when AR means Quick Look on this device rather than a WebXR session. */
+  const [quickLookAvailable, setQuickLookAvailable] = useState(false);
+  /** Bumped by `VehicleSceneController.onBuildChange`; drives the Quick Look re-export. */
+  const [buildVersion, setBuildVersion] = useState(0);
   /**
    * Asset-path empty/error notice (#75). Distinct from CanvasErrorBoundary: this covers GLB
    * fetch/decode failure (and vehicles with no detailed model), not React render crashes.
@@ -288,8 +302,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const onDriverViewAvailableRef = useRef(onDriverViewAvailable);
   const onDriverViewExitRef = useRef(onDriverViewExit);
   const onQuickLookSupportedRef = useRef(onQuickLookSupported);
-  /** True when AR means Quick Look on this device rather than a WebXR session. */
-  const quickLookRef = useRef(false);
+  const onQuickLookUrlRef = useRef(onQuickLookUrl);
   const dimensionSpecsRef = useRef(dimensionSpecs);
   const driverViewRef = useRef(driverView);
   /** Scene-owned overlay state read by the per-frame tick, which cannot see React props. */
@@ -327,9 +340,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     onDriverViewAvailableRef.current = onDriverViewAvailable;
     onDriverViewExitRef.current = onDriverViewExit;
     onQuickLookSupportedRef.current = onQuickLookSupported;
+    onQuickLookUrlRef.current = onQuickLookUrl;
     dimensionSpecsRef.current = dimensionSpecs;
     driverViewRef.current = driverView;
-  }, [onQuickLookSupported, dimensionSpecs, onDoorsAvailable, onHotspotsAvailable, onDriverViewAvailable, onDriverViewExit, driverView, lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
+  }, [onQuickLookSupported, onQuickLookUrl, dimensionSpecs, onDoorsAvailable, onHotspotsAvailable, onDriverViewAvailable, onDriverViewExit, driverView, lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -1172,8 +1186,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         if (cancelled) return;
         onXrSupportedRef.current?.(supported);
         // iOS has no WebXR AR but opens USDZ in Quick Look; the same control drives that instead.
-        quickLookRef.current = !supported && supportsQuickLook();
-        onQuickLookSupportedRef.current?.(quickLookRef.current);
+        const quickLook = !supported && supportsQuickLook();
+        setQuickLookAvailable(quickLook);
+        onQuickLookSupportedRef.current?.(quickLook);
       });
 
       if (import.meta.env.DEV) {
@@ -1359,24 +1374,50 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
 
   useEffect(() => {
     if (enterXrSignal === undefined) return;
-    if (quickLookRef.current) {
-      const root = rootRef.current;
-      if (!root) return;
-      const catalogLength = dimensionSpecsRef.current?.find((spec) => spec.key === "length")?.inches;
-      const scale = trueScaleFactor(visibleBounds(root).getSize(new THREE.Vector3()).z, catalogLength);
-      void exportQuickLookUrl(root, scale)
-        .then((url) => {
-          openQuickLook(url);
-          // Quick Look has read the blob by the time it is on screen; a minute is ample.
-          window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        })
-        .catch((error: unknown) => {
-          onXrErrorRef.current?.(error instanceof Error ? `Could not prepare the AR model: ${error.message}` : "Could not prepare the AR model.");
-        });
-      return;
-    }
     void xrControllerRef.current?.enter();
   }, [enterXrSignal]);
+
+  useEffect(() => {
+    if (!quickLookAvailable) return;
+    const controller = sceneControllerRef.current;
+    if (!controller) return;
+    return controller.onBuildChange(() => setBuildVersion((version) => version + 1));
+  }, [quickLookAvailable, sceneRevision]);
+
+  useEffect(() => {
+    if (!quickLookAvailable) return;
+    const root = rootRef.current;
+    if (!root) return;
+    let cancelled = false;
+    let url: string | null = null;
+    // Debounced: a configuration replay fires one build change per option, and the export walks
+    // and encodes the whole vehicle on the main thread.
+    const timer = window.setTimeout(() => {
+      const catalogLength = dimensionSpecsRef.current?.find((spec) => spec.key === "length")?.inches;
+      const scale = trueScaleFactor(visibleBounds(root).getSize(new THREE.Vector3()).z, catalogLength);
+      exportQuickLookUrl(root, scale)
+        .then((next) => {
+          if (cancelled) {
+            URL.revokeObjectURL(next);
+            return;
+          }
+          url = next;
+          onQuickLookUrlRef.current?.(next);
+        })
+        .catch((error: unknown) => {
+          // Background preparation: the control stays in its "preparing" state rather than raising
+          // an error for something the viewer has not asked for yet.
+          if (!cancelled) console.warn("[quick-look] USDZ export failed", error);
+        });
+    }, QUICK_LOOK_EXPORT_DELAY_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      // Withdraw the link before the build moves on, so a tap can never open a stale build.
+      onQuickLookUrlRef.current?.(null);
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [quickLookAvailable, sceneRevision, buildVersion, doorsOpen]);
 
   useEffect(() => {
     if (exitXrSignal === undefined) return;

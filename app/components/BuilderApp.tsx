@@ -270,6 +270,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
    * `supported` / `unsupported` arrive from `VehicleCanvas.onXrSupported` once the vehicle settles.
    */
   const [xrCapability, setXrCapability] = useState<XrCapability>("pending");
+  /** Pre-exported USDZ of the current build on a Quick Look device; `null` while one is being made. */
+  const [quickLookUrl, setQuickLookUrl] = useState<string | null>(null);
   const [xrPresenting, setXrPresenting] = useState(false);
   /** XR permission / start failures — kept off `loadError` so a declined camera prompt is dismissible noise, not a broken build. */
   const [xrError, setXrError] = useState<string | null>(null);
@@ -1437,6 +1439,22 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               >
                 <RotateCcw size={17} />
               </button>
+              {xrCapability === "quicklook" ? (
+                quickLookUrl ? (
+                  // A real link rather than a button that clicks one later: Safari hands an
+                  // `<a rel="ar">` to Quick Look only when the viewer's own tap activates it, and it
+                  // requires the anchor's first child to be an <img>.
+                  <a data-testid="xr-walkaround" className="viewport-link" rel="ar" href={quickLookUrl} title={xrLabel} aria-label={xrLabel}>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- Quick Look's required marker, never displayed */}
+                    <img alt="" hidden />
+                    <Move3d size={17} aria-hidden />
+                  </a>
+                ) : (
+                  <button type="button" data-testid="xr-walkaround" title="Preparing AR model…" aria-label={xrLabel} disabled>
+                    <Move3d size={17} aria-hidden />
+                  </button>
+                )
+              ) : (
               <button
                 type="button"
                 data-testid="xr-walkaround"
@@ -1454,6 +1472,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               >
                 <Move3d size={17} aria-hidden />
               </button>
+              )}
               <button title="Zoom"><ZoomIn size={17} /></button>
               {/*
                 * A native <select> rather than an icon button opening a popover. It is keyboard
@@ -1538,6 +1557,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onQuickLookSupported={(supported) => {
                 if (supported) setXrCapability("quicklook");
               }}
+              onQuickLookUrl={setQuickLookUrl}
               onXrPresentingChange={setXrPresenting}
               onXrError={setXrError}
               qualityPreference={qualityPreference}

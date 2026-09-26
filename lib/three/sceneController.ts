@@ -61,6 +61,24 @@ export class VehicleSceneController {
    */
   private readonly activeByGroup = new Map<string, string>();
 
+  private readonly buildChangeListeners = new Set<() => void>();
+
+  /**
+   * Called after every write that can change what the vehicle looks like (an option applied or
+   * removed, custom paint, a configuration replay). Callers that snapshot the build — the Quick
+   * Look USDZ export — debounce on this rather than on configuration state, which changes before
+   * the scene has caught up (asset fetches) and also for things that do not touch the vehicle
+   * (camera state). Returns an unsubscribe function.
+   */
+  onBuildChange(listener: () => void): () => void {
+    this.buildChangeListeners.add(listener);
+    return () => this.buildChangeListeners.delete(listener);
+  }
+
+  private notifyBuildChange(): void {
+    for (const listener of this.buildChangeListeners) listener();
+  }
+
   /**
    * `sceneMap` is optional and defaults to empty so every existing call site (which predates
    * semantic scene identity) keeps compiling and behaving exactly as before — a controller built
@@ -266,9 +284,13 @@ export class VehicleSceneController {
       this.activeByGroup.set(group, option.id);
     }
 
-    const applied = await this.applyOperation(option);
-    if (applied && !isMultiSelect(option.category)) await this.reapplyDependentGroups(option);
-    return applied;
+    try {
+      const applied = await this.applyOperation(option);
+      if (applied && !isMultiSelect(option.category)) await this.reapplyDependentGroups(option);
+      return applied;
+    } finally {
+      this.notifyBuildChange();
+    }
   }
 
   private async applyOperation(option: CustomizationOption): Promise<boolean> {
@@ -332,6 +354,14 @@ export class VehicleSceneController {
 
   /** Reverses an option. Only meaningful for the accumulating categories (accessory, decal). */
   async removeOption(option: CustomizationOption): Promise<boolean> {
+    try {
+      return this.removeOptionFromScene(option);
+    } finally {
+      this.notifyBuildChange();
+    }
+  }
+
+  private removeOptionFromScene(option: CustomizationOption): boolean {
     if (option.operation === "mesh-replacement") {
       const { found } = resolveNodes(this.root, option.mountNodes ?? []);
       for (const mount of found) detachFromMount(mount);
@@ -523,6 +553,7 @@ export class VehicleSceneController {
 
     // `restoreOriginals` above dropped every cloned lamp material with the rest.
     this.lights.reapply();
+    this.notifyBuildChange();
     return { applied, failed };
   }
 
@@ -548,6 +579,7 @@ export class VehicleSceneController {
     // controller from pinning the graph it just tore down.
     this.originalVisibility.clear();
     this.activeByGroup.clear();
+    this.buildChangeListeners.clear();
   }
 }
 

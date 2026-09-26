@@ -383,3 +383,28 @@ describe("procedural runtime modification replay", () => {
     expect(node.visible).toBe(false);
   });
 });
+
+describe("build change notifications", () => {
+  it("notifies after applying, removing and replaying options, and stops after unsubscribing", async () => {
+    const { controller } = makeController();
+    let changes = 0;
+    const unsubscribe = controller.onBuildChange(() => {
+      changes += 1;
+    });
+    const paint = getOptionById("4runner", "paint-3u5-barcelona-red")!;
+
+    await controller.applyOption(paint);
+    expect(changes).toBe(1);
+    await controller.removeOption(paint);
+    expect(changes).toBe(2);
+    const before = changes;
+    await controller.applyConfiguration({ paint: [paint.id] } as SelectionMap);
+    // The replay's own final notification lands after every option has been written.
+    expect(changes).toBeGreaterThan(before);
+
+    unsubscribe();
+    const settled = changes;
+    await controller.applyOption(paint);
+    expect(changes).toBe(settled);
+  });
+});

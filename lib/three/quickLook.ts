@@ -8,7 +8,9 @@ import * as THREE from "three";
  * viewer: it opens a USDZ file from an `<a rel="ar">` link and handles placement, scale and lighting
  * itself. The USDZ is exported on demand from the *current* build — the paint, wheels and
  * accessories the viewer configured — rather than shipping a static file per vehicle that could
- * only ever show the default spec.
+ * only ever show the default spec. It is exported ahead of the tap (`VehicleCanvas`) and offered as a
+ * real `<a rel="ar">` whose first child is an `<img>` (`BuilderApp`): Safari only hands a link to
+ * Quick Look when the viewer's own gesture activates it, which an export started by the tap outlives.
  *
  * Exported from a detached clone so nothing in the live scene moves, at true scale (see
  * `arPlacement.ts`), resting on its own floor at the origin — Quick Look anchors the file's origin to
@@ -60,19 +62,4 @@ export async function exportQuickLookUrl(root: THREE.Object3D, scale: number): P
   const holder = buildQuickLookRoot(root, scale);
   const bytes = await exporter.parseAsync(holder, { quickLookCompatible: true, maxTextureSize: 1024 });
   return URL.createObjectURL(new Blob([bytes], { type: "model/vnd.usdz+zip" }));
-}
-
-/**
- * Opens a USDZ URL in Quick Look. Safari only hands the link to Quick Look when it is an `<a rel="ar">`
- * whose first child is an `<img>` — an undocumented but long-standing requirement.
- */
-export function openQuickLook(url: string, doc: Document = document): void {
-  const anchor = doc.createElement("a");
-  anchor.rel = "ar";
-  anchor.href = url;
-  anchor.appendChild(doc.createElement("img"));
-  anchor.style.display = "none";
-  doc.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
 }

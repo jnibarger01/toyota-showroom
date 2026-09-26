@@ -336,6 +336,10 @@ button { font: inherit; color: inherit; }
 .camera-group button.selected { background: #2b333e; color: white; }
 .viewport-actions button { width: 34px; padding: 0; display: grid; place-items: center; }
 .viewport-actions button:disabled { opacity: .45; cursor: not-allowed; }
+/* The Quick Look AR control is a link (see BuilderApp), styled as its neighbouring icon buttons. */
+.viewport-actions .viewport-link {
+  width: 34px; height: 32px; border-radius: 7px; display: grid; place-items: center; color: #9aa4b0;
+}
 /* Unsupported-device AR note (#16) — sits under the stage toolbar, not a full-width error banner. */
 .xr-capability-status {
   position: absolute; z-index: 4; left: 50%; transform: translateX(-50%); top: 64px;
