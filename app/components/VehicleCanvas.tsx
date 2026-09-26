@@ -206,6 +206,13 @@ type Props = {
   /** Opens every door/lid the vehicle models separately (`threeDConfig.doors`). */
   doorsOpen?: boolean;
   onDoorsAvailable?: (available: boolean) => void;
+  /** Whether this vehicle yields any hotspot — the chrome offers Features only when it does. */
+  onHotspotsAvailable?: (available: boolean) => void;
+  /**
+   * Changes whenever the configured selections do. The dimensions overlay is measured off visible
+   * geometry, so a newly fitted roof rack or lift kit has to re-measure it.
+   */
+  configurationKey?: string;
   /** Driver's-seat camera (`lib/three/interiorView.ts`). */
   driverView?: boolean;
   onDriverViewAvailable?: (available: boolean) => void;
@@ -222,7 +229,7 @@ type Props = {
   posterUrl?: string;
 };
 
-export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, driverView = false, onDriverViewAvailable, onDriverViewExit, onQuickLookSupported, posterUrl }: Props) {
+export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift, terrain, environmentPreset, hdriPresetId, onReady, onError, onProgress, tourAction, resetViewSignal, enterXrSignal, exitXrSignal, onXrSupported, onXrPresentingChange, onXrError, qualityPreference, onQualityPreferenceLoaded, onQualityNeedsReload, onTourStatusChange, onTourStep, onPartHover, onPartSelect, lampMode, onLampModesAvailable, hotspotCategories, showHotspots = false, onHotspotActivate, showDimensions = false, dimensionSpecs, doorsOpen = false, onDoorsAvailable, onHotspotsAvailable, configurationKey, driverView = false, onDriverViewAvailable, onDriverViewExit, onQuickLookSupported, posterUrl }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
   /** True while the cinematic tour owns the camera — suppresses the preset-change GSAP effect. */
@@ -277,6 +284,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
   const doorRigRef = useRef<DoorRig | null>(null);
   const driverEyeRef = useRef<THREE.Vector3 | null>(null);
   const onDoorsAvailableRef = useRef(onDoorsAvailable);
+  const onHotspotsAvailableRef = useRef(onHotspotsAvailable);
   const onDriverViewAvailableRef = useRef(onDriverViewAvailable);
   const onDriverViewExitRef = useRef(onDriverViewExit);
   const onQuickLookSupportedRef = useRef(onQuickLookSupported);
@@ -315,12 +323,13 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     lampModeRef.current = lampMode;
     onLampModesAvailableRef.current = onLampModesAvailable;
     onDoorsAvailableRef.current = onDoorsAvailable;
+    onHotspotsAvailableRef.current = onHotspotsAvailable;
     onDriverViewAvailableRef.current = onDriverViewAvailable;
     onDriverViewExitRef.current = onDriverViewExit;
     onQuickLookSupportedRef.current = onQuickLookSupported;
     dimensionSpecsRef.current = dimensionSpecs;
     driverViewRef.current = driverView;
-  }, [onQuickLookSupported, dimensionSpecs, onDoorsAvailable, onDriverViewAvailable, onDriverViewExit, driverView, lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
+  }, [onQuickLookSupported, dimensionSpecs, onDoorsAvailable, onHotspotsAvailable, onDriverViewAvailable, onDriverViewExit, driverView, lampMode, onLampModesAvailable, cameraPreset, catalog, onError, onProgress, onReady, onTourStatusChange, onTourStep, onPartHover, onPartSelect, onXrSupported, onXrPresentingChange, onXrError, onQualityPreferenceLoaded, onQualityNeedsReload, qualityPreference]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
@@ -406,7 +415,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       // first runs once a vehicle settles): the precompile step waits briefly on this so it can
       // compile the environment-lit shader variants that will actually be drawn.
       const initialHdriPresetId = hdriPresetId ?? DEFAULT_HDRI_PRESET_ID;
-      void environmentController.applyHdri(renderController.renderer, initialHdriPresetId).then((committed) => {
+      // With no saved HDRI the default map still supplies reflections, but its palette is not
+      // applied: the Terrain/Environment controls own the lights and background in that case.
+      void environmentController.applyHdri(renderController.renderer, initialHdriPresetId, { palette: hdriPresetId !== undefined }).then((committed) => {
         if (committed) canvasElement.dataset.environment = initialHdriPresetId;
       });
 
@@ -740,7 +751,8 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           const partId = pendingAnchors.shift();
           if (partId) {
             const part = controller.getPart(partId);
-            const target = part ? visibleStandIn(part.object, controller.root) : null;
+            const category = overlay.hotspots.find((hotspot) => hotspot.partId === partId)?.category;
+            const target = part && category ? visibleStandIn(part.object, controller.root, category) : null;
             // Keyed by the object anchored to, not the part: a package swap changes the target.
             let samples = target ? hotspotSamples.get(target.uuid) : undefined;
             if (target && !samples) {
@@ -1027,7 +1039,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           attachSettledRoot(detailed);
           progressive = reduceProgressiveLoad(progressive, { type: "settled" });
         } else {
-          // Promote the placeholder to the permanent fallback root.
+          // Promote the placeholder to the permanent fallback root. It is no longer "in flight", so
+          // the marker goes: dimensions (and anything else that waits out the placeholder) must
+          // treat it as the vehicle for the rest of the session.
+          delete placeholder.userData.__progressivePlaceholder;
           scene.remove(placeholder);
           prepareSettledRoot(placeholder);
           attachSettledRoot(placeholder);
@@ -1044,7 +1059,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         load: prefetchHdriPreset,
         // Not the preset already on screen: its map is loaded, and on the medium tier's one-item
         // budget a cache hit on it would spend the whole budget warming nothing.
-        ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl && preset.id !== initialHdriPresetId).map((preset) => preset.id),
+        // Read when the scheduler is built (after the vehicle settles), so a preset picked during the
+        // load is the one skipped, not the one the page opened with.
+        ids: HDRI_PRESETS.filter(
+          (preset) => preset.hdrUrl && preset.id !== (environmentController.requestedHdriPresetId ?? initialHdriPresetId),
+        ).map((preset) => preset.id),
         // Read live, not snapshotted: the governor can downgrade after this scheduler is built, and
         // a frozen tier would keep fetching on exactly the device that just told us it is struggling.
         tier: () => renderController.currentQuality.tier,
@@ -1260,6 +1279,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       : [];
     overlayRef.current.hotspots = next;
     setHotspots(next);
+    onHotspotsAvailableRef.current?.(next.length > 0);
   }, [hotspotCategories, sceneRevision]);
 
   useEffect(() => {
@@ -1301,7 +1321,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [showDimensions, dimensionSpecs, lift, sceneRevision]);
+  }, [showDimensions, dimensionSpecs, lift, sceneRevision, configurationKey]);
 
   useEffect(() => {
     if (!lampMode) return;
@@ -1393,7 +1413,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     // Supersession (a slower, superseded request's late-arriving result being discarded) is
     // EnvironmentController's own job now — see `applyHdri`'s doc comment — so this effect no
     // longer needs its own `cancelled` flag/cleanup for that race.
-    void environmentController.applyHdri(renderController.renderer, presetId).then((committed) => {
+    void environmentController.applyHdri(renderController.renderer, presetId, { palette: hdriPresetId !== undefined }).then((committed) => {
       // Which preset's lighting is actually live — the 3D visual snapshots wait on this, since the
       // HDR fetch + PMREM lands asynchronously after the model settles. Only on a real commit: a
       // failed fetch or a superseded request must not claim a preset whose map is not installed.

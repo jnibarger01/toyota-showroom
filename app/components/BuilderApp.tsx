@@ -283,6 +283,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [showHotspots, setShowHotspots] = useState(false);
   const [showDimensions, setShowDimensions] = useState(false);
   const [doorsOpen, setDoorsOpen] = useState(false);
+  const [hotspotsAvailable, setHotspotsAvailable] = useState(false);
   const [doorsAvailable, setDoorsAvailable] = useState(false);
   const [driverView, setDriverView] = useState(false);
   const [driverViewAvailable, setDriverViewAvailable] = useState(false);
@@ -602,6 +603,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     [catalog],
   );
   const selectedIds = useMemo(() => new Set(Object.values(configuration?.selections ?? {}).flat()), [configuration]);
+  // What the scene is built from; the dimensions overlay re-measures when it changes.
+  const configurationKey = useMemo(() => JSON.stringify(configuration?.selections ?? {}), [configuration]);
   const visibleCatalog = useMemo(
     () => filterBuildOptions(catalog, optionQuery, selectedIds, selectedOnly),
     [catalog, optionQuery, selectedIds, selectedOnly],
@@ -1558,6 +1561,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               }}
               showDimensions={showDimensions}
               dimensionSpecs={dimensionSpecs}
+              onHotspotsAvailable={setHotspotsAvailable}
+              configurationKey={configurationKey}
               doorsOpen={doorsOpen}
               onDoorsAvailable={setDoorsAvailable}
               driverView={driverView}
@@ -1745,7 +1750,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             {/* Toggles, not a segmented choice: each is independently on or off. */}
             <label id="view-tools-label"><Eye size={14} /> View</label>
             <div className="segmented view-tools" role="group" aria-labelledby="view-tools-label">
-              <button className={showHotspots ? "active" : ""} aria-pressed={showHotspots} data-testid="toggle-hotspots" onClick={() => setShowHotspots((value) => !value)}>Features</button>
+              {hotspotsAvailable ? (
+                <button className={showHotspots ? "active" : ""} aria-pressed={showHotspots} data-testid="toggle-hotspots" onClick={() => setShowHotspots((value) => !value)}>Features</button>
+              ) : null}
               <button className={showDimensions ? "active" : ""} aria-pressed={showDimensions} data-testid="toggle-dimensions" onClick={() => setShowDimensions((value) => !value)}>Dimensions</button>
               {doorsAvailable ? (
                 <button className={doorsOpen ? "active" : ""} aria-pressed={doorsOpen} data-testid="toggle-doors" onClick={() => setDoorsOpen((value) => !value)}>Doors</button>

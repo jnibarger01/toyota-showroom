@@ -96,3 +96,11 @@ test("on a phone, a hotspot opens the configuration panel at its category", asyn
   await expect(customize).toHaveAttribute("aria-expanded", "true");
   expect(errors).toEqual([]);
 });
+
+test("Features is only offered when the vehicle has hotspots to show", async ({ page }) => {
+  // The Tacoma has a catalog but no scene map, so no part can carry a hotspot.
+  const errors = await openBuilder(page, "tacoma");
+  await expect(page.getByTestId("toggle-dimensions")).toBeVisible();
+  await expect(page.getByTestId("toggle-hotspots")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

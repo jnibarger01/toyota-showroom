@@ -327,6 +327,16 @@ describe("EnvironmentController", () => {
       expect(controller.key.intensity).toBeCloseTo(3.6, 5);
     });
 
+    it("can install a preset's map without its palette, leaving the environment controls in charge", async () => {
+      const { scene, controller } = makeController();
+      controller.setTerrainAndPreset("Studio", "Sunset");
+      const sunsetKey = controller.key.color.getHexString();
+      await expect(controller.applyHdri(nonWebglRenderer, "hdri-showroom", { palette: false })).resolves.toBe(true);
+      expect(scene.environment?.name).toMatch(/photo_studio_loft_hall_512\.hdr$/);
+      expect(controller.key.color.getHexString()).toBe(sunsetKey);
+      expect(controller.requestedHdriPresetId).toBe("hdri-showroom");
+    });
+
     it("exposes when the latest request has settled, including a failed one", async () => {
       const { controller } = makeController();
       void controller.applyHdri(nonWebglRenderer, "hdri-overcast");
