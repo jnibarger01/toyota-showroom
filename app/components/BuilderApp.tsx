@@ -449,7 +449,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       if (!bootstrap) return;
       setSceneReady(true);
       // Prefer live store config (early hydrate + any pre-settle edits) over the bootstrap snapshot.
-      void (async () => {
+      // Returned so the canvas can precompile the restored build's materials before revealing it.
+      return (async () => {
         await configurationStore.flush();
         const live = configurationStore.getSnapshot().configuration;
         const configuration =

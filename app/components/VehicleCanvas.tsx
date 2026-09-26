@@ -102,8 +102,12 @@ type Props = {
   /**
    * Fired once the model is loaded, cleaned up, and verified. The controller is the caller's
    * handle for every subsequent scene mutation — the canvas itself never applies an option.
+   *
+   * For the detailed model this fires *before* the model replaces the placeholder: a returned
+   * promise (the saved build being applied) is awaited, capped, so the shader precompile sees the
+   * configured materials rather than the GLB's originals.
    */
-  onReady: (controller: VehicleSceneController, applicable: CustomizationOption[]) => void;
+  onReady: (controller: VehicleSceneController, applicable: CustomizationOption[]) => void | Promise<void>;
   onError: (message: string) => void;
   /**
    * Download progress for the main vehicle asset, 0..1. Optional, and deliberately not a substitute
@@ -662,7 +666,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           console.warn(`[scene] part "${unsatisfied.entry.id}" has no matching geometry in this asset: ${unsatisfied.reason}`);
         }
         keyboardPartIndex = -1;
-        onReadyRef.current(controller, report.satisfied);
+        return onReadyRef.current(controller, report.satisfied);
       };
 
       /** Everything that changes which shader programs `root` needs — texture stripping, shadow
@@ -680,7 +684,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         installProceduralWheelPackages(root, slug);
       };
 
-      const attachSettledRoot = (root: THREE.Object3D) => {
+      /** `published`: `publishReady` already ran for this root (the detailed path publishes before
+       * it precompiles). */
+      const attachSettledRoot = (root: THREE.Object3D, published = false) => {
         const footprint = new THREE.Box3().setFromObject(root);
         if (contactShadow) {
           scene.remove(contactShadow);
@@ -693,7 +699,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         rootRef.current = root;
         groundedYRef.current = root.position.y;
         setSceneRevision((revision) => revision + 1);
-        publishReady(root);
+        if (!published) void publishReady(root);
       };
 
       const wantsDetailedModel = Boolean(threeDConfig.hasModel && threeDConfig.modelUrl);
@@ -778,11 +784,23 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           // briefly: a slow HDR must not hold the vehicle back — those programs then compile on
           // first draw, exactly as before.
           await Promise.race([environmentController.whenHdriSettled(), new Promise((resolve) => setTimeout(resolve, 2000))]);
+          // The saved build is applied before compiling, too: a Metallic or Pearl paint adds a flake
+          // normal map and iridescence, both part of the program key, so compiling the GLB's own
+          // materials would leave the first configured frame to compile the real ones. Capped like
+          // the HDR wait — a slow restore (an option's asset fetch) must not hold the vehicle back.
+          let published = false;
+          if (!cancelled) {
+            published = true;
+            const restored = Promise.resolve(publishReady(detailed)).catch(() => undefined);
+            await Promise.race([restored, new Promise((resolve) => setTimeout(resolve, 2000))]);
+          }
           // Compiled while the placeholder is still the thing on screen, so the swap below lands on
           // a frame that only has to draw, not compile.
-          await renderController.precompile(detailed, scene);
+          if (!cancelled) await renderController.precompile(detailed, scene);
           if (cancelled) {
-            disposeSubtree(detailed);
+            // Once published, `detailed` belongs to the scene controller, which the effect cleanup
+            // has already disposed.
+            if (!published) disposeSubtree(detailed);
             scene.remove(placeholder);
             disposeSubtree(placeholder);
             rootRef.current = null;
@@ -792,7 +810,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           scene.remove(placeholder);
           disposeSubtree(placeholder);
           setModelStatus(null);
-          attachSettledRoot(detailed);
+          attachSettledRoot(detailed, true);
           progressive = reduceProgressiveLoad(progressive, { type: "settled" });
         } else {
           // Promote the placeholder to the permanent fallback root.
