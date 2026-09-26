@@ -380,6 +380,13 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         starfieldCount: renderController.currentQuality.starfieldCount,
       });
       environmentControllerRef.current = environmentController;
+      // Started now, in parallel with the model download, rather than from the effect below (which
+      // first runs once a vehicle settles): the precompile step waits briefly on this so it can
+      // compile the environment-lit shader variants that will actually be drawn.
+      const initialHdriPresetId = hdriPresetId ?? DEFAULT_HDRI_PRESET_ID;
+      void environmentController.applyHdri(renderController.renderer, initialHdriPresetId).then((committed) => {
+        if (committed) canvasElement.dataset.environment = initialHdriPresetId;
+      });
 
       const floorReflection = new FloorReflection();
       scene.add(floorReflection.group);
@@ -972,6 +979,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
             }
           }
           prepareSettledRoot(detailed);
+          // `scene.environment` is part of every physical material's program key, so compiling
+          // before the HDR lands would warm variants that are about to be replaced. Wait for it,
+          // briefly: a slow HDR must not hold the vehicle back — those programs then compile on
+          // first draw, exactly as before.
+          await Promise.race([environmentController.whenHdriSettled(), new Promise((resolve) => setTimeout(resolve, 2000))]);
           // Compiled while the placeholder is still the thing on screen, so the swap below lands on
           // a frame that only has to draw, not compile.
           await renderController.precompile(detailed, scene);
@@ -1004,7 +1016,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       // parsed and PMREM-filtered while the viewer waits on a preset they have already been shown.
       prefetcher = createPrefetchScheduler({
         load: prefetchHdriPreset,
-        ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl).map((preset) => preset.id),
+        // Not the preset already on screen: its map is loaded, and on the medium tier's one-item
+        // budget a cache hit on it would spend the whole budget warming nothing.
+        ids: HDRI_PRESETS.filter((preset) => preset.hdrUrl && preset.id !== initialHdriPresetId).map((preset) => preset.id),
         // Read live, not snapshotted: the governor can downgrade after this scheduler is built, and
         // a frozen tier would keep fetching on exactly the device that just told us it is struggling.
         tier: () => renderController.currentQuality.tier,
@@ -1283,10 +1297,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
     // Supersession (a slower, superseded request's late-arriving result being discarded) is
     // EnvironmentController's own job now — see `applyHdri`'s doc comment — so this effect no
     // longer needs its own `cancelled` flag/cleanup for that race.
-    void environmentController.applyHdri(renderController.renderer, presetId).then(() => {
+    void environmentController.applyHdri(renderController.renderer, presetId).then((committed) => {
       // Which preset's lighting is actually live — the 3D visual snapshots wait on this, since the
-      // HDR fetch + PMREM lands asynchronously after the model settles.
-      renderController.canvas.dataset.environment = presetId;
+      // HDR fetch + PMREM lands asynchronously after the model settles. Only on a real commit: a
+      // failed fetch or a superseded request must not claim a preset whose map is not installed.
+      if (committed) renderController.canvas.dataset.environment = presetId;
     });
   }, [hdriPresetId, terrain, environmentPreset, sceneRevision]);
 

@@ -378,7 +378,8 @@ describe("RenderController", () => {
 
       const hanging = await makeController({}, { compileAsync: vi.fn(() => new Promise<never>(() => {})) });
       hanging.controller.attachScene(scene, camera);
-      await expect(hanging.controller.precompile(object, scene, 10)).resolves.toEqual(expect.any(Number));
+      // A timeout is the compile-on-first-draw fallback, not a precompile: no duration, no success.
+      await expect(hanging.controller.precompile(object, scene, 10)).resolves.toBeNull();
       failing.controller.dispose();
       hanging.controller.dispose();
     });

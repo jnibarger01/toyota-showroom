@@ -38,8 +38,12 @@ export class FrontWheelSteer {
    */
   constructor(root: THREE.Object3D, nodeNames: readonly string[]) {
     root.updateWorldMatrix(true, true);
-    const nodes = nodeNames.map((name) => findNodeByName(root, name)).filter((node): node is THREE.Object3D => Boolean(node));
-    for (const node of [...nodes, ...frontPackageCorners(root)]) {
+    const named = nodeNames.map((name) => findNodeByName(root, name)).filter((node): node is THREE.Object3D => Boolean(node));
+    const candidates = [...new Set([...named, ...frontPackageCorners(root)])];
+    // A node under another target already turns with it; steering it too would turn it twice. This
+    // is what lets a vehicle list both its wheel mounts and its stock wheels, whichever is populated.
+    const targets = candidates.filter((node) => !candidates.some((other) => other !== node && isAncestorOf(other, node)));
+    for (const node of targets) {
       const parent = node.parent;
       if (!parent) continue;
       const box = new THREE.Box3().setFromObject(node);
@@ -75,6 +79,11 @@ export class FrontWheelSteer {
       wheel.node.position.copy(wheel.basePosition).sub(wheel.pivot).applyQuaternion(turn).add(wheel.pivot);
     }
   }
+}
+
+function isAncestorOf(ancestor: THREE.Object3D, node: THREE.Object3D): boolean {
+  for (let current = node.parent; current; current = current.parent) if (current === ancestor) return true;
+  return false;
 }
 
 /**
