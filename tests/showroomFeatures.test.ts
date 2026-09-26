@@ -193,6 +193,10 @@ describe("hotspots", () => {
       { partId: "body.grille", category: "trim", label: "Grille" },
     ]);
     expect(selectHotspots(parts, new Set(["brakes", "accessory"]))[0]).toMatchObject({ category: "brakes" });
+    // Part types named after a catalog category map to it (GR Corolla's aero.spoiler).
+    expect(selectHotspots([{ id: "aero.spoiler", type: "aero", label: "Rear spoiler" }], new Set(["aero"]))).toEqual([
+      { partId: "aero.spoiler", category: "aero", label: "Rear spoiler" },
+    ]);
   });
 
   it("anchors a hidden factory wheel's hotspot on the package corner shown in its place", () => {
@@ -210,9 +214,11 @@ describe("hotspots", () => {
     const rearRight = corner(0.8, 1.5);
     root.add(factoryWheel, frontLeft, rearRight);
     root.updateWorldMatrix(true, true);
-    expect(visibleStandIn(factoryWheel, root)).toBe(frontLeft);
+    expect(visibleStandIn(factoryWheel, root, "wheels")).toBe(frontLeft);
+    // A hidden accessory has no stand-in: pinning "Roof rack" to a wheel would mislabel the wheel.
+    expect(visibleStandIn(factoryWheel, root, "accessory")).toBeNull();
     factoryWheel.visible = true;
-    expect(visibleStandIn(factoryWheel, root)).toBe(factoryWheel);
+    expect(visibleStandIn(factoryWheel, root, "wheels")).toBe(factoryWheel);
   });
 
   it("projects into the viewport and drops points behind the camera", () => {

@@ -162,7 +162,12 @@ export class CameraController {
       options.presets,
       {
         onStatusChange: options.onTourStatusChange,
-        onStep: options.onTourStep,
+        // The tour's shots are the active preset while it plays and after it stops; without this a
+        // later "back to the preset" (leaving the driver's seat) jumped to the pre-tour shot.
+        onStep: (preset, index) => {
+          this.activePresetId = preset.id;
+          options.onTourStep?.(preset, index);
+        },
       },
     );
 
@@ -252,19 +257,22 @@ export class CameraController {
 
   /** Non-null while the driver's-seat view owns the camera. See `enterDriverView`. */
   private driverLook: DriverLook | null = null;
-  private driverDrag: { x: number; y: number } | null = null;
+  /** The one pointer steering the driver's head; other contacts (a second finger) are ignored. */
+  private driverDrag: { pointerId: number; x: number; y: number } | null = null;
   /** The showroom lens, restored on leaving the driver's seat. */
   private showroomLens: { fov: number; near: number } | null = null;
   private readonly handleDriverPointerDown = (event: PointerEvent) => {
-    this.driverDrag = { x: event.clientX, y: event.clientY };
+    if (this.driverDrag) return;
+    this.driverDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
   };
   private readonly handleDriverPointerMove = (event: PointerEvent) => {
-    if (!this.driverDrag || !this.driverLook) return;
+    if (!this.driverDrag || !this.driverLook || event.pointerId !== this.driverDrag.pointerId) return;
     this.driverLook.dragBy(event.clientX - this.driverDrag.x, event.clientY - this.driverDrag.y);
-    this.driverDrag = { x: event.clientX, y: event.clientY };
+    this.driverDrag.x = event.clientX;
+    this.driverDrag.y = event.clientY;
   };
-  private readonly handleDriverPointerUp = () => {
-    this.driverDrag = null;
+  private readonly handleDriverPointerUp = (event: PointerEvent) => {
+    if (this.driverDrag && event.pointerId === this.driverDrag.pointerId) this.driverDrag = null;
   };
 
   get isDriverView(): boolean {
@@ -296,6 +304,7 @@ export class CameraController {
     element.addEventListener("pointermove", this.handleDriverPointerMove);
     element.addEventListener("pointerup", this.handleDriverPointerUp);
     element.addEventListener("pointerleave", this.handleDriverPointerUp);
+    element.addEventListener("pointercancel", this.handleDriverPointerUp);
   }
 
   /** Follows the vehicle while seated: the eye is re-placed each frame from the vehicle's pose. */
@@ -320,6 +329,7 @@ export class CameraController {
     element.removeEventListener("pointermove", this.handleDriverPointerMove);
     element.removeEventListener("pointerup", this.handleDriverPointerUp);
     element.removeEventListener("pointerleave", this.handleDriverPointerUp);
+    element.removeEventListener("pointercancel", this.handleDriverPointerUp);
     this.controls.enabled = true;
     if (this.showroomLens) {
       this.camera.fov = this.showroomLens.fov;

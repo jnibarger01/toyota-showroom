@@ -33,6 +33,9 @@ const CATEGORIES_FOR_PART_TYPE: Record<string, readonly CustomizationCategory[]>
   brake: ["brakes", "accessory"],
   trim: ["trim"],
   accessory: ["accessory"],
+  aero: ["aero"],
+  exhaust: ["exhaust"],
+  hood: ["hood"],
 };
 
 /** Preferred anchor part per category, when the scene map has it — the most recognisable instance. */
@@ -150,8 +153,11 @@ export function resolveHotspotAnchor(
  * the factory wheel a `wheel.*` / `tire.*` part names and shows its own corner in the same spot,
  * so for a hidden part the nearest visible package corner stands in. `null` when neither is shown.
  */
-export function visibleStandIn(part: THREE.Object3D, root: THREE.Object3D): THREE.Object3D | null {
+export function visibleStandIn(part: THREE.Object3D, root: THREE.Object3D, category: CustomizationCategory): THREE.Object3D | null {
   if (isVisibleInScene(part)) return part;
+  // Only running gear has a stand-in. A hidden accessory (a roof rack not fitted) has no hotspot
+  // until it is shown — pinning it to the nearest wheel would label a wheel "Roof rack".
+  if (category !== "wheels" && category !== "tires") return null;
   const partCenter = new THREE.Box3().setFromObject(part).getCenter(new THREE.Vector3());
   let best: THREE.Object3D | null = null;
   let bestDistance = Infinity;

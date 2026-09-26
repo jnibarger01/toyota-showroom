@@ -606,3 +606,30 @@ describe("CameraController driver view and the tour", () => {
     controller.dispose();
   });
 });
+
+describe("CameraController driver view drag", () => {
+  it("follows only the pointer that started the drag, and a cancel ends it", () => {
+    const canvas = document.createElement("canvas");
+    // jsdom has no pointer capture; OrbitControls' own (disabled-mode) cancel handler calls it.
+    Object.assign(canvas, { setPointerCapture: () => {}, releasePointerCapture: () => {} });
+    const controller = new CameraController({ domElement: canvas, initialPreset: hero, presets: [hero, wheels] });
+    controller.enterDriverView(new THREE.Vector3(-0.4, 1.2, -0.3));
+    const pointer = (type: string, pointerId: number, clientX: number) =>
+      canvas.dispatchEvent(Object.assign(new Event(type), { pointerId, clientX, clientY: 0 }));
+    const facing = () => controller.camera.getWorldDirection(new THREE.Vector3());
+
+    pointer("pointerdown", 1, 100);
+    pointer("pointerdown", 2, 600); // a second finger lands
+    const before = facing();
+    pointer("pointermove", 1, 110); // first finger moves 10 px — measured from its own origin
+    expect(facing().angleTo(before)).toBeLessThan(0.1);
+    const beforeSecond = facing();
+    pointer("pointermove", 2, 900); // the second finger is ignored
+    const afterSecond = facing();
+    expect(afterSecond.angleTo(beforeSecond)).toBeLessThan(1e-9);
+    pointer("pointercancel", 1, 110);
+    pointer("pointermove", 1, 400); // drag over: no more turning
+    expect(facing().angleTo(afterSecond)).toBeLessThan(1e-9);
+    controller.dispose();
+  });
+});
