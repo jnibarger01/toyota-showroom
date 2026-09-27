@@ -293,7 +293,7 @@ describe("BuilderApp", () => {
     expect(screen.getByRole("button", { name: /blueprint/i })).toBeInTheDocument();
 
     // The right panel only shows one category at a time; each rail label now maps to its typed category.
-    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Accessories" }));
     expect(screen.getByRole("button", { name: /overland roof rack/i })).toBeInTheDocument();
   });
 
@@ -317,7 +317,7 @@ describe("BuilderApp", () => {
     const trigger = screen.getByRole("button", { name: /customize/i });
     fireEvent.click(trigger);
 
-    const panel = screen.getByRole("dialog", { name: /paint/i });
+    const panel = screen.getByRole("dialog", { name: /exterior/i });
     expect(panel).toHaveAttribute("aria-modal", "true");
     await waitFor(() => expect(screen.getByPlaceholderText(/search options/i)).toHaveFocus());
 
@@ -328,11 +328,11 @@ describe("BuilderApp", () => {
     const last = focusable[focusable.length - 1];
     last.focus();
     fireEvent.keyDown(panel, { key: "Tab" });
-    expect(within(panel).getByRole("button", { name: /close configuration panel/i })).toHaveFocus();
+    expect(focusable[0]).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(trigger).toHaveFocus());
-    expect(screen.queryByRole("dialog", { name: /paint/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /exterior/i })).not.toBeInTheDocument();
   });
 
   it("switching grades creates a new configuration and updates the active grade button", async () => {
@@ -419,7 +419,6 @@ describe("BuilderApp", () => {
 
     const base = resolveGradeMsrp(fourRunner, "trd-pro");
     expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(base));
-    expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(base));
 
     fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
     await waitFor(() =>
@@ -428,6 +427,7 @@ describe("BuilderApp", () => {
 
     const expectedTotal = base + 425;
     await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(expectedTotal)));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Summary" }));
     expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(expectedTotal));
 
     const expectedMonthly = formatCurrency(estimateMonthlyPayment(expectedTotal, 6.9, 60));
@@ -448,7 +448,7 @@ describe("BuilderApp", () => {
     });
 
     // Deep-link restore creates a config; catalog may still be grade-filtered in the store.
-    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Accessories" }));
     await waitFor(() => expect(screen.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true"));
 
     const expected = estimateBuildTotal(
@@ -458,6 +458,7 @@ describe("BuilderApp", () => {
     );
     expect(expected).toBe(53_900 + 425 + 1_150);
     await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(expected)));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Summary" }));
     expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(expected));
   });
 
@@ -520,7 +521,7 @@ describe("BuilderApp", () => {
     await renderBuilderReady();
 
     const region = screen.getByTestId("selection-announcement");
-    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Accessories" }));
     const rack = () => screen.getByRole("button", { name: /overland roof rack/i });
     fireEvent.click(rack());
     await waitFor(() =>

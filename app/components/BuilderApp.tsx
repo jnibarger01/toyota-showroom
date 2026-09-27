@@ -43,6 +43,7 @@ import {
 import type { CameraPreset, TourAction, TourStatus } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
 import { VehicleSpin } from "./VehicleSpin";
+import { BuyerFlowNav } from "./BuyerFlowNav";
 import { LAMP_MODES, type LampMode } from "../../lib/three/vehicleLights";
 import { dimensionSpecsFrom } from "../../lib/showroom/dimensionSpecs";
 import { PaintStudioPanel } from "./PaintStudioPanel";
@@ -109,6 +110,15 @@ import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/pa
 import { PAINT_FINISH_GROUP } from "../../lib/data/paintFinishes";
 import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/showroom/paintStudioHistory";
 import { resolveExteriorSpin } from "../../lib/showroom/exteriorSpin";
+import {
+  ADVANCED_3D_CATEGORIES,
+  BUYER_STEP_CATEGORIES,
+  BUYER_STEPS,
+  buyerStepForCategory,
+  categoriesForBuyerStep,
+  firstCategoryForBuyerStep,
+  type BuyerStepId,
+} from "../../lib/showroom/buyerFlow";
 
 /**
  * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
@@ -237,6 +247,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [terrain, setTerrain] = useState<Terrain>("Studio");
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>("Daytime");
   const [visualMode, setVisualMode] = useState<"oem" | "3d">("oem");
+  const [activeBuyerStep, setActiveBuyerStep] = useState<BuyerStepId | "studio">("exterior");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
   /** One-time owner-token reveal after first Save build (#80); null when nothing to show. */
@@ -638,6 +649,46 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     () => bootstrap?.vehicle.grades.find((grade) => grade.id === configuration?.gradeId),
     [bootstrap, configuration],
   );
+  const buyerCompletedSteps = useMemo(() => {
+    const complete = new Set<BuyerStepId>(["model"]);
+    if (configuration?.gradeId) complete.add("grade");
+    const selections = configuration?.selections;
+    if (selections && BUYER_STEP_CATEGORIES.exterior.some((category) => (selections[category] ?? []).length > 0)) {
+      complete.add("exterior");
+    }
+    if ((selections?.interior ?? []).length > 0) complete.add("interior");
+    // Factory package data is informational in this slice; visiting it does not mutate persisted state.
+    if (selectedGrade) complete.add("packages");
+    if ((selections?.accessory ?? []).length > 0) complete.add("accessories");
+    return complete;
+  }, [configuration, selectedGrade]);
+  const activeBuyerStepLabel =
+    activeBuyerStep === "studio"
+      ? `3D Studio · ${CATEGORY_LABELS[activeCategory]}`
+      : BUYER_STEPS.find((step) => step.id === activeBuyerStep)?.label ?? "Build & Price";
+  const panelUsesCatalogOptions =
+    activeBuyerStep === "studio" ||
+    activeBuyerStep === "exterior" ||
+    activeBuyerStep === "interior" ||
+    activeBuyerStep === "accessories";
+  const activeBuyerCategories =
+    activeBuyerStep === "studio" ? [] : categoriesForBuyerStep(activeBuyerStep, catalog);
+  const selectBuyerStep = useCallback(
+    (step: BuyerStepId) => {
+      setActiveBuyerStep(step);
+      setOptionQuery("");
+      setSelectedOnly(false);
+      const first = firstCategoryForBuyerStep(step, catalog);
+      if (first && !BUYER_STEP_CATEGORIES[step].includes(activeCategory)) setActiveCategory(first);
+    },
+    [activeCategory, catalog],
+  );
+  const openCategory = useCallback((category: CustomizationCategory) => {
+    setActiveCategory(category);
+    setActiveBuyerStep(buyerStepForCategory(category) ?? "studio");
+    setOptionQuery("");
+    setSelectedOnly(false);
+  }, []);
   const resolvedSpin = useMemo(
     () => (bootstrap && configuration ? resolveExteriorSpin(bootstrap.vehicle, catalog, configuration) : undefined),
     [bootstrap, catalog, configuration],
@@ -1374,8 +1425,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           </div>
           <div className="build-progress"><span><b>Build progress</b><b>{buildProgress}%</b></span><i><b style={{ width: `${buildProgress}%` }} /></i></div>
 
-          <div className="section-label">Grade</div>
-          <div className="grade-row">
+          <div className="section-label">Build &amp; Price</div>
+          <BuyerFlowNav
+            activeStep={activeBuyerStep}
+            completedSteps={buyerCompletedSteps}
+            onSelect={selectBuyerStep}
+          />
+
+          <div className="section-label">Quick grade</div>
+          <div className="grade-row grade-row-quick">
             {vehicle.grades.map((grade) => (
               <button
                 key={grade.id}
@@ -1389,18 +1447,28 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             ))}
           </div>
 
-          <div className="section-label">Systems</div>
-          {BUILDER_RAIL_CATEGORIES.filter(({ category }) =>
-            catalog.some((option) => option.category === category),
-          ).map(({ category, label, Icon }) => (
-            <button
-              key={category}
-              className={`rail-item ${activeCategory === category ? "active" : ""}`}
-              onClick={() => setActiveCategory(category)}
-            >
-              <Icon size={18} /> {label}
-            </button>
-          ))}
+          {!showSpin ? (
+            <>
+              <div className="section-label">3D Studio</div>
+              {BUILDER_RAIL_CATEGORIES.filter(({ category }) =>
+                ADVANCED_3D_CATEGORIES.includes(category) &&
+                catalog.some((option) => option.category === category),
+              ).map(({ category, label, Icon }) => (
+                <button
+                  key={category}
+                  className={`rail-item ${activeCategory === category && activeBuyerStep === (buyerStepForCategory(category) ?? "studio") ? "active" : ""}`}
+                  onClick={() => openCategory(category)}
+                >
+                  <Icon size={18} /> {label}
+                </button>
+              ))}
+            </>
+          ) : (
+            <div className="oem-rail-note">
+              <Eye size={14} aria-hidden />
+              <span>OEM 360° view active. Open 3D for studio tools.</span>
+            </div>
+          )}
 
           <div className="garage-card"><div><Save size={15} /><span>Garage</span></div><small>{garageMessage}</small>{isLocalPersistence ? <p className="garage-local-hint">Local demo — not synced to Worker/D1</p> : null}<button ref={saveButtonRef} type="button" data-testid="save-build" title="Save to garage (Ctrl/⌘ S)" onClick={() => void saveToGarage()}>Save build</button><button type="button" onClick={() => setLeadFormOpen(true)}>Request a test drive</button><button className="garage-open" onClick={() => window.location.assign(pageUrl("garage"))}>Open garage</button></div>
           <div className="quick-tools"><button onClick={() => void surpriseMe()}><Shuffle size={14} /> Surprise me</button><button onClick={downloadSummary}><Download size={14} /> Download specs</button><button type="button" data-testid="export-config-json" title="Export configuration JSON for backup or support" onClick={() => void exportConfigJson()}><FileDown size={14} /> Export JSON</button><button type="button" data-testid="import-config-json" title="Import a configuration JSON file" onClick={() => configJsonFileRef.current?.click()}><FileUp size={14} /> Import JSON</button><input ref={configJsonFileRef} data-testid="import-config-json-input" type="file" accept="application/json,.json" hidden onChange={(event) => void onConfigJsonFileChange(event)} /><button onClick={() => window.print()}><Printer size={14} /> Print build</button></div>
@@ -1459,6 +1527,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                   onClick={() => {
                     controllerRef.current = null;
                     fullApplicableRef.current = [];
+                    if (activeBuyerStep === "studio") setActiveBuyerStep("exterior");
                     setVisualMode("oem");
                   }}
                 >
@@ -1620,7 +1689,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               hotspotCategories={hotspotCategories}
               showHotspots={showHotspots}
               onHotspotActivate={(category) => {
-                setActiveCategory(category);
+                openCategory(category);
                 // At the mobile breakpoint the panel is off-screen until opened, so a hotspot has to
                 // open it too. The Customize trigger being displayed is that layout's own signal —
                 // on desktop the panel is always visible and must not become a focus trap.
@@ -1711,20 +1780,114 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           aria-labelledby="configuration-panel-title"
           tabIndex={-1}
         >
+          <BuyerFlowNav
+            activeStep={activeBuyerStep}
+            completedSteps={buyerCompletedSteps}
+            labelPrefix="Panel build step"
+            onSelect={selectBuyerStep}
+            compact
+          />
           <div className="panel-title">
-            <div><span>Configuration</span><h2 id="configuration-panel-title">{CATEGORY_LABELS[activeCategory]}</h2></div>
+            <div>
+              <span>{activeBuyerStep === "studio" ? "3D Studio" : "Build & Price"}</span>
+              <h2 id="configuration-panel-title">{activeBuyerStepLabel}</h2>
+            </div>
             <div className="panel-actions">
-              <Mountain size={22} />
+              {activeBuyerStep === "studio" ? <Mountain size={22} /> : null}
               <button className="panel-close" aria-label="Close configuration panel" onClick={closeMobilePanel}><X size={18} /></button>
             </div>
           </div>
-          <div className="option-tools"><label><Search size={14} /><input ref={searchRef} value={optionQuery} onChange={(event) => setOptionQuery(event.target.value)} placeholder="Search options…" /></label><button className={selectedOnly ? "active" : ""} aria-pressed={selectedOnly} onClick={() => setSelectedOnly((value) => !value)}>Selected only</button></div>
 
-          {catalog.length === 0 ? (
+          {activeBuyerStep === "model" ? (
+            <section className="buyer-step-panel buyer-model-card" data-testid="buyer-model-panel">
+              <span>{vehicle.year} Toyota</span>
+              <h3>{vehicle.model}</h3>
+              <p>{vehicle.bodyStyle} · Starting MSRP {formatCurrency(vehicle.pricing.baseMsrp)}</p>
+              <button type="button" className="buyer-secondary-action" onClick={() => window.location.assign(pageUrl("explore"))}>
+                Change model
+              </button>
+            </section>
+          ) : null}
+
+          {activeBuyerStep === "grade" ? (
+            <section className="buyer-step-panel" data-testid="buyer-grade-panel">
+              <p className="buyer-step-copy">Choose the grade that sets the base MSRP, powertrain, standard equipment, and factory package availability.</p>
+              <div className="buyer-grade-list">
+                {vehicle.grades.map((grade) => (
+                  <button
+                    key={grade.id}
+                    type="button"
+                    className={grade.id === configuration?.gradeId ? "buyer-grade-card active" : "buyer-grade-card"}
+                    disabled={gradeChanging || !configuration}
+                    onClick={() => void changeGrade(grade.id)}
+                  >
+                    <span><strong>{grade.name}</strong><b>{formatCurrency(grade.msrp)}</b></span>
+                    <small>{grade.standardFeatures.slice(0, 3).join(" · ")}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {activeBuyerStep === "packages" ? (
+            <section className="buyer-step-panel" data-testid="buyer-packages-panel">
+              <p className="buyer-step-copy">Factory packages published for {selectedGrade?.name ?? "this grade"}. Build pricing below still reflects only persisted grade and catalog-option selections.</p>
+              {selectedGrade?.packages.length ? (
+                <div className="factory-package-list">
+                  {selectedGrade.packages.map((pkg) => (
+                    <article key={pkg.id} className="factory-package-card">
+                      <div><strong>{pkg.name}</strong><b>{formatCurrency(pkg.price)}</b></div>
+                      <ul>{pkg.includes.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="panel-empty">No factory packages are published for this grade.</p>
+              )}
+            </section>
+          ) : null}
+
+          {activeBuyerStep === "summary" ? (
+            <section className="buyer-step-panel buyer-summary-panel" data-testid="buyer-summary-panel">
+              <div className="buyer-summary-heading">
+                <span>{vehicle.year} Toyota {vehicle.model}</span>
+                <strong>{selectedGrade?.name ?? "Configured build"}</strong>
+              </div>
+              <ul className="buyer-summary-options">
+                {catalog.filter((option) => selectedIds.has(option.id)).map((option) => (
+                  <li key={option.id}><span>{option.label}</span><b>{option.priceDelta ? formatPriceDelta(option.priceDelta) : "Included"}</b></li>
+                ))}
+                {selectedIds.size === 0 ? <li><span>No upgrades selected</span><b>—</b></li> : null}
+              </ul>
+            </section>
+          ) : null}
+
+          {activeBuyerStep === "exterior" && activeBuyerCategories.length > 1 ? (
+            <div className="buyer-category-tabs" role="tablist" aria-label="Exterior choices">
+              {activeBuyerCategories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeCategory === category}
+                  className={activeCategory === category ? "active" : ""}
+                  onClick={() => setActiveCategory(category)}
+                >
+                  {CATEGORY_LABELS[category]}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {panelUsesCatalogOptions ? (
+            <div className="option-tools"><label><Search size={14} /><input ref={searchRef} value={optionQuery} onChange={(event) => setOptionQuery(event.target.value)} placeholder="Search options…" /></label><button className={selectedOnly ? "active" : ""} aria-pressed={selectedOnly} onClick={() => setSelectedOnly((value) => !value)}>Selected only</button></div>
+          ) : null}
+
+          {panelUsesCatalogOptions && catalog.length === 0 ? (
             <p className="panel-empty">Preparing customization options&hellip;</p>
           ) : null}
 
-          {activeCategory === "paint" ? (
+          {panelUsesCatalogOptions && activeCategory === "paint" ? (
             <PaintStudioPanel
               paintStudio={configuration?.paintStudio}
               // Colours only. `paint` also carries the finish group now, and the studio treats this
@@ -1743,7 +1906,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             />
           ) : null}
 
-          {visibleGrouped.filter(({ category }) => category === activeCategory).map(({ category, options }) => {
+          {panelUsesCatalogOptions ? visibleGrouped.filter(({ category }) => category === activeCategory).map(({ category, options }) => {
             const visibleOptions =
               category === "paint"
                 ? options.filter((option) => option.id !== PAINT_CUSTOM_OPTION_ID)
@@ -1797,8 +1960,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               {visibleOptions.length === 0 ? <p className="panel-empty">No matching options in this system.</p> : null}
             </section>
             );
-          })}
+          }) : null}
 
+          {!showSpin && activeBuyerStep === "studio" ? (
+          <>
           <section className="control-section">
             <label>Lift height</label>
             <div className="segmented">
@@ -1865,7 +2030,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               </>
             ) : null}
           </section>
+          </>
+          ) : null}
           <section className="comparison-card"><div><ClipboardCheck size={16} /><strong>Build comparison</strong></div><p><span>Base MSRP</span><b>{formatCurrency(baseMsrp)}</b></p><p><span>Configured upgrades</span><b>{formatPriceDelta(estimatedTotal - baseMsrp)}</b></p><p className="total"><span>Estimated total</span><b data-testid="estimated-total">{formatCurrency(estimatedTotal)}</b></p></section>
+          {activeBuyerStep === "summary" ? (
+          <>
           <section className={`budget-card ${overBudget ? "over" : ""}`}><label htmlFor="build-budget">Target budget</label><div><span>$</span><input id="build-budget" type="number" min={baseMsrp} step="500" value={budget} onChange={(event) => setBudget(Number(event.target.value))} /></div><p>{overBudget ? `${formatCurrency(estimatedTotal - budget)} over target` : `${formatCurrency(budget - estimatedTotal)} remaining`}</p></section>
           <section className="financing-card">
             <div><Landmark size={16} /><strong>Estimated financing</strong></div>
@@ -1889,6 +2058,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <p className="total"><span>Est. monthly payment</span><b data-testid="estimated-monthly-payment">{formatCurrency(estimatedMonthlyPayment)}/mo</b></p>
             <p className="financing-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender. Payment tracks the live build total derived from your selections.</p>
           </section>
+          </>
+          ) : null}
         </aside>
       </section>
     </main>
