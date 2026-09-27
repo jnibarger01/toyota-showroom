@@ -132,6 +132,13 @@ describe("garage compare deep-link encode/decode", () => {
     expect(readCompareDeepLinkParam("?builds=cfg_a,cfg_b")).toBeNull();
   });
 
+  it("treats a present-but-empty cmp payload as undecodable", () => {
+    // The compare page checks `cmp !== null` (not truthiness) so `?cmp=` routes through
+    // validation into the recovery alert; pin the lib side of that contract.
+    expect(() => validateCompareDeepLink("")).toThrow(/non-empty/);
+    expect(() => validateCompareDeepLink("   ")).toThrow(/non-empty/);
+  });
+
   it("returns too_long copy-error when the share URL exceeds the cap", () => {
     // Force an oversized payload by padding selections with many unique-looking ids that still
     // encode densely — createCompareDeepLinkUrl checks final URL length after encode.

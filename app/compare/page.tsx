@@ -178,7 +178,10 @@ export default function ComparePage() {
     const search = window.location.search;
     const cmp = readCompareDeepLinkParam(search);
     /* eslint-disable react-hooks/set-state-in-effect -- one-shot URL seed */
-    if (cmp) {
+    // `cmp !== null` rather than truthiness: a present-but-empty `?cmp=` is a fully
+    // truncated payload and must route through validation so it reaches the recovery
+    // alert instead of silently falling through to the catalog picker.
+    if (cmp !== null) {
       setMode("builds");
       try {
         const restored = validateCompareDeepLink(cmp).slice(0, MAX_COMPARE);
@@ -323,17 +326,18 @@ export default function ComparePage() {
   };
 
   /**
-   * Recovery from an unrestorable `?cmp=` link: strip the deep-link params (and a legacy `builds=`
-   * seed, which the same link could have degraded into) from the address bar without a reload,
-   * then drop back to the catalog picker. Reload-free so the browser back button still reaches
-   * the original URL, matching how the page seeds state from `window.location.search` in its
-   * one-shot mount effect.
+   * Recovery from an unrestorable `?cmp=` link: strip the deep-link params (plus a legacy
+   * `builds=` seed and any `?vehicles=` catalog seed, so the cleared address bar matches the
+   * cleared picker state) without a reload, then drop back to the catalog picker. Reload-free
+   * so the browser back button still reaches the original URL, matching how the page seeds
+   * state from `window.location.search` in its one-shot mount effect.
    */
   const resetFromBrokenDeepLink = () => {
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete("cmp");
       url.searchParams.delete("builds");
+      url.searchParams.delete("vehicles");
       window.history.replaceState(null, "", url.pathname + url.search + url.hash);
     } catch {
       /* URL/history unavailable — the state reset below still recovers the page. */
