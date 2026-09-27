@@ -16,8 +16,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import type { Vehicle } from "../../lib/types/vehicle";
-import { getGltfLoader, disposeSubtree } from "../../lib/three/assets";
-import { resolveAssetUrl } from "../../lib/three/assetUrl";
+import { instantiateAsset, loadAsset, disposeSubtree } from "../../lib/three/assets";
 import { trueScaleFactor } from "../../lib/three/arPlacement";
 import { columnViewports, compareKeyAction, fitDistance, withCompareModels } from "../../lib/three/compareLayout";
 import { prepareVehicleRoot } from "./VehicleCanvas";
@@ -151,14 +150,20 @@ export function CompareStage({ vehicles }: Props) {
     withModels.forEach((vehicle, index) => {
       const config = vehicle.threeDConfig;
       const url = config.lodModelUrl ?? config.modelUrl!;
-      getGltfLoader()
-        .loadAsync(resolveAssetUrl(url))
-        .then((gltf) => {
+      // Through the shared URL-keyed cache (`lib/three/assets.ts`): re-comparing the same vehicles
+      // in one session, or toggling the 3D stage off and back on, must not refetch the GLBs. The
+      // cache's protection set makes the teardown below safe — `disposeSubtree` skips resources the
+      // cached source still owns.
+      loadAsset(url)
+        .then((source) => {
+          // `prepareVehicleRoot` mutates its argument destructively (scale, rotation, hidden nodes,
+          // grounded position, texture stripping), so the cache's source scene must never be handed
+          // to it directly — work on a clone whose geometry/materials stay shared with the cache.
+          const root = instantiateAsset(source);
           if (disposed) {
-            disposeSubtree(gltf.scene);
+            disposeSubtree(root);
             return;
           }
-          const root = gltf.scene;
           prepareVehicleRoot(root, config);
           root.updateWorldMatrix(true, true);
           const length = new THREE.Box3().setFromObject(root).getSize(new THREE.Vector3()).z;
