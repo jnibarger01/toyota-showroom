@@ -7,7 +7,7 @@ import { expect, test, type Page } from "@playwright/test";
  */
 test.describe.configure({ mode: "serial", timeout: 120_000 });
 
-async function openBuilder(page: Page, slug: string) {
+async function openBuilder(page: Page, slug: string, enterStudio = true) {
   await page.addInitScript(() => {
     localStorage.setItem("toyota-showroom:quality", "low");
     localStorage.setItem("toyota-showroom:tour-seen", "1");
@@ -16,6 +16,7 @@ async function openBuilder(page: Page, slug: string) {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(`${slug}/`);
   await expect.poll(() => page.locator(".vehicle-canvas canvas").getAttribute("data-load-phase"), { timeout: 60_000 }).toBe("ready");
+  if (enterStudio) await page.getByTestId("open-3d-studio").click();
   return errors;
 }
 
@@ -85,9 +86,10 @@ test("dimension lines are measured from the closed vehicle, whichever toggle cam
 
 test("on a phone, a hotspot opens the configuration panel at its category", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  const errors = await openBuilder(page, "camry");
+  const errors = await openBuilder(page, "camry", false);
   const customize = page.locator(".mobile-config-trigger");
   await customize.click();
+  await page.getByTestId("open-3d-studio-panel").click();
   await page.getByTestId("toggle-hotspots").click();
   await page.keyboard.press("Escape"); // close the panel to see the stage
   await expect(customize).toHaveAttribute("aria-expanded", "false");
