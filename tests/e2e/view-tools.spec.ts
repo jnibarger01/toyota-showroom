@@ -26,7 +26,8 @@ test("feature hotspots appear on the visible side of the vehicle and open their 
   // Anchors resolve over a few frames (one raycast pass per hotspot per frame).
   await expect(wheel).toBeVisible({ timeout: 30_000 });
   await wheel.click();
-  await expect(page.locator(".rail-item.active")).toContainText("Wheels");
+  await expect(page.getByRole("button", { name: "Build step: Exterior" })).toHaveAttribute("aria-current", "step");
+  await expect(page.getByRole("tab", { name: "Wheels" })).toHaveAttribute("aria-selected", "true");
   expect(errors).toEqual([]);
 });
 
