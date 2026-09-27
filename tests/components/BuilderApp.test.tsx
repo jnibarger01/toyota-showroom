@@ -293,7 +293,7 @@ describe("BuilderApp", () => {
     expect(screen.getByRole("button", { name: /blueprint/i })).toBeInTheDocument();
 
     // The right panel only shows one category at a time; each rail label now maps to its typed category.
-    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Accessories" }));
     expect(screen.getByRole("button", { name: /overland roof rack/i })).toBeInTheDocument();
   });
 
@@ -448,7 +448,7 @@ describe("BuilderApp", () => {
     });
 
     // Deep-link restore creates a config; catalog may still be grade-filtered in the store.
-    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Accessories" }));
     await waitFor(() => expect(screen.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true"));
 
     const expected = estimateBuildTotal(
@@ -521,7 +521,7 @@ describe("BuilderApp", () => {
     await renderBuilderReady();
 
     const region = screen.getByTestId("selection-announcement");
-    fireEvent.click(screen.getByRole("button", { name: /^accessories$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Accessories" }));
     const rack = () => screen.getByRole("button", { name: /overland roof rack/i });
     fireEvent.click(rack());
     await waitFor(() =>
