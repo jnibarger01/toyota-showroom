@@ -662,12 +662,25 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     if ((selections?.accessory ?? []).length > 0) complete.add("accessories");
     return complete;
   }, [configuration, selectedGrade]);
+  const availableAdvanced3DCategories = useMemo(
+    () =>
+      ADVANCED_3D_CATEGORIES.filter((category) =>
+        catalog.some((option) => option.category === category),
+      ),
+    [catalog],
+  );
+  const activeStudioCategory =
+    activeBuyerStep === "studio" &&
+    ADVANCED_3D_CATEGORIES.includes(activeCategory) &&
+    catalog.some((option) => option.category === activeCategory);
   const activeBuyerStepLabel =
     activeBuyerStep === "studio"
-      ? `3D Studio · ${CATEGORY_LABELS[activeCategory]}`
+      ? activeStudioCategory
+        ? `3D Studio · ${CATEGORY_LABELS[activeCategory]}`
+        : "3D Studio"
       : BUYER_STEPS.find((step) => step.id === activeBuyerStep)?.label ?? "Build & Price";
   const panelUsesCatalogOptions =
-    activeBuyerStep === "studio" ||
+    (activeBuyerStep === "studio" && activeStudioCategory) ||
     activeBuyerStep === "exterior" ||
     activeBuyerStep === "interior" ||
     activeBuyerStep === "accessories";
@@ -689,6 +702,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     setOptionQuery("");
     setSelectedOnly(false);
   }, []);
+  const open3DStudio = useCallback(() => {
+    setActiveBuyerStep("studio");
+    setOptionQuery("");
+    setSelectedOnly(false);
+    const currentIsAvailable =
+      ADVANCED_3D_CATEGORIES.includes(activeCategory) &&
+      catalog.some((option) => option.category === activeCategory);
+    if (!currentIsAvailable && availableAdvanced3DCategories[0]) {
+      setActiveCategory(availableAdvanced3DCategories[0]);
+    }
+  }, [activeCategory, availableAdvanced3DCategories, catalog]);
   const resolvedSpin = useMemo(
     () => (bootstrap && configuration ? resolveExteriorSpin(bootstrap.vehicle, catalog, configuration) : undefined),
     [bootstrap, catalog, configuration],
@@ -1449,10 +1473,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
           {!showSpin ? (
             <>
-              <div className="section-label">3D Studio</div>
+              <div className="section-label">3D Experience</div>
+              <button
+                type="button"
+                className={`rail-item ${activeBuyerStep === "studio" ? "active" : ""}`}
+                data-testid="open-3d-studio"
+                onClick={open3DStudio}
+              >
+                <Mountain size={18} /> 3D Studio
+              </button>
               {BUILDER_RAIL_CATEGORIES.filter(({ category }) =>
-                ADVANCED_3D_CATEGORIES.includes(category) &&
-                catalog.some((option) => option.category === category),
+                availableAdvanced3DCategories.includes(category),
               ).map(({ category, label, Icon }) => (
                 <button
                   key={category}
@@ -1787,6 +1818,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             onSelect={selectBuyerStep}
             compact
           />
+          {!showSpin ? (
+            <button
+              type="button"
+              className={activeBuyerStep === "studio" ? "buyer-studio-entry active" : "buyer-studio-entry"}
+              data-testid="open-3d-studio-panel"
+              aria-pressed={activeBuyerStep === "studio"}
+              onClick={open3DStudio}
+            >
+              <Mountain size={14} aria-hidden /> 3D Studio
+            </button>
+          ) : null}
           <div className="panel-title">
             <div>
               <span>{activeBuyerStep === "studio" ? "3D Studio" : "Build & Price"}</span>
