@@ -239,6 +239,88 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 11px; padding: 0 12px; color: #aeb6c1; margin-bottom: 4px; font-size: 13px;
 }
 .rail-item.active { border-color: #743036; background: #24171a; color: white; }
+
+/* OEM Build & Price information architecture. The buyer flow is primary; the legacy low-level
+ * system controls remain available as the 3D Studio when a live scene is active. */
+.buyer-flow { display: grid; gap: 4px; margin: 0 0 18px; }
+.buyer-step {
+  width: 100%; min-height: 36px; display: flex; align-items: center; gap: 9px; padding: 6px 9px;
+  border: 1px solid transparent; border-radius: 9px; background: transparent; color: #8f99a6;
+  text-align: left; font-size: 12px;
+}
+.buyer-step:hover { color: #d7dde4; background: #121820; }
+.buyer-step.active { border-color: #743036; background: #24171a; color: #fff; }
+.buyer-step.complete:not(.active) { color: #b6c0ca; }
+.buyer-step-index {
+  width: 21px; height: 21px; flex: 0 0 21px; display: grid; place-items: center; border-radius: 999px;
+  border: 1px solid #35404c; background: #11171e; color: #84909e; font-size: 9px; font-weight: 700;
+}
+.buyer-step.active .buyer-step-index { border-color: #9c4148; background: #7f252d; color: #fff; }
+.buyer-step.complete:not(.active) .buyer-step-index { border-color: #3d5a4d; color: #a9d4bc; }
+.buyer-flow-compact { display: none; }
+
+.oem-rail-note {
+  display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 16px; padding: 10px;
+  border: 1px solid #29313b; border-radius: 9px; background: #11171e; color: #8f9aa7;
+  font-size: 10px; line-height: 1.45;
+}
+.oem-rail-note svg { flex: 0 0 auto; margin-top: 1px; }
+
+.buyer-step-panel { margin-bottom: 16px; }
+.buyer-step-copy { margin: 0 0 12px; color: #929ca9; font-size: 11px; line-height: 1.55; }
+.buyer-model-card {
+  padding: 15px; border: 1px solid #2a323d; border-radius: 12px;
+  background: linear-gradient(145deg, #171d24, #10151b);
+}
+.buyer-model-card > span { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }
+.buyer-model-card h3 { margin: 4px 0 5px; font-size: 22px; }
+.buyer-model-card p { margin: 0 0 14px; color: #9ba5b2; font-size: 11px; text-transform: capitalize; }
+.buyer-secondary-action {
+  width: 100%; min-height: 34px; border: 1px solid #3b4652; border-radius: 8px;
+  background: #1c242d; color: #d5dce4; font-size: 11px;
+}
+
+.buyer-grade-list { display: grid; gap: 8px; }
+.buyer-grade-card {
+  width: 100%; display: grid; gap: 6px; padding: 11px 12px; border: 1px solid #2c343e;
+  border-radius: 10px; background: #121820; color: #aeb6c1; text-align: left;
+}
+.buyer-grade-card > span { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.buyer-grade-card strong { color: #e2e7ed; font-size: 12px; }
+.buyer-grade-card b { color: #d6dde5; font-size: 11px; font-weight: 600; }
+.buyer-grade-card small { color: #7f8996; font-size: 9px; line-height: 1.45; }
+.buyer-grade-card.active { border-color: #743036; background: #24171a; }
+.buyer-grade-card:disabled { opacity: .55; cursor: progress; }
+
+.factory-package-list { display: grid; gap: 8px; }
+.factory-package-card {
+  padding: 12px; border: 1px solid #2b343e; border-radius: 10px; background: #121820;
+}
+.factory-package-card > div { display: flex; justify-content: space-between; gap: 10px; }
+.factory-package-card strong { font-size: 12px; }
+.factory-package-card b { color: #d6dde5; font-size: 11px; }
+.factory-package-card ul { margin: 8px 0 0; padding-left: 17px; color: #8f9aa7; font-size: 10px; line-height: 1.55; }
+
+.buyer-category-tabs {
+  display: flex; gap: 6px; overflow-x: auto; margin: -4px 0 12px; padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+.buyer-category-tabs button {
+  flex: 0 0 auto; min-height: 30px; padding: 0 10px; border: 1px solid #2d3640; border-radius: 999px;
+  background: #11171e; color: #8f99a6; font-size: 10px;
+}
+.buyer-category-tabs button.active { border-color: #743036; background: #2a171a; color: #fff; }
+
+.buyer-summary-heading {
+  display: grid; gap: 3px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #242c35;
+}
+.buyer-summary-heading span { color: #8f99a6; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.buyer-summary-heading strong { font-size: 14px; }
+.buyer-summary-options { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.buyer-summary-options li { display: flex; justify-content: space-between; gap: 12px; font-size: 10px; }
+.buyer-summary-options span { color: #aeb6c1; }
+.buyer-summary-options b { color: #d7dde4; font-weight: 500; }
+
 .grade-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 18px; }
 .grade-item {
   width: 100%; display: flex; align-items: center; justify-content: space-between; text-align: left;
@@ -542,6 +624,14 @@ button { font: inherit; color: inherit; }
     visibility: hidden; transition: transform var(--duration-base) var(--ease-standard), visibility 0s var(--duration-base);
   }
   .right-panel.mobile-open { transform: translateX(0); visibility: visible; transition-delay: 0s; }
+  .buyer-flow-compact {
+    display: flex; gap: 5px; overflow-x: auto; margin: 0 0 14px; padding: 0 0 6px;
+    scrollbar-width: thin;
+  }
+  .buyer-flow-compact .buyer-step {
+    flex: 0 0 auto; width: auto; min-height: 30px; padding: 4px 8px; white-space: nowrap; font-size: 10px;
+  }
+  .buyer-flow-compact .buyer-step-index { width: 18px; height: 18px; flex-basis: 18px; font-size: 8px; }
   .mobile-config-trigger {
     display: inline-flex; position: absolute; right: 16px; bottom: 88px; z-index: 7;
     align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 1px solid #743036;
