@@ -5,8 +5,8 @@
  * corruption/truncation or a structurally valid but stale link whose model/grade/options no longer
  * exist in the current catalog. The page keeps the raw error in the console for debugging and
  * renders recovery copy that is accurate for both cases:
- *   - plain-language title/body explaining the likely truncation and the recovery paths;
- *   - "Clear link and pick builds" — `history.replaceState` strips `?cmp=` (and sibling deep-link
+ *   - plain-language title/body covering damaged, incomplete, and stale links;
+ *   - "Clear link and compare vehicles" — `history.replaceState` strips `?cmp=` (and sibling deep-link
  *     params) without a reload, and the page drops back to the catalog picker;
  *   - Dismiss for the rare case someone wants to inspect the URL.
  */
