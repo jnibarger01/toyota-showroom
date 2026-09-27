@@ -21,6 +21,7 @@ async function openBuilder(page: Page) {
 
 test("lamp modes are offered for a vehicle whose scene map names lamps, and select", async ({ page }) => {
   const errors = await openBuilder(page);
+  await page.getByTestId("open-3d-studio").click();
   const lamps = page.getByTestId("lamp-mode");
   await expect(lamps.getByRole("button")).toHaveText(["Default", "Off", "DRL", "Low beam", "Brake", "Hazards"]);
   const hazards = lamps.getByRole("button", { name: "Hazards" });
