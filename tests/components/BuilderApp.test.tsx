@@ -419,6 +419,7 @@ describe("BuilderApp", () => {
 
     const base = resolveGradeMsrp(fourRunner, "trd-pro");
     expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(base));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Summary" }));
     expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(base));
 
     fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
@@ -458,6 +459,7 @@ describe("BuilderApp", () => {
     );
     expect(expected).toBe(53_900 + 425 + 1_150);
     await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(expected)));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Summary" }));
     expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(expected));
   });
 
