@@ -1,0 +1,965 @@
+{
+  "schemaVersion": "1.0.0",
+  "spins": [
+    {
+      "id": "rav4-hybrid-2023-le-040",
+      "vehicleSlug": "rav4-hybrid",
+      "modelYear": 2023,
+      "gradeId": "le",
+      "paintCode": "040",
+      "direction": "clockwise",
+      "zeroAngle": "front",
+      "degreesPerFrame": 15,
+      "source": {
+        "kind": "render",
+        "provenanceId": "public/models/rav4-hybrid-2023/rav4-hybrid.glb"
+      },
+      "frames": [
+        {
+          "url": "/spins/rav4-hybrid/040/00.webp",
+          "sha256": "76ef248d7933ac920922ec9bf37c89f558fb3fdfa5c62dd45ea1415e2d0759d9",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/01.webp",
+          "sha256": "332072574515a5803e8c65caaaa6be3bb3d0dccf37f1813b3c3977106e7ac59d",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/02.webp",
+          "sha256": "a5fe5c2e95a2e31e9de4e8773d4fbc2d0532474233f17c50148018fa4316c6b8",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/03.webp",
+          "sha256": "9fb18bfdf481baf87f033c8d4f578d454b49044f39af1bd9c8f20905c376e252",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/04.webp",
+          "sha256": "dab6600d329fa5f0ea582a49bb3f5ca7a75328e8797ca1f2c14456ec8ca227b7",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/05.webp",
+          "sha256": "7f08b0b4caa2ba6a6c0553e6c7ad47d7f0109f29ea890e2a57d3c16583d2dd1e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/06.webp",
+          "sha256": "bb2d53e9cff957173239f534ff04cd5fb6367627bfb4b30368791721499956ba",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/07.webp",
+          "sha256": "5cc223b6824e496dbb56df5a274779a80703742a933d429c1ed5048df9f338af",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/08.webp",
+          "sha256": "4cdd9133e016945c7bb2f044810b6807af626b74452bd51d6f68659d9155def5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/09.webp",
+          "sha256": "e833ad76beb499a855c59d74887ca736402db07826f3b102ef64f9e0a4e7864b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/10.webp",
+          "sha256": "0a260daea2ca854aa15f71d3b793698085e5b974f6bec13c3470a8ad1dc3df4c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/11.webp",
+          "sha256": "2f6297f542da6bc7d9e48b56251cc71c69b72a1831fc8734a3abfd406ef70a18",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/12.webp",
+          "sha256": "7d95fffc1aae150eca22f2d0590c295e24ceaee9e048d4cc8f3edc7c13172900",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/13.webp",
+          "sha256": "e27b0d228aebc7680dabe11925a005e0ccd04561c08ca9cf0c219bbcf42f673f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/14.webp",
+          "sha256": "40e1a83ffb70316ad26d6f36690e1f8bd9ad473217f65c58e0079f7c2d4b1afa",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/15.webp",
+          "sha256": "190798a6cb8adcaf5f112751bcac32c32e6c9a3b63217293f53f6a16e85d3c9c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/16.webp",
+          "sha256": "ba1cb18074cca145e0abac88a8cce6427e5bbd580b5f6230a47b2d39c7e1e63b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/17.webp",
+          "sha256": "522c74f03cdbc7c8a4cc0a6b64137c8045f52a8823b9194772ffb8c9f64a8e1a",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/18.webp",
+          "sha256": "547111507036913a6ca9890901fa867fe3e62d623e51512264a07954a9e9f2f0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/19.webp",
+          "sha256": "82bb997d3d5fed5bc7b3690c525ddf3000a28a2c63d70b8bd8ed6dcd133b4552",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/20.webp",
+          "sha256": "2492f0aa6a1075b86822bebb9b0001c205b8a32e5a886e0f16d37ba64bbd7f94",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/21.webp",
+          "sha256": "3f93d2148bcb5ba3649f5bc02b5f6e7dba74fbfefdf9dfa84610692fccc812d5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/22.webp",
+          "sha256": "36be036a3f5e6bda1600901d125351c98b66efe5a1cbc7353b093c51b555535f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/23.webp",
+          "sha256": "af58a0b72ccb4f1ba86139a2479116a5b32e933cdb3e3324edfa6eeac99a610f",
+          "width": 1600,
+          "height": 1000
+        }
+      ]
+    },
+    {
+      "id": "rav4-hybrid-2023-le-1g3",
+      "vehicleSlug": "rav4-hybrid",
+      "modelYear": 2023,
+      "gradeId": "le",
+      "paintCode": "1G3",
+      "direction": "clockwise",
+      "zeroAngle": "front",
+      "degreesPerFrame": 15,
+      "source": {
+        "kind": "render",
+        "provenanceId": "public/models/rav4-hybrid-2023/rav4-hybrid.glb"
+      },
+      "frames": [
+        {
+          "url": "/spins/rav4-hybrid/1g3/00.webp",
+          "sha256": "782f9bd54b288b13d604543254a3fac9c74f543d813f77db0877336c8210d0f8",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/01.webp",
+          "sha256": "bfb7f4d199a8c6321a8369b8e6fd44a7f7bb6c4fcfe8071a8ee36c0a1e36403e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/02.webp",
+          "sha256": "8b83e23ea08483c03b150dc5637873edab0f0b6819ceffba89bd8a222eea7f52",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/03.webp",
+          "sha256": "b284b44d088dca3bb69a3d9ad54977e6cfb50f66e52db2e6aa0e6d8876fc8f79",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/04.webp",
+          "sha256": "d927ce5e586fbcb323512ee1fae37ab836d2e90fdf47b07318482ffda38e73cf",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/05.webp",
+          "sha256": "32c7279cb97b2d2464a337bd6de4377207023637aecd536f24fa4c7d12713634",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/06.webp",
+          "sha256": "3e7e787c36ae7ba8b1eec024eb744e3604f31bb8d169e54a4e117f20e7427b6f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/07.webp",
+          "sha256": "c7d5e48a284f3e4763386d6d076ee272cf9f099a69a7f24a71c5f44e0368f9eb",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/08.webp",
+          "sha256": "404126e3f47e99c5fd76236f329aca855107e580f9289ac7cda8b9954aa7de63",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/09.webp",
+          "sha256": "c0593a64065e108afe6bb46f74647acffb8a1be89c0fbafc25602cd4a4dd9af7",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/10.webp",
+          "sha256": "0084c402386886b19b4ed1a251667c3facf57f8c4b003660b434cf0558a6385e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/11.webp",
+          "sha256": "9789402afaae7bb04065ca470fa1bc54c28fcaaef631e89ace87d8eac5be6d0e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/12.webp",
+          "sha256": "20cea058346a6a123b7c9f4b900ffd458c44f015048e79df1d36b76bd0c6a55c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/13.webp",
+          "sha256": "532aac953445d72d52c8804b83d07402b5b3d7d73409d983bbd170aeb5a40d09",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/14.webp",
+          "sha256": "fefb17ba9fa01222c58dcfb6fc5776579ae148a9c30f339afcfa111e457179c0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/15.webp",
+          "sha256": "adb35278f41cfc8880de87d12b4cda407016a08e5dd4b3a0dc6f9acfbdf186bd",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/16.webp",
+          "sha256": "a52e5183fc094773b39c3aeccf1ca847139a93f47f1cc0863732278f0ecfd8e0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/17.webp",
+          "sha256": "3060e9e4913143c48f43441cf3a29f9440f06086ecc70af1f77c3e8989e03d75",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/18.webp",
+          "sha256": "cb26526e5aaad329590b2494b80675c083c6a452c934c7fcf59174c252e09bd5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/19.webp",
+          "sha256": "cbfb88694454954222cb7cf12dac494ec1ba6f124583edbdbe865a754afd7408",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/20.webp",
+          "sha256": "974197d85dcdafe024cf274b8625b44e913b0d46ba295ada882c6e889d26c69e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/21.webp",
+          "sha256": "0729ebfc20c900a8f368d92c7575fca65e5ecb92fd749c5d2ca2b968f2533b6b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/22.webp",
+          "sha256": "ce4905acdd872d54adf6c560ecace7b57880d104a8c0345beb0325f5dbbc972f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/23.webp",
+          "sha256": "3c5010ddb10f9cb3421ff9be4db962b04d44b25f3206d2ab4534b0a27ad13bba",
+          "width": 1600,
+          "height": 1000
+        }
+      ]
+    },
+    {
+      "id": "rav4-hybrid-2023-xle-040",
+      "vehicleSlug": "rav4-hybrid",
+      "modelYear": 2023,
+      "gradeId": "xle",
+      "paintCode": "040",
+      "direction": "clockwise",
+      "zeroAngle": "front",
+      "degreesPerFrame": 15,
+      "source": {
+        "kind": "render",
+        "provenanceId": "public/models/rav4-hybrid-2023/rav4-hybrid.glb"
+      },
+      "frames": [
+        {
+          "url": "/spins/rav4-hybrid/040/00.webp",
+          "sha256": "76ef248d7933ac920922ec9bf37c89f558fb3fdfa5c62dd45ea1415e2d0759d9",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/01.webp",
+          "sha256": "332072574515a5803e8c65caaaa6be3bb3d0dccf37f1813b3c3977106e7ac59d",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/02.webp",
+          "sha256": "a5fe5c2e95a2e31e9de4e8773d4fbc2d0532474233f17c50148018fa4316c6b8",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/03.webp",
+          "sha256": "9fb18bfdf481baf87f033c8d4f578d454b49044f39af1bd9c8f20905c376e252",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/04.webp",
+          "sha256": "dab6600d329fa5f0ea582a49bb3f5ca7a75328e8797ca1f2c14456ec8ca227b7",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/05.webp",
+          "sha256": "7f08b0b4caa2ba6a6c0553e6c7ad47d7f0109f29ea890e2a57d3c16583d2dd1e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/06.webp",
+          "sha256": "bb2d53e9cff957173239f534ff04cd5fb6367627bfb4b30368791721499956ba",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/07.webp",
+          "sha256": "5cc223b6824e496dbb56df5a274779a80703742a933d429c1ed5048df9f338af",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/08.webp",
+          "sha256": "4cdd9133e016945c7bb2f044810b6807af626b74452bd51d6f68659d9155def5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/09.webp",
+          "sha256": "e833ad76beb499a855c59d74887ca736402db07826f3b102ef64f9e0a4e7864b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/10.webp",
+          "sha256": "0a260daea2ca854aa15f71d3b793698085e5b974f6bec13c3470a8ad1dc3df4c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/11.webp",
+          "sha256": "2f6297f542da6bc7d9e48b56251cc71c69b72a1831fc8734a3abfd406ef70a18",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/12.webp",
+          "sha256": "7d95fffc1aae150eca22f2d0590c295e24ceaee9e048d4cc8f3edc7c13172900",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/13.webp",
+          "sha256": "e27b0d228aebc7680dabe11925a005e0ccd04561c08ca9cf0c219bbcf42f673f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/14.webp",
+          "sha256": "40e1a83ffb70316ad26d6f36690e1f8bd9ad473217f65c58e0079f7c2d4b1afa",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/15.webp",
+          "sha256": "190798a6cb8adcaf5f112751bcac32c32e6c9a3b63217293f53f6a16e85d3c9c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/16.webp",
+          "sha256": "ba1cb18074cca145e0abac88a8cce6427e5bbd580b5f6230a47b2d39c7e1e63b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/17.webp",
+          "sha256": "522c74f03cdbc7c8a4cc0a6b64137c8045f52a8823b9194772ffb8c9f64a8e1a",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/18.webp",
+          "sha256": "547111507036913a6ca9890901fa867fe3e62d623e51512264a07954a9e9f2f0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/19.webp",
+          "sha256": "82bb997d3d5fed5bc7b3690c525ddf3000a28a2c63d70b8bd8ed6dcd133b4552",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/20.webp",
+          "sha256": "2492f0aa6a1075b86822bebb9b0001c205b8a32e5a886e0f16d37ba64bbd7f94",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/21.webp",
+          "sha256": "3f93d2148bcb5ba3649f5bc02b5f6e7dba74fbfefdf9dfa84610692fccc812d5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/22.webp",
+          "sha256": "36be036a3f5e6bda1600901d125351c98b66efe5a1cbc7353b093c51b555535f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/23.webp",
+          "sha256": "af58a0b72ccb4f1ba86139a2479116a5b32e933cdb3e3324edfa6eeac99a610f",
+          "width": 1600,
+          "height": 1000
+        }
+      ]
+    },
+    {
+      "id": "rav4-hybrid-2023-xle-1g3",
+      "vehicleSlug": "rav4-hybrid",
+      "modelYear": 2023,
+      "gradeId": "xle",
+      "paintCode": "1G3",
+      "direction": "clockwise",
+      "zeroAngle": "front",
+      "degreesPerFrame": 15,
+      "source": {
+        "kind": "render",
+        "provenanceId": "public/models/rav4-hybrid-2023/rav4-hybrid.glb"
+      },
+      "frames": [
+        {
+          "url": "/spins/rav4-hybrid/1g3/00.webp",
+          "sha256": "782f9bd54b288b13d604543254a3fac9c74f543d813f77db0877336c8210d0f8",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/01.webp",
+          "sha256": "bfb7f4d199a8c6321a8369b8e6fd44a7f7bb6c4fcfe8071a8ee36c0a1e36403e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/02.webp",
+          "sha256": "8b83e23ea08483c03b150dc5637873edab0f0b6819ceffba89bd8a222eea7f52",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/03.webp",
+          "sha256": "b284b44d088dca3bb69a3d9ad54977e6cfb50f66e52db2e6aa0e6d8876fc8f79",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/04.webp",
+          "sha256": "d927ce5e586fbcb323512ee1fae37ab836d2e90fdf47b07318482ffda38e73cf",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/05.webp",
+          "sha256": "32c7279cb97b2d2464a337bd6de4377207023637aecd536f24fa4c7d12713634",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/06.webp",
+          "sha256": "3e7e787c36ae7ba8b1eec024eb744e3604f31bb8d169e54a4e117f20e7427b6f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/07.webp",
+          "sha256": "c7d5e48a284f3e4763386d6d076ee272cf9f099a69a7f24a71c5f44e0368f9eb",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/08.webp",
+          "sha256": "404126e3f47e99c5fd76236f329aca855107e580f9289ac7cda8b9954aa7de63",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/09.webp",
+          "sha256": "c0593a64065e108afe6bb46f74647acffb8a1be89c0fbafc25602cd4a4dd9af7",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/10.webp",
+          "sha256": "0084c402386886b19b4ed1a251667c3facf57f8c4b003660b434cf0558a6385e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/11.webp",
+          "sha256": "9789402afaae7bb04065ca470fa1bc54c28fcaaef631e89ace87d8eac5be6d0e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/12.webp",
+          "sha256": "20cea058346a6a123b7c9f4b900ffd458c44f015048e79df1d36b76bd0c6a55c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/13.webp",
+          "sha256": "532aac953445d72d52c8804b83d07402b5b3d7d73409d983bbd170aeb5a40d09",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/14.webp",
+          "sha256": "fefb17ba9fa01222c58dcfb6fc5776579ae148a9c30f339afcfa111e457179c0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/15.webp",
+          "sha256": "adb35278f41cfc8880de87d12b4cda407016a08e5dd4b3a0dc6f9acfbdf186bd",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/16.webp",
+          "sha256": "a52e5183fc094773b39c3aeccf1ca847139a93f47f1cc0863732278f0ecfd8e0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/17.webp",
+          "sha256": "3060e9e4913143c48f43441cf3a29f9440f06086ecc70af1f77c3e8989e03d75",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/18.webp",
+          "sha256": "cb26526e5aaad329590b2494b80675c083c6a452c934c7fcf59174c252e09bd5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/19.webp",
+          "sha256": "cbfb88694454954222cb7cf12dac494ec1ba6f124583edbdbe865a754afd7408",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/20.webp",
+          "sha256": "974197d85dcdafe024cf274b8625b44e913b0d46ba295ada882c6e889d26c69e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/21.webp",
+          "sha256": "0729ebfc20c900a8f368d92c7575fca65e5ecb92fd749c5d2ca2b968f2533b6b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/22.webp",
+          "sha256": "ce4905acdd872d54adf6c560ecace7b57880d104a8c0345beb0325f5dbbc972f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/23.webp",
+          "sha256": "3c5010ddb10f9cb3421ff9be4db962b04d44b25f3206d2ab4534b0a27ad13bba",
+          "width": 1600,
+          "height": 1000
+        }
+      ]
+    },
+    {
+      "id": "rav4-hybrid-2023-limited-040",
+      "vehicleSlug": "rav4-hybrid",
+      "modelYear": 2023,
+      "gradeId": "limited",
+      "paintCode": "040",
+      "direction": "clockwise",
+      "zeroAngle": "front",
+      "degreesPerFrame": 15,
+      "source": {
+        "kind": "render",
+        "provenanceId": "public/models/rav4-hybrid-2023/rav4-hybrid.glb"
+      },
+      "frames": [
+        {
+          "url": "/spins/rav4-hybrid/040/00.webp",
+          "sha256": "76ef248d7933ac920922ec9bf37c89f558fb3fdfa5c62dd45ea1415e2d0759d9",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/01.webp",
+          "sha256": "332072574515a5803e8c65caaaa6be3bb3d0dccf37f1813b3c3977106e7ac59d",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/02.webp",
+          "sha256": "a5fe5c2e95a2e31e9de4e8773d4fbc2d0532474233f17c50148018fa4316c6b8",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/03.webp",
+          "sha256": "9fb18bfdf481baf87f033c8d4f578d454b49044f39af1bd9c8f20905c376e252",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/04.webp",
+          "sha256": "dab6600d329fa5f0ea582a49bb3f5ca7a75328e8797ca1f2c14456ec8ca227b7",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/05.webp",
+          "sha256": "7f08b0b4caa2ba6a6c0553e6c7ad47d7f0109f29ea890e2a57d3c16583d2dd1e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/06.webp",
+          "sha256": "bb2d53e9cff957173239f534ff04cd5fb6367627bfb4b30368791721499956ba",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/07.webp",
+          "sha256": "5cc223b6824e496dbb56df5a274779a80703742a933d429c1ed5048df9f338af",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/08.webp",
+          "sha256": "4cdd9133e016945c7bb2f044810b6807af626b74452bd51d6f68659d9155def5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/09.webp",
+          "sha256": "e833ad76beb499a855c59d74887ca736402db07826f3b102ef64f9e0a4e7864b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/10.webp",
+          "sha256": "0a260daea2ca854aa15f71d3b793698085e5b974f6bec13c3470a8ad1dc3df4c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/11.webp",
+          "sha256": "2f6297f542da6bc7d9e48b56251cc71c69b72a1831fc8734a3abfd406ef70a18",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/12.webp",
+          "sha256": "7d95fffc1aae150eca22f2d0590c295e24ceaee9e048d4cc8f3edc7c13172900",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/13.webp",
+          "sha256": "e27b0d228aebc7680dabe11925a005e0ccd04561c08ca9cf0c219bbcf42f673f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/14.webp",
+          "sha256": "40e1a83ffb70316ad26d6f36690e1f8bd9ad473217f65c58e0079f7c2d4b1afa",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/15.webp",
+          "sha256": "190798a6cb8adcaf5f112751bcac32c32e6c9a3b63217293f53f6a16e85d3c9c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/16.webp",
+          "sha256": "ba1cb18074cca145e0abac88a8cce6427e5bbd580b5f6230a47b2d39c7e1e63b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/17.webp",
+          "sha256": "522c74f03cdbc7c8a4cc0a6b64137c8045f52a8823b9194772ffb8c9f64a8e1a",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/18.webp",
+          "sha256": "547111507036913a6ca9890901fa867fe3e62d623e51512264a07954a9e9f2f0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/19.webp",
+          "sha256": "82bb997d3d5fed5bc7b3690c525ddf3000a28a2c63d70b8bd8ed6dcd133b4552",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/20.webp",
+          "sha256": "2492f0aa6a1075b86822bebb9b0001c205b8a32e5a886e0f16d37ba64bbd7f94",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/21.webp",
+          "sha256": "3f93d2148bcb5ba3649f5bc02b5f6e7dba74fbfefdf9dfa84610692fccc812d5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/22.webp",
+          "sha256": "36be036a3f5e6bda1600901d125351c98b66efe5a1cbc7353b093c51b555535f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/040/23.webp",
+          "sha256": "af58a0b72ccb4f1ba86139a2479116a5b32e933cdb3e3324edfa6eeac99a610f",
+          "width": 1600,
+          "height": 1000
+        }
+      ]
+    },
+    {
+      "id": "rav4-hybrid-2023-limited-1g3",
+      "vehicleSlug": "rav4-hybrid",
+      "modelYear": 2023,
+      "gradeId": "limited",
+      "paintCode": "1G3",
+      "direction": "clockwise",
+      "zeroAngle": "front",
+      "degreesPerFrame": 15,
+      "source": {
+        "kind": "render",
+        "provenanceId": "public/models/rav4-hybrid-2023/rav4-hybrid.glb"
+      },
+      "frames": [
+        {
+          "url": "/spins/rav4-hybrid/1g3/00.webp",
+          "sha256": "782f9bd54b288b13d604543254a3fac9c74f543d813f77db0877336c8210d0f8",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/01.webp",
+          "sha256": "bfb7f4d199a8c6321a8369b8e6fd44a7f7bb6c4fcfe8071a8ee36c0a1e36403e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/02.webp",
+          "sha256": "8b83e23ea08483c03b150dc5637873edab0f0b6819ceffba89bd8a222eea7f52",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/03.webp",
+          "sha256": "b284b44d088dca3bb69a3d9ad54977e6cfb50f66e52db2e6aa0e6d8876fc8f79",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/04.webp",
+          "sha256": "d927ce5e586fbcb323512ee1fae37ab836d2e90fdf47b07318482ffda38e73cf",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/05.webp",
+          "sha256": "32c7279cb97b2d2464a337bd6de4377207023637aecd536f24fa4c7d12713634",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/06.webp",
+          "sha256": "3e7e787c36ae7ba8b1eec024eb744e3604f31bb8d169e54a4e117f20e7427b6f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/07.webp",
+          "sha256": "c7d5e48a284f3e4763386d6d076ee272cf9f099a69a7f24a71c5f44e0368f9eb",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/08.webp",
+          "sha256": "404126e3f47e99c5fd76236f329aca855107e580f9289ac7cda8b9954aa7de63",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/09.webp",
+          "sha256": "c0593a64065e108afe6bb46f74647acffb8a1be89c0fbafc25602cd4a4dd9af7",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/10.webp",
+          "sha256": "0084c402386886b19b4ed1a251667c3facf57f8c4b003660b434cf0558a6385e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/11.webp",
+          "sha256": "9789402afaae7bb04065ca470fa1bc54c28fcaaef631e89ace87d8eac5be6d0e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/12.webp",
+          "sha256": "20cea058346a6a123b7c9f4b900ffd458c44f015048e79df1d36b76bd0c6a55c",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/13.webp",
+          "sha256": "532aac953445d72d52c8804b83d07402b5b3d7d73409d983bbd170aeb5a40d09",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/14.webp",
+          "sha256": "fefb17ba9fa01222c58dcfb6fc5776579ae148a9c30f339afcfa111e457179c0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/15.webp",
+          "sha256": "adb35278f41cfc8880de87d12b4cda407016a08e5dd4b3a0dc6f9acfbdf186bd",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/16.webp",
+          "sha256": "a52e5183fc094773b39c3aeccf1ca847139a93f47f1cc0863732278f0ecfd8e0",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/17.webp",
+          "sha256": "3060e9e4913143c48f43441cf3a29f9440f06086ecc70af1f77c3e8989e03d75",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/18.webp",
+          "sha256": "cb26526e5aaad329590b2494b80675c083c6a452c934c7fcf59174c252e09bd5",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/19.webp",
+          "sha256": "cbfb88694454954222cb7cf12dac494ec1ba6f124583edbdbe865a754afd7408",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/20.webp",
+          "sha256": "974197d85dcdafe024cf274b8625b44e913b0d46ba295ada882c6e889d26c69e",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/21.webp",
+          "sha256": "0729ebfc20c900a8f368d92c7575fca65e5ecb92fd749c5d2ca2b968f2533b6b",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/22.webp",
+          "sha256": "ce4905acdd872d54adf6c560ecace7b57880d104a8c0345beb0325f5dbbc972f",
+          "width": 1600,
+          "height": 1000
+        },
+        {
+          "url": "/spins/rav4-hybrid/1g3/23.webp",
+          "sha256": "3c5010ddb10f9cb3421ff9be4db962b04d44b25f3206d2ab4534b0a27ad13bba",
+          "width": 1600,
+          "height": 1000
+        }
+      ]
+    }
+  ]
+}

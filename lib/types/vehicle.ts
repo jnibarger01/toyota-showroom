@@ -1,5 +1,7 @@
 /** Canonical Toyota vehicle schema (v1). All catalog data and API responses conform to this. */
 
+import type { ExteriorSpin } from "./spin";
+
 export const VEHICLE_SCHEMA_VERSION = "1.0.0";
 
 export type BodyStyle =
@@ -114,6 +116,8 @@ export interface MediaManifest {
   thumbnails: MediaAsset[];
   videos: MediaAsset[];
   environmentMaps: MediaAsset[];
+  /** Curated OEM-style exterior image sequences. Omitted until a configuration passes spin QA. */
+  exteriorSpins?: ExteriorSpin[];
 }
 
 export interface CameraPresetConfig {

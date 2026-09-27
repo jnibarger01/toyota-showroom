@@ -1,4 +1,5 @@
 import type { Vehicle } from "../../types/vehicle";
+import { rav4HybridExteriorSpins } from "../spins/rav4-hybrid";
 
 /** 2023 RAV4 Hybrid catalog entry backed by the authored September 2026 GLB import. */
 export const rav4Hybrid: Vehicle = {
@@ -48,6 +49,7 @@ export const rav4Hybrid: Vehicle = {
     thumbnails: [{ url: "/images/vehicles/rav4-hybrid/rav4-hybrid-thumbnail.webp", alt: "2023 Toyota RAV4 Hybrid, front three-quarter 3D render", width: 800, height: 500 }],
     videos: [],
     environmentMaps: [],
+    exteriorSpins: rav4HybridExteriorSpins,
   },
   threeDConfig: {
     hasModel: true,

@@ -64,6 +64,8 @@
   Cache-Control: public, max-age=86400, must-revalidate
 /images/*
   Cache-Control: public, max-age=86400, must-revalidate
+/spins/*
+  Cache-Control: public, max-age=86400, must-revalidate
 /chessathon/*
   Cache-Control: public, max-age=86400, must-revalidate
 

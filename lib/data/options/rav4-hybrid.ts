@@ -25,14 +25,17 @@ const BRAKES = ["polySurface771_T:dummy_material_0_047_0", "polySurface647_T:dum
 const option = (id: string, category: CustomizationOption["category"], label: string, targetNodes: string[], targetMaterials: string[], materialConfig: MaterialConfig, priceDelta = 0, selectionGroup?: string): CustomizationOption => ({
   id, category, label, operation: "material-update", targetNodes, targetMaterials, materialConfig, priceDelta, compatibleVehicleIds: V, ...(selectionGroup ? { selectionGroup } : {}),
 });
-const paint = (id: string, label: string, color: string, priceDelta = 0) => option(id, "paint", label, PAINT_NODES, ["Tdummy_material_0_085", "Color_2"], { color, metalness: 0.4, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.08 }, priceDelta);
+const paint = (paintCode: string, id: string, label: string, color: string, priceDelta = 0): CustomizationOption => ({
+  ...option(id, "paint", label, PAINT_NODES, ["Tdummy_material_0_085", "Color_2"], { color, metalness: 0.4, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.08 }, priceDelta),
+  paintCode,
+});
 
 export const rav4HybridOptions: CustomizationOption[] = [
-  paint("rav4h-paint-ice-cap", "Ice Cap", "#f3f3ef"),
-  paint("rav4h-paint-magnetic-gray", "Magnetic Gray Metallic", "#555a60"),
-  paint("rav4h-paint-midnight-black", "Midnight Black Metallic", "#111317"),
-  paint("rav4h-paint-blueprint", "Blueprint", "#184b85"),
-  paint("rav4h-paint-ruby-flare", "Ruby Flare Pearl", "#8b1820", 425),
+  paint("040", "rav4h-paint-ice-cap", "Ice Cap", "#f3f3ef"),
+  paint("1G3", "rav4h-paint-magnetic-gray", "Magnetic Gray Metallic", "#555a60"),
+  paint("202", "rav4h-paint-midnight-black", "Midnight Black Metallic", "#111317"),
+  paint("218", "rav4h-paint-blueprint", "Blueprint", "#184b85"),
+  paint("3T3", "rav4h-paint-ruby-flare", "Ruby Flare Pearl", "#8b1820", 425),
   option("rav4h-wheel-silver", "wheels", "Machined Silver Wheels", WHEELS, ["Tdummy_material_0_101"], { color: "#9ba0a6", metalness: 0.9, roughness: 0.22 }, 0, "wheels"),
   option("rav4h-wheel-black", "wheels", "Gloss Black Wheels", WHEELS, ["Tdummy_material_0_101"], { color: "#111317", metalness: 0.82, roughness: 0.2 }, 650, "wheels"),
   option("rav4h-wheel-bronze", "wheels", "Bronze Wheels", WHEELS, ["Tdummy_material_0_101"], { color: "#80603c", metalness: 0.82, roughness: 0.28 }, 850, "wheels"),

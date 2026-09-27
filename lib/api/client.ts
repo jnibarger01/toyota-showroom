@@ -50,6 +50,14 @@ function normalizeMedia(media: MediaManifest): MediaManifest {
     thumbnails: media.thumbnails.map(normalizeAsset),
     videos: media.videos.map(normalizeAsset),
     environmentMaps: media.environmentMaps.map(normalizeAsset),
+    ...(media.exteriorSpins
+      ? {
+          exteriorSpins: media.exteriorSpins.map((spin) => ({
+            ...spin,
+            frames: spin.frames.map(normalizeAsset),
+          })),
+        }
+      : {}),
   };
 }
 

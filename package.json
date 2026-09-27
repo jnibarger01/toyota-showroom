@@ -23,6 +23,8 @@
     "typecheck": "tsc --noEmit",
     "assets:optimize": "node scripts/optimize-models.mjs",
     "assets:thumbnails": "tsx scripts/render-thumbnails.ts",
+    "assets:spins": "tsx scripts/render-spins.ts && tsx scripts/spins/build-manifest.ts",
+    "assets:spins:validate": "tsx scripts/spins/build-manifest.ts",
     "assets:report": "tsx scripts/asset-pipeline-report.ts --fail-on-contract-violation",
     "assets:benchmark-compression": "node scripts/benchmark-compression.mjs",
     "bundle:budget": "node scripts/bundle-budget.mjs",

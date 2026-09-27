@@ -133,9 +133,9 @@ test("the GR Supra decodes in the browser and settles without procedural fallbac
  * (`EXT_texture_webp`). The structural contract test cannot see a texture that fails to decode or a
  * primitive the simplifier emptied; only a real GLTFLoader can.
  */
-for (const { slug, paintLabel, asset } of [
-  { slug: "land-cruiser", paintLabel: "Ice Cap", asset: "/land-cruiser-250-2025/land-cruiser-250.glb" },
-  { slug: "rav4-hybrid", paintLabel: "Ice Cap", asset: "/rav4-hybrid-2023/rav4-hybrid.glb" },
+for (const { slug, paintLabel, asset, startsInOemVisual } of [
+  { slug: "land-cruiser", paintLabel: "Ice Cap", asset: "/land-cruiser-250-2025/land-cruiser-250.glb", startsInOemVisual: false },
+  { slug: "rav4-hybrid", paintLabel: "Ice Cap", asset: "/rav4-hybrid-2023/rav4-hybrid.glb", startsInOemVisual: true },
 ]) {
   test(`the simplified ${slug} decodes in the browser and every catalog option resolves`, async ({ page }) => {
     const messages: string[] = [];
@@ -149,6 +149,11 @@ for (const { slug, paintLabel, asset } of [
 
     await page.goto(`${slug}/`);
     await expect(page.getByRole("button", { name: paintLabel }).first()).toBeVisible({ timeout: 60_000 });
+    if (startsInOemVisual) {
+      // OEM visual mode intentionally defers Three.js/GLB work. This test is specifically the
+      // model-integrity gate, so opt into 3D before asserting the simplified asset decodes.
+      await page.getByTestId("explore-in-3d").click();
+    }
     await expect.poll(async () => page.locator("canvas").getAttribute("data-load-phase"), { timeout: 60_000 }).toBe("ready");
     expect(messages.filter((message) => message.includes("High-detail glTF failed to load"))).toEqual([]);
     expect(messages.filter((message) => message.includes("is unavailable for this asset"))).toEqual([]);
