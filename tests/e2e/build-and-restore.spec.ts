@@ -50,10 +50,10 @@ test("an accessory selection survives a reload; lift height, which isn't part of
   await roofRack.click();
   await expect(roofRack).toHaveAttribute("aria-pressed", "true");
 
-  // Lift is plain component state (`BuilderApp.tsx`'s `useState(0)`), not part of
-  // `VehicleConfiguration` — there is no `lift` field in the persisted schema
-  // (`lib/types/customization.ts`) at all, so it's a page-local ride-height preview, not a saved
-  // customization. Asserted explicitly below rather than assumed.
+  // Lift is a 3D Studio preview, not a buyer configuration field.
+  await page.getByTestId("open-3d-studio").click();
+  // It is plain component state (`BuilderApp.tsx`'s `useState(0)`), not part of
+  // `VehicleConfiguration` — there is no `lift` field in the persisted schema.
   await page.getByRole("button", { name: '3"' }).click();
 
   await expect(page.getByRole("button", { name: /saving/i })).toHaveCount(0, { timeout: 10_000 });
@@ -62,6 +62,7 @@ test("an accessory selection survives a reload; lift height, which isn't part of
   await page.getByRole("button", { name: "Build step: Accessories" }).click();
 
   await expect(page.getByRole("button", { name: /overland roof rack/i })).toHaveAttribute("aria-pressed", "true");
+  await page.getByTestId("open-3d-studio").click();
   await expect(page.getByRole("button", { name: '0"' })).toHaveClass(/active/);
 });
 
