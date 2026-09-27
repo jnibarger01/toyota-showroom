@@ -121,6 +121,11 @@ export function formatBuildSummary(
   const lines = catalog
     .filter((option) => selected.has(option.id))
     .map((option) => `- ${option.label}${option.priceDelta ? ` (${formatPriceDelta(option.priceDelta)})` : ""}`);
+  const packages = getVehicleBySlug(configuration.vehicleId)?.grades
+    .find((grade) => grade.id === configuration.gradeId)?.packages
+    .filter((pkg) => (configuration.factoryPackageIds ?? []).includes(pkg.id)) ?? [];
+  const packageLines = packages.map((pkg) => `- ${pkg.name} (${formatCurrency(pkg.price)})`);
+  const upgrades = [...packageLines, ...lines];
   return [
     `${vehicleLabel} build`,
     `Configuration: ${configuration.configurationId}`,
@@ -129,6 +134,6 @@ export function formatBuildSummary(
     `Estimated total: ${formatCurrency(estimateBuildTotal(baseMsrp, catalog, configuration))}`,
     "",
     "Selected options:",
-    ...(lines.length ? lines : ["- No upgrades selected"]),
+    ...(upgrades.length ? upgrades : ["- No upgrades selected"]),
   ].join("\n");
 }

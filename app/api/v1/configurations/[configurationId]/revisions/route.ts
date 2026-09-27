@@ -68,7 +68,13 @@ export const GET = withRouteTelemetry(
     return NextResponse.json(
       {
         schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
-        data: history,
+        data: history.map((revision) => ({
+          ...revision,
+          pricing: {
+            optionsTotal: priceConfiguration(revision.vehicleId, revision.selections, revision.paintStudio),
+            factoryPackagesTotal: priceFactoryPackages(revision.vehicleId, revision.gradeId, revision.factoryPackageIds),
+          },
+        })),
       },
       { status: 200, headers: withSecurityHeaders({ "Cache-Control": "no-store" }) },
     );

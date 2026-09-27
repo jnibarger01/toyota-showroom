@@ -94,6 +94,20 @@ describe("GET /configurations/:id/revisions", () => {
     expect(body.data[0].selections).toEqual({ paint: ["paint-218-blueprint"] });
     expect(body.data[1].selections).toEqual({ paint: ["paint-1j9-ice-cap"] });
   });
+
+  it("includes trusted package pricing on each revision", async () => {
+    const { configuration, ownerToken } = await repository.create(validateCreateConfiguration({
+      vehicleId: "4runner", modelYear: 2024, gradeId: "trd-off-road", factoryPackageIds: ["premium-pkg"],
+    }));
+    await repository.update(configuration.configurationId, { factoryPackageIds: [] }, ownerToken);
+
+    const response = await callList(configuration.configurationId, ownerToken);
+    const body = await response.json() as {
+      data: Array<{ revision: number; factoryPackageIds?: string[]; pricing: { factoryPackagesTotal: number } }>;
+    };
+    expect(body.data.map(({ pricing }) => pricing.factoryPackagesTotal)).toEqual([3_520, 0]);
+    expect(body.data[0].factoryPackageIds).toEqual(["premium-pkg"]);
+  });
 });
 
 describe("POST /configurations/:id/revisions (restore)", () => {

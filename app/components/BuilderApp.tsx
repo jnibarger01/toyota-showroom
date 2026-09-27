@@ -324,8 +324,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
   const mobilePanelRef = useRef<HTMLElement>(null);
   const saveButtonRef = useRef<HTMLButtonElement>(null);
-  const undoStack = useRef<SelectionMap[]>([]);
-  const redoStack = useRef<SelectionMap[]>([]);
+  const undoStack = useRef<Array<{ selections: SelectionMap; factoryPackageIds: string[] }>>([]);
+  const redoStack = useRef<Array<{ selections: SelectionMap; factoryPackageIds: string[] }>>([]);
   /** Paint Studio undo/redo (#73) — distinct from selection-map stacks above. */
   const paintHistoryRef = useRef(new PaintStudioHistory());
   /** Which stack Ctrl/⌘Z should drive after the last committed change. */
@@ -774,7 +774,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const rememberHistory = useCallback(() => {
     if (!configuration) return;
-    undoStack.current.push(structuredClone(configuration.selections));
+    undoStack.current.push({
+      selections: structuredClone(configuration.selections),
+      factoryPackageIds: [...(configuration.factoryPackageIds ?? [])],
+    });
     redoStack.current = [];
     historyOwnerRef.current = "builder";
     setHistoryAvailability({ canUndo: true, canRedo: false });
@@ -843,15 +846,19 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
     const source = direction === "undo" ? undoStack.current : redoStack.current;
     const target = direction === "undo" ? redoStack.current : undoStack.current;
-    const selections = source.pop();
-    if (!selections) {
+    const snapshot = source.pop();
+    if (!snapshot) {
       syncHistoryAvailability();
       return;
     }
-    target.push(structuredClone(configuration.selections));
+    target.push({
+      selections: structuredClone(configuration.selections),
+      factoryPackageIds: [...(configuration.factoryPackageIds ?? [])],
+    });
     historyOwnerRef.current = "builder";
     setHistoryAvailability({ canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 });
-    await configurationStore.replaceSelections(selections);
+    await configurationStore.replaceSelections(snapshot.selections);
+    await configurationStore.setFactoryPackages(snapshot.factoryPackageIds);
   }, [configuration, restorePaintHistory, syncHistoryAvailability]);
 
   const surpriseMe = useCallback(async () => {
@@ -1423,10 +1430,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </p>
         <h2>Selected options</h2>
         <ul className="print-summary-options">
+          {selectedGrade?.packages.filter((pkg) => (configuration?.factoryPackageIds ?? []).includes(pkg.id)).map((pkg) => (
+            <li key={pkg.id}>{pkg.name} ({formatCurrency(pkg.price)})</li>
+          ))}
           {catalog.filter((option) => selectedIds.has(option.id)).map((option) => (
             <li key={option.id}>{option.label}{option.priceDelta ? ` (${formatPriceDelta(option.priceDelta)})` : ""}</li>
           ))}
-          {selectedIds.size === 0 ? <li>No upgrades selected</li> : null}
+          {selectedIds.size === 0 && !(configuration?.factoryPackageIds ?? []).length ? <li>No upgrades selected</li> : null}
         </ul>
         <p className="print-summary-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender.</p>
       </section>
@@ -1900,6 +1910,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                                 const other = selectedGrade.packages.find((item) => item.id === id);
                                 return !other || (other.selectionGroup ?? other.id) !== (pkg.selectionGroup ?? pkg.id);
                               }), pkg.id];
+                          rememberHistory();
                           void configurationStore.setFactoryPackages(next);
                         }}
                       >

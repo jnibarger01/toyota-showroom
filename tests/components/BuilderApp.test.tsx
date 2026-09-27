@@ -307,6 +307,11 @@ describe("BuilderApp", () => {
     fireEvent.click(screen.getByRole("button", { name: "Build step: Packages" }));
     fireEvent.click(screen.getByRole("button", { name: "Add package" }));
     await waitFor(() => expect(configurationStore.getSnapshot().configuration?.factoryPackageIds).toEqual(["premium-pkg"]));
+    expect(within(screen.getByLabelText("Printable build summary")).getByText("Premium Package ($3,520)")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Undo (Ctrl/⌘ Z)"));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.factoryPackageIds).toEqual([]));
+    fireEvent.click(screen.getByTitle("Redo (Ctrl/⌘ Shift Z)"));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.factoryPackageIds).toEqual(["premium-pkg"]));
   });
 
   it("exposes runtime performance systems and their generated options", async () => {
