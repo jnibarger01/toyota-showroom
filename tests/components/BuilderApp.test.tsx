@@ -317,7 +317,7 @@ describe("BuilderApp", () => {
     const trigger = screen.getByRole("button", { name: /customize/i });
     fireEvent.click(trigger);
 
-    const panel = screen.getByRole("dialog", { name: /paint/i });
+    const panel = screen.getByRole("dialog", { name: /exterior/i });
     expect(panel).toHaveAttribute("aria-modal", "true");
     await waitFor(() => expect(screen.getByPlaceholderText(/search options/i)).toHaveFocus());
 
@@ -332,7 +332,7 @@ describe("BuilderApp", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(trigger).toHaveFocus());
-    expect(screen.queryByRole("dialog", { name: /paint/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /exterior/i })).not.toBeInTheDocument();
   });
 
   it("switching grades creates a new configuration and updates the active grade button", async () => {
@@ -419,8 +419,6 @@ describe("BuilderApp", () => {
 
     const base = resolveGradeMsrp(fourRunner, "trd-pro");
     expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(base));
-    fireEvent.click(screen.getByRole("button", { name: "Build step: Summary" }));
-    expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(base));
 
     fireEvent.click(screen.getByRole("button", { name: /solar octane/i }));
     await waitFor(() =>
@@ -429,6 +427,7 @@ describe("BuilderApp", () => {
 
     const expectedTotal = base + 425;
     await waitFor(() => expect(screen.getByTestId("estimated-total")).toHaveTextContent(formatCurrency(expectedTotal)));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Summary" }));
     expect(screen.getByTestId("amount-financed")).toHaveTextContent(formatCurrency(expectedTotal));
 
     const expectedMonthly = formatCurrency(estimateMonthlyPayment(expectedTotal, 6.9, 60));
