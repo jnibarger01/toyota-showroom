@@ -328,7 +328,7 @@ describe("BuilderApp", () => {
     const last = focusable[focusable.length - 1];
     last.focus();
     fireEvent.keyDown(panel, { key: "Tab" });
-    expect(within(panel).getByRole("button", { name: /close configuration panel/i })).toHaveFocus();
+    expect(focusable[0]).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(trigger).toHaveFocus());
