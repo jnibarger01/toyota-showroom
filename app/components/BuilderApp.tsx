@@ -111,6 +111,7 @@ import { PAINT_FINISH_GROUP } from "../../lib/data/paintFinishes";
 import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/showroom/paintStudioHistory";
 import { resolveExteriorSpin } from "../../lib/showroom/exteriorSpin";
 import {
+  ADVANCED_3D_CATEGORIES,
   BUYER_STEP_CATEGORIES,
   BUYER_STEPS,
   buyerStepForCategory,
@@ -1450,6 +1451,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <>
               <div className="section-label">3D Studio</div>
               {BUILDER_RAIL_CATEGORIES.filter(({ category }) =>
+                ADVANCED_3D_CATEGORIES.includes(category) &&
                 catalog.some((option) => option.category === category),
               ).map(({ category, label, Icon }) => (
                 <button
