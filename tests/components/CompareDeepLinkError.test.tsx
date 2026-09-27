@@ -22,7 +22,9 @@ describe("COMPARE_DEEP_LINK_BROKEN_COPY", () => {
   it("never leaks internal validation-jargon into the recovery copy", () => {
     const combined = Object.values(COMPARE_DEEP_LINK_BROKEN_COPY).join(" ");
     // The exact class of raw message this alert replaces (lib/showroom/compareDeepLink.ts).
-    expect(combined).not.toMatch(/base64url|JSON object|schema version|payload/);\n    expect(combined).toMatch(/incomplete|damaged/);\n    expect(combined).toMatch(/no longer available/);
+    expect(combined).not.toMatch(/base64url|JSON object|schema version|payload/);
+    expect(combined).toMatch(/incomplete|damaged/);
+    expect(combined).toMatch(/no longer available/);
   });
 });
 
