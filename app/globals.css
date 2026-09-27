@@ -1069,3 +1069,32 @@ button { font: inherit; color: inherit; }
 /* Stage poster (VehicleCanvas `posterUrl`): the catalog render of this vehicle behind the canvas,
  * visible only until the renderer's first opaque frame covers it. */
 .vehicle-canvas[data-poster] { background-color: #0c1015; background-repeat: no-repeat; background-position: center; background-size: min(70%, 900px) auto; }
+
+/* OEM Visual Mode: deterministic image sequence is the default shopping surface when available. */
+.stage.spin-active .stage-toolbar { display: none; }
+.vehicle-spin {
+  position: absolute; inset: 0 0 84px; display: grid; place-items: center; overflow: hidden;
+  touch-action: none; overscroll-behavior: contain; user-select: none; -webkit-user-select: none;
+  background: radial-gradient(circle at 50% 58%, #242b34 0%, #151a21 52%, #0c1015 100%);
+  cursor: ew-resize;
+}
+.vehicle-spin:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vehicle-spin > img {
+  width: min(92%, 1500px); height: min(82%, 920px); object-fit: contain;
+  pointer-events: none; -webkit-user-drag: none;
+}
+.spin-mode-badge {
+  position: absolute; z-index: 4; left: 18px; top: 16px; padding: 7px 10px; border-radius: 999px;
+  border: 1px solid #2a323d; background: rgba(12,16,21,.84); backdrop-filter: blur(14px);
+  color: #c6ced8; font-size: 11px; letter-spacing: .02em;
+}
+.spin-controls {
+  position: absolute; z-index: 4; left: 50%; bottom: 102px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 11px;
+  border: 1px solid #2a323d; background: rgba(12,16,21,.88); backdrop-filter: blur(14px);
+}
+.spin-controls button {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 10px;
+  border: 0; border-radius: 7px; background: #202832; color: #dbe1e8; font-size: 11px;
+}
+.spin-controls span { min-width: 74px; color: #8f9aa7; text-align: center; font-size: 10px; }

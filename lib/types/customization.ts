@@ -99,6 +99,8 @@ export interface CustomizationOption {
   category: CustomizationCategory;
   label: string;
   thumbnailUrl?: string;
+  /** Canonical OEM paint code for paint options; visual assets resolve through this, never labels. */
+  paintCode?: string;
   /**
    * Exact `Object3D.name` values to resolve with `getObjectByName`. Never an index, never a
    * traversal position. A name that is absent from the loaded GLB is a contract violation and is

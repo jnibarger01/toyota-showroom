@@ -133,9 +133,9 @@ function prepare(root: THREE.Object3D, job: ThumbnailJob): void {
  * projected bounding box fills a fixed fraction of the frame, centred. Fitting on the eight box
  * corners (not a bounding sphere) keeps long sedans and tall SUVs at the same visual weight.
  */
-function frame(camera: THREE.PerspectiveCamera, box: THREE.Box3, job: ThumbnailJob): void {
+function frame(camera: THREE.PerspectiveCamera, box: THREE.Box3, job: ThumbnailJob, yaw = THREE_QUARTER_YAW): void {
   const front = new THREE.Vector3(...job.frontPosition).sub(new THREE.Vector3(...job.frontTarget)).setY(0).normalize();
-  const horizontal = front.applyAxisAngle(new THREE.Vector3(0, 1, 0), THREE_QUARTER_YAW);
+  const horizontal = front.applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
   // Same look-down for every vehicle so the grid reads as one set.
   const direction = horizontal.multiplyScalar(Math.cos(LOOK_DOWN)).setY(Math.sin(LOOK_DOWN));
 
@@ -179,7 +179,7 @@ function frame(camera: THREE.PerspectiveCamera, box: THREE.Box3, job: ThumbnailJ
   }
 }
 
-async function renderVehicleThumbnail(job: ThumbnailJob): Promise<string> {
+async function renderVehicleAtYaws(job: ThumbnailJob, yaws: readonly number[]): Promise<string[]> {
   const canvas = document.createElement("canvas");
   canvas.width = job.width;
   canvas.height = job.height;
@@ -225,14 +225,31 @@ async function renderVehicleThumbnail(job: ThumbnailJob): Promise<string> {
   scene.add(floor);
 
   const camera = new THREE.PerspectiveCamera(30, job.width / job.height, 0.05, 500);
-  frame(camera, box, job);
-
-  renderer.render(scene, camera);
-  const url = canvas.toDataURL("image/png");
+  const urls: string[] = [];
+  for (let index = 0; index < yaws.length; index += 1) {
+    frame(camera, box, job, yaws[index]!);
+    renderer.render(scene, camera);
+    urls.push(canvas.toDataURL("image/png"));
+    // Vehicle + lights do not move during a spin. The shadow map is camera-independent, so after
+    // frame 00 re-rendering its 2048² texture 23 more times is pure software-GPU work in CI.
+    if (index === 0) renderer.shadowMap.autoUpdate = false;
+  }
   renderer.dispose();
   pmrem.dispose();
-  return url;
+  return urls;
 }
 
-(window as unknown as { renderVehicleThumbnail: typeof renderVehicleThumbnail }).renderVehicleThumbnail =
-  renderVehicleThumbnail;
+async function renderVehicleThumbnail(job: ThumbnailJob): Promise<string> {
+  return (await renderVehicleAtYaws(job, [THREE_QUARTER_YAW]))[0]!;
+}
+
+async function renderVehicleSpin(job: ThumbnailJob): Promise<string[]> {
+  const yaws = Array.from({ length: 24 }, (_, index) => THREE.MathUtils.degToRad(index * 15));
+  return renderVehicleAtYaws(job, yaws);
+}
+
+(window as unknown as {
+  renderVehicleThumbnail: typeof renderVehicleThumbnail;
+  renderVehicleSpin: typeof renderVehicleSpin;
+}).renderVehicleThumbnail = renderVehicleThumbnail;
+(window as unknown as { renderVehicleSpin: typeof renderVehicleSpin }).renderVehicleSpin = renderVehicleSpin;

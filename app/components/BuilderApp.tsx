@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import type { CameraPreset, TourAction, TourStatus } from "./VehicleCanvas";
 import { CustomizationButton } from "./CustomizationButton";
+import { VehicleSpin } from "./VehicleSpin";
 import { LAMP_MODES, type LampMode } from "../../lib/three/vehicleLights";
 import { dimensionSpecsFrom } from "../../lib/showroom/dimensionSpecs";
 import { PaintStudioPanel } from "./PaintStudioPanel";
@@ -107,6 +108,7 @@ import {
 import { PAINT_CUSTOM_OPTION_ID, defaultPaintStudioOem } from "../../lib/data/paintStudio";
 import { PAINT_FINISH_GROUP } from "../../lib/data/paintFinishes";
 import { PaintStudioHistory, type PaintStudioHistoryEntry } from "../../lib/showroom/paintStudioHistory";
+import { resolveExteriorSpin } from "../../lib/showroom/exteriorSpin";
 
 /**
  * Three.js (core + the WebGPU renderer + loaders + gsap) is the single heaviest dependency this
@@ -226,8 +228,6 @@ type Props = {
 export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** True once VehicleCanvas has settled and attached a scene controller (not merely hydrated). */
-  const [sceneReady, setSceneReady] = useState(false);
   /** Catalog thumbnail shown as the stage poster until the 3D scene paints over it. */
   // Already base-path-resolved: lib/api/client.ts rewrites every media URL it hands out.
   const posterUrl = bootstrap?.vehicle.media.thumbnails[0]?.url;
@@ -236,6 +236,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [gradeChanging, setGradeChanging] = useState(false);
   const [terrain, setTerrain] = useState<Terrain>("Studio");
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>("Daytime");
+  const [visualMode, setVisualMode] = useState<"oem" | "3d">("oem");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
   /** One-time owner-token reveal after first Save build (#80); null when nothing to show. */
@@ -421,8 +422,6 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   // field this effect writes therefore starts at its `useState` initial value on each new vehicle.
   useEffect(() => {
     let cancelled = false;
-    // sceneReady resets via key={slug} remount; avoid setState at effect top (lint).
-
     void (async () => {
       try {
         const vehicle = await getVehicle(vehicleSlug);
@@ -473,7 +472,6 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       // The vehicle is in the scene; the bar has nothing left to report.
       setModelProgress(null);
       if (!bootstrap) return;
-      setSceneReady(true);
       // Prefer live store config (early hydrate + any pre-settle edits) over the bootstrap snapshot.
       // Returned so the canvas can precompile the restored build's materials before revealing it.
       return (async () => {
@@ -540,12 +538,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
    * survived, so the 3D view can never show a selection the new grade doesn't actually offer.
    */
   const changeGrade = async (gradeId: string) => {
-    if (!bootstrap || !controllerRef.current || !configuration) return;
+    if (!bootstrap || !configuration) return;
     if (gradeId === configuration.gradeId) return;
 
     setGradeChanging(true);
     try {
-      const forGrade = fullApplicableRef.current.filter((option) =>
+      const applicable = fullApplicableRef.current.length > 0 ? fullApplicableRef.current : bootstrap.catalog;
+      const forGrade = applicable.filter((option) =>
         isOptionAvailableForGrade(option, gradeId),
       );
       const forGradeIds = new Set(forGrade.map((option) => option.id));
@@ -565,7 +564,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       });
       rememberConfigurationId(vehicleSlug, fresh.configurationId);
       setBootstrap({ ...bootstrap, configuration: fresh });
-      await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+      if (controllerRef.current) {
+        await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+      } else {
+        configurationStore.hydrate(fresh, forGrade);
+      }
 
       // Announced explicitly rather than left to the selection diff: the grade is not a selection,
       // and its change is exactly what a screen-reader user cannot otherwise infer — a switch that
@@ -635,6 +638,18 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     () => bootstrap?.vehicle.grades.find((grade) => grade.id === configuration?.gradeId),
     [bootstrap, configuration],
   );
+  const resolvedSpin = useMemo(
+    () => (bootstrap && configuration ? resolveExteriorSpin(bootstrap.vehicle, catalog, configuration) : undefined),
+    [bootstrap, catalog, configuration],
+  );
+  const showSpin = visualMode === "oem" && Boolean(resolvedSpin);
+
+  useEffect(() => {
+    if (!showSpin) return;
+    configurationStore.detachScene();
+    controllerRef.current = null;
+    fullApplicableRef.current = [];
+  }, [showSpin]);
 
   const installedCount = useMemo(() => {
     if (!configuration) return 0;
@@ -819,14 +834,15 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const importConfigJsonText = useCallback(
     async (raw: string) => {
-      if (!bootstrap || !controllerRef.current) return;
+      if (!bootstrap) return;
       try {
         const { validateConfigurationJson } = await import("../../lib/showroom/configJson");
         const imported = validateConfigurationJson(raw, {
           expectedVehicleId: bootstrap.vehicle.slug,
           expectedModelYear: bootstrap.vehicle.year,
         });
-        const forGrade = fullApplicableRef.current.filter((option) =>
+        const applicable = fullApplicableRef.current.length > 0 ? fullApplicableRef.current : bootstrap.catalog;
+        const forGrade = applicable.filter((option) =>
           isOptionAvailableForGrade(option, imported.gradeId),
         );
         const fresh = await configurationsApi.createConfiguration({
@@ -839,7 +855,11 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         });
         rememberConfigurationId(vehicleSlug, fresh.configurationId);
         setBootstrap({ ...bootstrap, configuration: fresh });
-        await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+        if (controllerRef.current) {
+          await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+        } else {
+          configurationStore.hydrate(fresh, forGrade);
+        }
         setPreset(presetForConfiguration(bootstrap.vehicle, fresh));
         undoStack.current = [];
         redoStack.current = [];
@@ -917,8 +937,12 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       gradeId: bootstrap.configuration.gradeId,
     });
     rememberConfigurationId(vehicleSlug, fresh.configurationId);
+    setBootstrap({ ...bootstrap, configuration: fresh });
+    const forGrade = bootstrap.catalog.filter((option) => isOptionAvailableForGrade(option, fresh.gradeId));
     if (controllerRef.current) {
-      await configurationStore.attachScene(controllerRef.current, fresh, catalog);
+      await configurationStore.attachScene(controllerRef.current, fresh, forGrade);
+    } else {
+      configurationStore.hydrate(fresh, forGrade);
     }
     setLift(2);
     setEnvironmentPreset("Daytime");
@@ -1356,7 +1380,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               <button
                 key={grade.id}
                 className={grade.id === configuration?.gradeId ? "grade-item active" : "grade-item"}
-                disabled={gradeChanging || !configuration || !sceneReady}
+                disabled={gradeChanging || !configuration}
                 onClick={() => void changeGrade(grade.id)}
               >
                 <span>{grade.name}</span>
@@ -1387,7 +1411,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           </div>
         </aside>
 
-        <section className="stage" ref={stageRef}>
+        <section className={`stage ${showSpin ? "spin-active" : ""}`} ref={stageRef}>
           <div className="stage-toolbar">
             <div className="camera-group">
               <Camera size={16} />
@@ -1426,6 +1450,21 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               </button>
             </div>
             <div className="viewport-actions">
+              {resolvedSpin ? (
+                <button
+                  type="button"
+                  data-testid="oem-visual-mode"
+                  title="Return to OEM exterior view"
+                  aria-label="Return to OEM exterior view"
+                  onClick={() => {
+                    controllerRef.current = null;
+                    fullApplicableRef.current = [];
+                    setVisualMode("oem");
+                  }}
+                >
+                  <Eye size={17} aria-hidden />
+                </button>
+              ) : null}
               <button
                 type="button"
                 data-testid="recenter-view"
@@ -1525,6 +1564,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             <SlidersHorizontal size={16} /> Customize
           </button>
 
+          {showSpin && resolvedSpin ? (
+            <VehicleSpin
+              spin={resolvedSpin}
+              vehicleLabel={`${vehicle.year} Toyota ${vehicle.model}`}
+              posterUrl={posterUrl}
+              onRequest3D={() => {
+                setVisualMode("3d");
+                          }}
+            />
+          ) : (
+          <>
           {/*
             * Boundary outside Suspense, not inside: a failed `lazy()` chunk fetch — the most likely
             * failure here, since a deploy invalidates hashed chunks for anyone with the page open —
@@ -1599,7 +1649,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             />
             </Suspense>
           </CanvasErrorBoundary>
-          {selectedPart && (
+          </>
+          )}
+          {!showSpin && selectedPart && (
             <div className="selected-part-badge">
               <span>{selectedPart.label}</span>
               <button
@@ -1614,7 +1666,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               </button>
             </div>
           )}
-          {modelProgress !== null && modelProgress < 1 && (
+          {!showSpin && modelProgress !== null && modelProgress < 1 && (
             <div
               className="model-progress"
               role="progressbar"
@@ -1628,8 +1680,17 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           )}
 
           <div className="gpu-status">
-            <span><i /> WebGPU preferred</span>
-            <small>{bootstrap?.vehicle.model ?? "Vehicle"} asset · WebGL fallback ready</small>
+            {showSpin ? (
+              <>
+                <span><i /> OEM visual mode</span>
+                <small>24-frame exterior · 3D loads only on request</small>
+              </>
+            ) : (
+              <>
+                <span><i /> WebGPU preferred</span>
+                <small>{bootstrap?.vehicle.model ?? "Vehicle"} asset · WebGL fallback ready</small>
+              </>
+            )}
           </div>
         </section>
 
