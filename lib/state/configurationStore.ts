@@ -301,6 +301,19 @@ export class ConfigurationStore {
     this.queueFlush();
   }
 
+  /** Select factory packages independently from scene options, then persist through the same API. */
+  async setFactoryPackages(factoryPackageIds: string[]): Promise<void> {
+    const current = this.state.configuration;
+    if (!current) return;
+    if (JSON.stringify([...factoryPackageIds].sort()) === JSON.stringify([...(current.factoryPackageIds ?? [])].sort())) return;
+    const next: VehicleConfiguration = { ...current, factoryPackageIds, updatedAt: new Date().toISOString() };
+    this.mutationVersion += 1;
+    this.conflictDraft = null;
+    this.setState({ configuration: next, status: "saving", error: null, saveFailure: null });
+    for (const id of factoryPackageIds) this.batchedOptionIds.add(id);
+    this.queueFlush();
+  }
+
   /**
    * Updates OEM/custom paint-studio state. Custom material params are schema-safe numbers/hex —
    * GLB targets are applied via the scene controller's catalog constants.
@@ -399,6 +412,7 @@ export class ConfigurationStore {
           configuration.configurationId,
           {
             selections: configuration.selections,
+            factoryPackageIds: configuration.factoryPackageIds ?? [],
             cameraState: configuration.cameraState,
             paintStudio: configuration.paintStudio,
             expectedRevision: this.lastPersisted?.revision,
@@ -451,6 +465,7 @@ export class ConfigurationStore {
     if (!persisted) return false;
     return (
       JSON.stringify(configuration.selections) === JSON.stringify(persisted.selections) &&
+      JSON.stringify(configuration.factoryPackageIds ?? []) === JSON.stringify(persisted.factoryPackageIds ?? []) &&
       JSON.stringify(configuration.cameraState ?? null) === JSON.stringify(persisted.cameraState ?? null) &&
       JSON.stringify(configuration.paintStudio ?? null) === JSON.stringify(persisted.paintStudio ?? null)
     );
@@ -546,6 +561,7 @@ export class ConfigurationStore {
     try {
       const saved = await configurationsApi.updateConfiguration(draft.configurationId, {
         selections: draft.selections,
+        factoryPackageIds: draft.factoryPackageIds ?? [],
         cameraState: draft.cameraState,
         paintStudio: draft.paintStudio,
         // Intentionally omit expectedRevision — last-write-wins force overwrite (#52).
@@ -589,6 +605,7 @@ export class ConfigurationStore {
         modelYear: draft.modelYear,
         gradeId: draft.gradeId,
         selections: draft.selections,
+        factoryPackageIds: draft.factoryPackageIds ?? [],
         cameraState: draft.cameraState,
         paintStudio: draft.paintStudio,
       });

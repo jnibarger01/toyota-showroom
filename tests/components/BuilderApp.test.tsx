@@ -146,6 +146,7 @@ vi.mock("../../lib/api/configurations", () => ({
       model: fourRunner.model,
       gradeId: input.gradeId,
       selections: input.selections ?? {},
+      factoryPackageIds: input.factoryPackageIds ?? [],
       cameraState: input.cameraState,
       paintStudio: input.paintStudio,
       revision,
@@ -184,6 +185,7 @@ vi.mock("../../lib/api/configurations", () => ({
       model: fourRunner.model,
       gradeId: "trd-pro",
       selections: input.selections ?? {},
+      factoryPackageIds: input.factoryPackageIds ?? [],
       cameraState: input.cameraState,
       paintStudio: input.paintStudio,
       revision,
@@ -295,6 +297,16 @@ describe("BuilderApp", () => {
     // The right panel only shows one category at a time; each rail label now maps to its typed category.
     fireEvent.click(screen.getByRole("button", { name: "Build step: Accessories" }));
     expect(screen.getByRole("button", { name: /overland roof rack/i })).toBeInTheDocument();
+  });
+
+  it("toggles a grade-compatible factory package through the configuration store", async () => {
+    await renderBuilderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Grade" }));
+    fireEvent.click(within(screen.getByTestId("buyer-grade-panel")).getByRole("button", { name: /TRD Off-Road/i }));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.gradeId).toBe("trd-off-road"));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Packages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add package" }));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.factoryPackageIds).toEqual(["premium-pkg"]));
   });
 
   it("exposes runtime performance systems and their generated options", async () => {
@@ -729,4 +741,3 @@ describe("BuilderApp stale-revision conflict UX (#52)", () => {
     expect(configurationStore.getSnapshot().configuration?.revision).toBe(9);
   });
 });
-

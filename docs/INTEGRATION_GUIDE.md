@@ -222,6 +222,7 @@ export interface VehicleConfiguration {
   model: string;
   gradeId: string;
   selections: Partial<Record<CustomizationCategory, string[]>>;
+  factoryPackageIds?: string[]; // grade-compatible OEM package IDs; separate from 3D option selections
   cameraState?: CameraState;
   revision: number;          // server-owned; drives optimistic concurrency
   schemaVersion: string;
@@ -865,7 +866,7 @@ not everything a browser has ever created, and there is no separate provisioning
 
 ```json
 { "vehicleId": "4runner", "modelYear": 2024, "gradeId": "trd-pro",
-  "selections": { "paint": ["paint-0r2-solar-octane"] } }
+  "selections": { "paint": ["paint-0r2-solar-octane"] }, "factoryPackageIds": [] }
 ```
 
 `201 Created`, `Location: /api/v1/configurations/cfg_…`:
@@ -879,7 +880,7 @@ not everything a browser has ever created, and there is no separate provisioning
             "revision": 1, "schemaVersion": "1.0.0",
             "createdAt": "2026-08-03T18:41:02.113Z", "updatedAt": "2026-08-03T18:41:02.113Z" },
   "ownerToken": "k7QpX...redacted...9fZ",
-  "pricing": { "optionsTotal": 425 }
+  "pricing": { "optionsTotal": 425, "factoryPackagesTotal": 0 }
 }
 ```
 
@@ -887,6 +888,10 @@ not everything a browser has ever created, and there is no separate provisioning
 `priceDelta` values, never from client figures. `ownerToken` is the **only** response that ever
 carries the plaintext — it is not returned by `GET`, and a lost token has no recovery path short of
 creating a new configuration.
+
+Factory packages are selected with stable IDs in `factoryPackageIds`, persisted and revisioned with
+the configuration. The API accepts only IDs offered by that configuration's grade and resolves
+`factoryPackagesTotal` from the trusted grade catalog; package IDs never enter the Three.js option map.
 
 ### `PATCH /api/v1/configurations/:configurationId`
 

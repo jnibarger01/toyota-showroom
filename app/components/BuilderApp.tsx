@@ -571,6 +571,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         modelYear: bootstrap.vehicle.year,
         gradeId,
         selections: carried,
+        factoryPackageIds: (configuration.factoryPackageIds ?? []).filter((id) =>
+          bootstrap.vehicle.grades.find((grade) => grade.id === gradeId)?.packages.some((pkg) => pkg.id === id),
+        ),
         cameraState: configuration.cameraState,
       });
       rememberConfigurationId(vehicleSlug, fresh.configurationId);
@@ -657,7 +660,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       complete.add("exterior");
     }
     if ((selections?.interior ?? []).length > 0) complete.add("interior");
-    // Factory package data is informational in this slice; visiting it does not mutate persisted state.
+    // Packages are optional upgrades: a shopper may complete this step with no package selected.
     if (selectedGrade) complete.add("packages");
     if ((selections?.accessory ?? []).length > 0) complete.add("accessories");
     return complete;
@@ -892,6 +895,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         model: configuration.model,
         gradeId: configuration.gradeId,
         selections: configuration.selections,
+        factoryPackageIds: configuration.factoryPackageIds,
         cameraState: configuration.cameraState,
         paintStudio: configuration.paintStudio,
       });
@@ -925,6 +929,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           modelYear: imported.modelYear,
           gradeId: imported.gradeId,
           selections: imported.selections,
+          factoryPackageIds: imported.factoryPackageIds,
           cameraState: imported.cameraState,
           paintStudio: imported.paintStudio,
         });
@@ -1051,6 +1056,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     const deepLinkInput = {
       gradeId: configuration.gradeId,
       selections: configuration.selections,
+      factoryPackageIds: configuration.factoryPackageIds,
       cameraState: configuration.cameraState,
       paintStudio: configuration.paintStudio,
     };
@@ -1090,6 +1096,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     ? createBuildDeepLinkUrl(window.location.origin, window.location.pathname, {
         gradeId: configuration.gradeId,
         selections: configuration.selections,
+        factoryPackageIds: configuration.factoryPackageIds,
         cameraState: configuration.cameraState,
         paintStudio: configuration.paintStudio,
       })
@@ -1098,8 +1105,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   /** Same deep link Share copies under local/demo — always `?c=`, never Worker share-card HTML. */
   const shareQrUrl = configuration
     ? createShareQrUrl(window.location.origin, window.location.pathname, {
-        gradeId: configuration.gradeId,
-        selections: configuration.selections,
+      gradeId: configuration.gradeId,
+      selections: configuration.selections,
+      factoryPackageIds: configuration.factoryPackageIds,
         cameraState: configuration.cameraState,
         paintStudio: configuration.paintStudio,
       })
@@ -1873,13 +1881,30 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
           {activeBuyerStep === "packages" ? (
             <section className="buyer-step-panel" data-testid="buyer-packages-panel">
-              <p className="buyer-step-copy">Factory packages published for {selectedGrade?.name ?? "this grade"}. Build pricing below still reflects only persisted grade and catalog-option selections.</p>
+              <p className="buyer-step-copy">Choose factory packages available for {selectedGrade?.name ?? "this grade"}. Package pricing is included in your estimate.</p>
               {selectedGrade?.packages.length ? (
                 <div className="factory-package-list">
                   {selectedGrade.packages.map((pkg) => (
-                    <article key={pkg.id} className="factory-package-card">
+                    <article key={pkg.id} className={`factory-package-card ${(configuration?.factoryPackageIds ?? []).includes(pkg.id) ? "selected" : ""}`}>
                       <div><strong>{pkg.name}</strong><b>{formatCurrency(pkg.price)}</b></div>
                       <ul>{pkg.includes.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+                      <button
+                        type="button"
+                        aria-pressed={(configuration?.factoryPackageIds ?? []).includes(pkg.id)}
+                        onClick={() => {
+                          const current = configuration?.factoryPackageIds ?? [];
+                          const selected = current.includes(pkg.id);
+                          const next = selected
+                            ? current.filter((id) => id !== pkg.id)
+                            : [...current.filter((id) => {
+                                const other = selectedGrade.packages.find((item) => item.id === id);
+                                return !other || (other.selectionGroup ?? other.id) !== (pkg.selectionGroup ?? pkg.id);
+                              }), pkg.id];
+                          void configurationStore.setFactoryPackages(next);
+                        }}
+                      >
+                        {(configuration?.factoryPackageIds ?? []).includes(pkg.id) ? "Remove package" : "Add package"}
+                      </button>
                     </article>
                   ))}
                 </div>
@@ -1896,6 +1921,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 <strong>{selectedGrade?.name ?? "Configured build"}</strong>
               </div>
               <ul className="buyer-summary-options">
+                {selectedGrade?.packages.filter((pkg) => (configuration?.factoryPackageIds ?? []).includes(pkg.id)).map((pkg) => (
+                  <li key={pkg.id}><span>{pkg.name}</span><b>{formatCurrency(pkg.price)}</b></li>
+                ))}
                 {catalog.filter((option) => selectedIds.has(option.id)).map((option) => (
                   <li key={option.id}><span>{option.label}</span><b>{option.priceDelta ? formatPriceDelta(option.priceDelta) : "Included"}</b></li>
                 ))}
@@ -2181,6 +2209,7 @@ async function resumeOrCreateConfiguration(
       modelYear: vehicle.year,
       gradeId: deepLink.gradeId,
       selections: deepLink.selections,
+      factoryPackageIds: deepLink.factoryPackageIds,
       cameraState: deepLink.cameraState,
       paintStudio: deepLink.paintStudio,
     });

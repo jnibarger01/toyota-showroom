@@ -6,7 +6,7 @@ import {
   InMemoryConfigurationRepository,
   setConfigurationRepository,
 } from "../lib/server/configurationRepository";
-import { validateCreateConfiguration } from "../lib/validation/configuration";
+import { validateCreateConfiguration, validatePatchConfiguration } from "../lib/validation/configuration";
 
 /**
  * Drives the real revision-history route handlers (issue #32), the same way
@@ -97,6 +97,22 @@ describe("GET /configurations/:id/revisions", () => {
 });
 
 describe("POST /configurations/:id/revisions (restore)", () => {
+  it("restores factory package choices from the selected revision", async () => {
+    const { configuration, ownerToken } = await repository.create(validateCreateConfiguration({
+      vehicleId: "4runner", modelYear: 2024, gradeId: "trd-off-road", factoryPackageIds: ["premium-pkg"],
+    }));
+    await repository.update(configuration.configurationId, validatePatchConfiguration({ factoryPackageIds: [] }, {
+      vehicleId: configuration.vehicleId, gradeId: configuration.gradeId,
+    }), ownerToken);
+    const response = await callRestore(configuration.configurationId, ownerToken, { revision: 1 });
+    const { data, pricing } = await response.json() as {
+      data: { factoryPackageIds: string[] };
+      pricing: { factoryPackagesTotal: number };
+    };
+    expect(data.factoryPackageIds).toEqual(["premium-pkg"]);
+    expect(pricing.factoryPackagesTotal).toBe(3_520);
+  });
+
   it("requires the owner token and does not leak existence", async () => {
     const { configuration } = await createSaved();
 
@@ -142,11 +158,11 @@ describe("POST /configurations/:id/revisions (restore)", () => {
 
     const { data: restored, pricing } = (await response.json()) as {
       data: { revision: number; selections: Record<string, string[]> };
-      pricing: { optionsTotal: number };
+      pricing: { optionsTotal: number; factoryPackagesTotal: number };
     };
     expect(restored.revision).toBe(3);
     expect(restored.selections).toEqual({ paint: ["paint-218-blueprint"] });
-    expect(pricing).toEqual({ optionsTotal: expect.any(Number) });
+    expect(pricing).toEqual({ optionsTotal: expect.any(Number), factoryPackagesTotal: 0 });
 
     // Immutable history: revisions 1 and 2 are untouched, revision 3 is the restore itself.
     const history = await repository.listRevisions(id);

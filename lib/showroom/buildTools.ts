@@ -8,6 +8,7 @@ import {
 import type { Vehicle } from "../types/vehicle";
 import { paintStudioPriceDelta, PAINT_CUSTOM_OPTION_ID } from "../data/paintStudio";
 import { formatCurrency, formatPriceDelta } from "../shared/currency";
+import { getVehicleBySlug } from "../data/vehicles";
 
 /**
  * Grade sticker price for a build total. Falls back to the vehicle's cheapest published MSRP when
@@ -21,7 +22,7 @@ export function resolveGradeMsrp(vehicle: Vehicle | null | undefined, gradeId: s
 }
 
 /**
- * Live build estimate: grade MSRP + sum of selected options' catalog `priceDelta`s.
+ * Live build estimate: grade MSRP + selected option deltas + trusted grade package prices.
  *
  * Derived from selections + trusted catalog on every call (including restore). Not persisted on
  * `VehicleConfiguration` — keeping the schema selection-only keeps D1 / localConfigurationTransport
@@ -35,7 +36,11 @@ export function estimateBuildTotal(baseMsrp: number, catalog: CustomizationOptio
   const hdriExtra = paintStudioPriceDelta(
     configuration.paintStudio ? { ...configuration.paintStudio, mode: "oem" } : undefined,
   );
-  return baseMsrp + optionsTotal + hdriExtra;
+  const grade = getVehicleBySlug(configuration.vehicleId)?.grades.find((item) => item.id === configuration.gradeId);
+  const packageTotal = (grade?.packages ?? [])
+    .filter((pkg) => (configuration.factoryPackageIds ?? []).includes(pkg.id))
+    .reduce((total, pkg) => total + pkg.price, 0);
+  return baseMsrp + optionsTotal + hdriExtra + packageTotal;
 }
 
 /**

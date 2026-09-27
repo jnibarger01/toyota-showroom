@@ -5,7 +5,7 @@ import {
   CUSTOMIZATION_SCHEMA_VERSION,
   type VehicleConfiguration,
 } from "../../../../../../lib/types/customization";
-import { priceConfiguration } from "../../../../../../lib/validation/configuration";
+import { priceConfiguration, priceFactoryPackages } from "../../../../../../lib/validation/configuration";
 import { enforceConfigWriteRateLimit } from "../../../../../../lib/server/rateLimit";
 import { withRouteTelemetry } from "../../../../../../lib/server/apiResponse";
 import { withSecurityHeaders } from "../../../../../../lib/server/securityHeaders";
@@ -24,7 +24,10 @@ function respondRecord(record: VehicleConfiguration, status = 200) {
     {
       schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
       data: record,
-      pricing: { optionsTotal: priceConfiguration(record.vehicleId, record.selections, record.paintStudio) },
+      pricing: {
+        optionsTotal: priceConfiguration(record.vehicleId, record.selections, record.paintStudio),
+        factoryPackagesTotal: priceFactoryPackages(record.vehicleId, record.gradeId, record.factoryPackageIds),
+      },
     },
     { status, headers: withSecurityHeaders({ "Cache-Control": "no-store", ETag: `"${record.configurationId}-r${record.revision}"` }) },
   );
@@ -121,6 +124,7 @@ export const POST = withRouteTelemetry(
         configurationId,
         {
           selections: snapshot.selections,
+          factoryPackageIds: snapshot.factoryPackageIds ?? [],
           cameraState: snapshot.cameraState,
           paintStudio: snapshot.paintStudio,
           expectedRevision: current.revision,

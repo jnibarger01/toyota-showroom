@@ -79,4 +79,13 @@ describe("showroom build tools", () => {
     expect(estimateBuildTotal(resolveGradeMsrp(fourRunner, restored.gradeId), fourRunnerOptions, restored)).toBe(before);
     expect(before).toBe(53_900 + 425 + 1_150);
   });
+
+  it("includes persisted factory package pricing in the estimated total", () => {
+    const config = {
+      configurationId: "package-build", vehicleId: "4runner", modelYear: 2024, model: "4Runner",
+      gradeId: "trd-off-road", selections: {}, factoryPackageIds: ["premium-pkg"], revision: 1,
+      schemaVersion: "1.0.0", createdAt: "", updatedAt: "",
+    };
+    expect(estimateBuildTotal(resolveGradeMsrp(fourRunner, "trd-off-road"), fourRunnerOptions, config)).toBe(43_955 + 3_520);
+  });
 });

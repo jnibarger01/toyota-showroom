@@ -103,6 +103,7 @@ export const GET = withRouteTelemetry(
         builderUrl = createBuildDeepLinkUrl(request.nextUrl.origin, path, {
           gradeId: decoded.gradeId,
           selections: decoded.selections,
+          factoryPackageIds: decoded.factoryPackageIds,
           cameraState: decoded.cameraState,
           paintStudio: decoded.paintStudio,
         });

@@ -620,6 +620,10 @@ components:
         modelYear: { type: integer, description: Must match the vehicle's own catalog year exactly. }
         gradeId: { type: string, description: Must be a grade the vehicle actually offers. }
         selections: { $ref: "#/components/schemas/SelectionMap" }
+        factoryPackageIds:
+          type: array
+          description: Package IDs offered by the selected grade; package prices are resolved from the server catalog.
+          items: { type: string }
         cameraState: { $ref: "#/components/schemas/CameraState" }
         paintStudio: { $ref: "#/components/schemas/PaintStudioState" }
 
@@ -628,6 +632,10 @@ components:
       description: Every field is optional; only the ones present are validated and applied.
       properties:
         selections: { $ref: "#/components/schemas/SelectionMap" }
+        factoryPackageIds:
+          type: array
+          description: Replaces the saved factory package choices; every id must be offered by the stored grade.
+          items: { type: string }
         cameraState: { $ref: "#/components/schemas/CameraState" }
         paintStudio: { $ref: "#/components/schemas/PaintStudioState" }
         expectedRevision:
@@ -644,6 +652,7 @@ components:
         model: { type: string }
         gradeId: { type: string }
         selections: { $ref: "#/components/schemas/SelectionMap" }
+        factoryPackageIds: { type: array, items: { type: string }, description: Persisted OEM package IDs offered by the active grade. }
         cameraState: { $ref: "#/components/schemas/CameraState" }
         paintStudio: { $ref: "#/components/schemas/PaintStudioState" }
         revision:
@@ -664,6 +673,7 @@ components:
           description: Present only on `POST`'s 201 response — the one and only time the plaintext token is ever sent.
         pricing:
           type: object
-          required: [optionsTotal]
+          required: [optionsTotal, factoryPackagesTotal]
           properties:
             optionsTotal: { type: number }
+            factoryPackagesTotal: { type: number, description: Trusted catalog prices for selected factory packages. }
