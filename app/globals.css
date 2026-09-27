@@ -861,6 +861,8 @@ button { font: inherit; color: inherit; }
   .left-rail .section-label,
   .left-rail .grade-row,
   .left-rail .rail-item,
+  .left-rail .buyer-flow,
+  .left-rail .oem-rail-note,
   .left-rail .build-progress,
   .garage-card,
   .quick-tools,
