@@ -204,7 +204,10 @@ export function readCompareDeepLinkParam(search: string): string | null {
   if (!normalized) return null;
   try {
     const value = new URLSearchParams(normalized).get(COMPARE_DEEP_LINK_QUERY_PARAM);
-    return value && value.trim() !== "" ? value : null;
+    // Preserve the distinction between an absent cmp parameter (null) and a
+    // present-but-empty/truncated one (""). The compare page routes the latter
+    // through normal validation so it reaches the recovery alert.
+    return value === null ? null : value.trim();
   } catch {
     return null;
   }

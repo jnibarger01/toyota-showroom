@@ -125,6 +125,8 @@ describe("garage compare deep-link encode/decode", () => {
   it("reads the cmp param from a search string", () => {
     expect(readCompareDeepLinkParam("?cmp=abc")).toBe("abc");
     expect(readCompareDeepLinkParam("cmp=abc&x=1")).toBe("abc");
+    expect(readCompareDeepLinkParam("?cmp=")).toBe("");
+    expect(readCompareDeepLinkParam("?cmp=%20%20")).toBe("");
     expect(readCompareDeepLinkParam("")).toBeNull();
     expect(readCompareDeepLinkParam("?c=single-build")).toBeNull();
     expect(readCompareDeepLinkParam("?builds=cfg_a,cfg_b")).toBeNull();
