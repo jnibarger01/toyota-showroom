@@ -3,28 +3,26 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { COMPARE_DEEP_LINK_BROKEN_COPY, CompareDeepLinkError } from "../../app/components/CompareDeepLinkError";
 
 /**
- * The malformed-`?cmp=` recovery alert is a product-critical UX surface: its whole point is
- * replacing raw validation-jargon ("Compare deep-link payload is not valid base64url.") with
- * plain-language recovery, so the copy is pinned like PersistenceModeBanner's (#77 pattern) —
- * if the strings drift, the recovery promise drifts with them. Behavior tests cover the two
- * actions; the alert container itself is asserted via role/testid because styling hooks
+ * The unrestorable-`?cmp=` recovery alert is a product-critical UX surface. Its copy must cover
+ * both transport corruption and stale catalog references without leaking validation jargon.
+ * Behavior tests cover both actions; the alert container itself is asserted via role/testid because styling hooks
  * (`.compare-deeplink-error`) and the a11y `role="alert"` live there.
  */
 
 describe("COMPARE_DEEP_LINK_BROKEN_COPY", () => {
   it("pins the recovery copy", () => {
-    expect(COMPARE_DEEP_LINK_BROKEN_COPY.title).toBe("This compare link is damaged or incomplete");
+    expect(COMPARE_DEEP_LINK_BROKEN_COPY.title).toBe("This compare link can’t be restored");
     expect(COMPARE_DEEP_LINK_BROKEN_COPY.body).toBe(
-      "The link was probably cut off in transit (messaging apps and some QR contexts truncate long URLs). Ask for the link to be sent again, or start a fresh comparison below.",
+      "The link may be incomplete, damaged, or refer to vehicle or option data that is no longer available. Ask for a new link, or start a fresh vehicle comparison below.",
     );
-    expect(COMPARE_DEEP_LINK_BROKEN_COPY.resetLabel).toBe("Clear link and pick builds");
+    expect(COMPARE_DEEP_LINK_BROKEN_COPY.resetLabel).toBe("Clear link and compare vehicles");
     expect(COMPARE_DEEP_LINK_BROKEN_COPY.dismissLabel).toBe("Dismiss");
   });
 
   it("never leaks internal validation-jargon into the recovery copy", () => {
     const combined = Object.values(COMPARE_DEEP_LINK_BROKEN_COPY).join(" ");
     // The exact class of raw message this alert replaces (lib/showroom/compareDeepLink.ts).
-    expect(combined).not.toMatch(/base64url|JSON object|schema version|payload/);
+    expect(combined).not.toMatch(/base64url|JSON object|schema version|payload/);\n    expect(combined).toMatch(/incomplete|damaged/);\n    expect(combined).toMatch(/no longer available/);
   });
 });
 

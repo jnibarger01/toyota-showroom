@@ -606,7 +606,7 @@ button { font: inherit; color: inherit; }
 .config-error-actions button {
   margin-left: 0; border-color: #8a6a20; color: inherit;
 }
-/* Malformed `?cmp=` deep-link recovery alert (CompareDeepLinkError) — same alert palette as
+/* Unrestorable `?cmp=` deep-link recovery alert (CompareDeepLinkError) — same alert palette as
    `.config-error`, but wraps its actions under the copy at narrow widths and gives its primary
    reset CTA the filled treatment the picker's `.primary` already uses. */
 .compare-deeplink-error {

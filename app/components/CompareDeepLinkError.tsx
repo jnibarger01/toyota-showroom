@@ -1,17 +1,10 @@
 "use client";
 
 /**
- * Recovery alert for a `?cmp=` deep link that arrives malformed (issue-free gap found in the
- * compare page's restore path). Deep links are the only way another browser can restore a build
- * comparison without D1 ids, and the encode side already treats ~2KB as the truncation risk zone
- * (`COMPARE_DEEP_LINK_MAX_URL_LENGTH` — "many messengers / QR contexts truncate near 2KB"). The
- * decode side, though, surfaced the raw internal `ApiError` message ("Compare deep-link payload
- * is not valid base64url.") in a generic alert: validation jargon with no next step, next to a
- * line still claiming the build set was "restored from deep link".
- *
- * Like `PersistenceModeBanner`, this is a tiny presentational surface with exported copy
- * constants so tests pin the strings without mounting the compare page. The page keeps the raw
- * error in the console for debugging and renders this instead:
+ * Recovery alert for a `?cmp=` deep link that cannot be restored. A failure can mean transport
+ * corruption/truncation or a structurally valid but stale link whose model/grade/options no longer
+ * exist in the current catalog. The page keeps the raw error in the console for debugging and
+ * renders recovery copy that is accurate for both cases:
  *   - plain-language title/body explaining the likely truncation and the recovery paths;
  *   - "Clear link and pick builds" — `history.replaceState` strips `?cmp=` (and sibling deep-link
  *     params) without a reload, and the page drops back to the catalog picker;
@@ -19,10 +12,10 @@
  */
 
 export const COMPARE_DEEP_LINK_BROKEN_COPY = {
-  title: "This compare link is damaged or incomplete",
-  body: "The link was probably cut off in transit (messaging apps and some QR contexts truncate long URLs). Ask for the link to be sent again, or start a fresh comparison below.",
+  title: "This compare link can’t be restored",
+  body: "The link may be incomplete, damaged, or refer to vehicle or option data that is no longer available. Ask for a new link, or start a fresh vehicle comparison below.",
   dismissLabel: "Dismiss",
-  resetLabel: "Clear link and pick builds",
+  resetLabel: "Clear link and compare vehicles",
 } as const;
 
 type Props = {

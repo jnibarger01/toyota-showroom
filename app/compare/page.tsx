@@ -167,7 +167,7 @@ export default function ComparePage() {
   const [fromDeepLink, setFromDeepLink] = useState(false);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
   /**
-   * A `?cmp=` value that failed validation ("malformed deep link"). Kept separate from
+   * A `?cmp=` value that failed restore validation (corrupt, truncated, or stale). Kept separate from
    * `loadError` so the alert can be specific (plain-language recovery copy + a reset button)
    * instead of the generic dismiss-only `config-error`, and so `fromDeepLink` stays false —
    * the "(restored from deep link)" tag must never claim a restore that did not happen.
@@ -207,7 +207,7 @@ export default function ComparePage() {
           setBuildTotals(totals);
         })();
       } catch (err) {
-        console.error("[compare] malformed ?cmp= deep link rejected", err);
+        console.error("[compare] unrestorable ?cmp= deep link rejected", err);
         setDeepLinkError(true);
       }
     } else {
@@ -323,7 +323,7 @@ export default function ComparePage() {
   };
 
   /**
-   * Recovery from a malformed `?cmp=` link: strip the deep-link params (and a legacy `builds=`
+   * Recovery from an unrestorable `?cmp=` link: strip the deep-link params (and a legacy `builds=`
    * seed, which the same link could have degraded into) from the address bar without a reload,
    * then drop back to the catalog picker. Reload-free so the browser back button still reaches
    * the original URL, matching how the page seeds state from `window.location.search` in its
