@@ -857,8 +857,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     });
     historyOwnerRef.current = "builder";
     setHistoryAvailability({ canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 });
-    await configurationStore.replaceSelections(snapshot.selections);
-    await configurationStore.setFactoryPackages(snapshot.factoryPackageIds);
+    // One store update so a scene-apply rollback reverts packages with options (no partial undo).
+    await configurationStore.replaceSelections(snapshot.selections, snapshot.factoryPackageIds);
   }, [configuration, restorePaintHistory, syncHistoryAvailability]);
 
   const surpriseMe = useCallback(async () => {
@@ -1313,7 +1313,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button type="button" className="tour-close" aria-label="Close test drive request" onClick={() => setLeadFormOpen(false)}><X size={15} /></button>
           <div className="owner-token-dialog-heading"><Truck size={16} aria-hidden /><strong id="lead-form-title">Request a test drive</strong></div>
           <p>Tell us how to reach you about this {vehicle.model} build.</p>
-          <ValidatedLeadForm buildSnapshot={{ vehicleId: vehicle.slug, gradeId: configuration?.gradeId ?? "default", selections: configuration?.selections ?? {}, shareUrl: leadShareUrl, configurationId: configuration?.configurationId, ownerTokenPresent: true }} />
+          <ValidatedLeadForm buildSnapshot={{ vehicleId: vehicle.slug, gradeId: configuration?.gradeId ?? "default", selections: configuration?.selections ?? {}, factoryPackageIds: configuration?.factoryPackageIds ?? [], shareUrl: leadShareUrl, configurationId: configuration?.configurationId, ownerTokenPresent: true }} />
         </div>
       ) : null}
 
@@ -1938,7 +1938,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 {catalog.filter((option) => selectedIds.has(option.id)).map((option) => (
                   <li key={option.id}><span>{option.label}</span><b>{option.priceDelta ? formatPriceDelta(option.priceDelta) : "Included"}</b></li>
                 ))}
-                {selectedIds.size === 0 ? <li><span>No upgrades selected</span><b>—</b></li> : null}
+                {selectedIds.size === 0 && (configuration?.factoryPackageIds ?? []).length === 0 ? <li><span>No upgrades selected</span><b>—</b></li> : null}
               </ul>
             </section>
           ) : null}

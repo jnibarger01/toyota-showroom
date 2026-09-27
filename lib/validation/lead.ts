@@ -1,7 +1,7 @@
 import { invalidBody } from "../api/errors";
 import { getVehicleBySlug } from "../data/vehicles";
 import type { LeadBuildSnapshot, LeadKind, LeadOwnerTokenMeta, ValidatedLeadInput } from "../types/lead";
-import { validateSelections, validateVehicleIdentity } from "./configuration";
+import { validateFactoryPackages, validateSelections, validateVehicleIdentity } from "./configuration";
 
 const LEAD_KINDS = new Set<LeadKind>(["contact", "model"]);
 const ALLOWED_FIELDS = new Set(["kind", "name", "email", "message", "vehicleId", "idempotencyKey", "build"]);
@@ -9,6 +9,7 @@ const BUILD_ALLOWED_FIELDS = new Set([
   "vehicleId",
   "gradeId",
   "selections",
+  "factoryPackageIds",
   "shareUrl",
   "configurationId",
   "ownerToken",
@@ -119,6 +120,7 @@ function validateBuildSnapshot(raw: unknown, topLevelVehicleId?: string): LeadBu
   // Reuse configuration validators so CRM never receives invented option ids / grades.
   validateVehicleIdentity(vehicleId, catalogVehicle.year, gradeId);
   const selections = validateSelections(vehicleId, gradeId, body.selections);
+  const factoryPackageIds = validateFactoryPackages(vehicleId, gradeId, body.factoryPackageIds);
   const shareUrl = validateShareUrl(body.shareUrl);
 
   let configurationId: string | undefined;
@@ -140,6 +142,7 @@ function validateBuildSnapshot(raw: unknown, topLevelVehicleId?: string): LeadBu
     vehicleId,
     gradeId,
     selections,
+    ...(factoryPackageIds.length > 0 ? { factoryPackageIds } : {}),
     shareUrl,
     ...(configurationId ? { configurationId } : {}),
     ...(ownerToken ? { ownerToken } : {}),

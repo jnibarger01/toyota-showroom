@@ -38,6 +38,8 @@ export interface LeadBuildSnapshot {
   vehicleId: string;
   gradeId: string;
   selections: SelectionMap;
+  /** Grade-validated factory package ids; omitted when none are selected. */
+  factoryPackageIds?: string[];
   shareUrl: string;
   configurationId?: string;
   ownerToken?: LeadOwnerTokenMeta;

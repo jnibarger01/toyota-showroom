@@ -269,13 +269,14 @@ export class ConfigurationStore {
     if (applied) this.queueFlush();
   }
 
-  async replaceSelections(selections: SelectionMap): Promise<void> {
+  async replaceSelections(selections: SelectionMap, factoryPackageIds?: string[]): Promise<void> {
     const current = this.state.configuration;
     if (!current) return;
 
     const next: VehicleConfiguration = {
       ...current,
       selections,
+      ...(factoryPackageIds ? { factoryPackageIds: [...factoryPackageIds] } : {}),
       updatedAt: new Date().toISOString(),
     };
     this.mutationVersion += 1;

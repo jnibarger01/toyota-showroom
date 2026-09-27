@@ -45,6 +45,7 @@ test("Build & Price persists OEM packages and includes them in the saved build e
   await expect(page.getByTestId("estimated-total")).toBeVisible();
   await expect(page.getByTestId("estimated-monthly-payment")).toBeVisible();
   await expect(page.getByTestId("buyer-summary-panel")).toContainText("Premium Package");
+  await expect(page.getByTestId("buyer-summary-panel")).not.toContainText("No upgrades selected");
 });
 
 test("OEM spin keeps 3D Studio out of the primary flow until the shopper requests 3D", async ({ page }) => {
