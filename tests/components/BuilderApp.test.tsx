@@ -429,6 +429,30 @@ describe("BuilderApp", () => {
     expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("front");
     expect(screen.getByRole("button", { name: "Barcelona Red Metallic" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Front" })).toHaveClass("selected");
+    expect(screen.queryByTestId("build-deeplink-error")).not.toBeInTheDocument();
+  });
+
+  it("reports a malformed ?c= link and strips only that parameter", async () => {
+    window.history.replaceState({}, "", "/4runner/?c=not-valid-base64!!&utm=email");
+    await renderBuilderReady();
+    expect(screen.getByTestId("build-deeplink-error")).toHaveTextContent(/can’t be restored/i);
+    expect(window.location.search).toBe("?utm=email");
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByTestId("build-deeplink-error")).not.toBeInTheDocument();
+  });
+
+  it("reports an empty ?c= link instead of silently loading another build", async () => {
+    window.history.replaceState({}, "", "/4runner/?c=&utm=email");
+    await renderBuilderReady();
+    expect(screen.getByTestId("build-deeplink-error")).toBeInTheDocument();
+    expect(window.location.search).toBe("?utm=email");
+  });
+
+  it("reports a structurally valid but stale ?c= link", async () => {
+    const stale = encodeBuildDeepLink({ gradeId: "trd-pro", selections: { paint: ["paint-no-longer-offered"] } });
+    window.history.replaceState({}, "", `/4runner/?c=${encodeURIComponent(stale)}`);
+    await renderBuilderReady();
+    expect(screen.getByTestId("build-deeplink-error")).toBeInTheDocument();
   });
 
   it("updates the running build total and financing payment when an option with priceDelta is selected", async () => {

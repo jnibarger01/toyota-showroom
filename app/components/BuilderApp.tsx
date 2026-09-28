@@ -94,9 +94,10 @@ import {
 } from "../../lib/showroom/buildTools";
 import { formatCurrency, formatPriceDelta } from "../../lib/shared/currency";
 import {
+  BUILD_DEEP_LINK_BROKEN_COPY,
   createBuildDeepLinkUrl,
-  readBuildDeepLinkParam,
-  validateBuildDeepLink,
+  readBuildDeepLinkRestore,
+  stripBuildDeepLinkParam,
 } from "../../lib/showroom/deepLink";
 import { createShareQrUrl } from "../../lib/showroom/shareQr";
 import { createShareCardUrl } from "../../lib/showroom/openGraph";
@@ -250,6 +251,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [activeBuyerStep, setActiveBuyerStep] = useState<BuyerStepId | "studio">("exterior");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
+  const [deepLinkBroken, setDeepLinkBroken] = useState(false);
   /** One-time owner-token reveal after first Save build (#80); null when nothing to show. */
   const [ownerTokenReveal, setOwnerTokenReveal] = useState<{
     configurationId: string;
@@ -448,9 +450,22 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           configurationsApi.listVehicleOptions(vehicleSlug),
           resumeOrCreateConfiguration(vehicle, gradeId),
         ]);
-        const { configuration, source } = resumed;
+        const { configuration, source, deepLinkBroken: brokenLink } = resumed;
 
         if (cancelled) return;
+
+        if (brokenLink) {
+          setDeepLinkBroken(true);
+          try {
+            window.history.replaceState(
+              window.history.state,
+              "",
+              `${window.location.pathname}${stripBuildDeepLinkParam(window.location.search)}${window.location.hash}`,
+            );
+          } catch {
+            // The builder still reports the broken link if History is unavailable.
+          }
+        }
 
         // Progressive load (#27): option catalog + Share must not wait on full GLB settle /
         // verifyNodeContract. Hydrate the store with the grade-filtered catalog as soon as
@@ -1268,6 +1283,18 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <AlertTriangle size={15} />
           <span>{loadError}</span>
           <button onClick={() => setLoadError(null)}>Dismiss</button>
+        </div>
+      ) : null}
+
+      {deepLinkBroken ? (
+        <div className="config-error build-deeplink-error" role="alert" data-testid="build-deeplink-error">
+          <AlertTriangle size={15} aria-hidden />
+          <span>
+            <strong>{BUILD_DEEP_LINK_BROKEN_COPY.title}.</strong> {BUILD_DEEP_LINK_BROKEN_COPY.body}
+          </span>
+          <button type="button" onClick={() => setDeepLinkBroken(false)}>
+            {BUILD_DEEP_LINK_BROKEN_COPY.dismissLabel}
+          </button>
         </div>
       ) : null}
 
@@ -2210,31 +2237,34 @@ function rememberConfigurationId(vehicleSlug: string, configurationId: string): 
 async function resumeOrCreateConfiguration(
   vehicle: Vehicle,
   gradeId: string,
-): Promise<{ configuration: VehicleConfiguration; source: "fresh" | "resume" | "deep_link" }> {
-  // Deep-link `?c=…` wins over hash/localStorage: it carries selections + camera inline so Pages
-  // and local static exports can restore a build without a durable configuration id.
-  const deepLink = tryRestoreFromDeepLink(vehicle);
-  if (deepLink) {
+): Promise<{
+  configuration: VehicleConfiguration;
+  source: "fresh" | "resume" | "deep_link";
+  deepLinkBroken: boolean;
+}> {
+  const restore = readBuildDeepLinkRestore(vehicle.slug, vehicle.year, currentSearch());
+  if (restore.status === "restored") {
+    const { build } = restore;
     const created = await configurationsApi.createConfiguration({
       vehicleId: vehicle.slug,
       modelYear: vehicle.year,
-      gradeId: deepLink.gradeId,
-      selections: deepLink.selections,
-      factoryPackageIds: deepLink.factoryPackageIds,
-      cameraState: deepLink.cameraState,
-      paintStudio: deepLink.paintStudio,
+      gradeId: build.gradeId,
+      selections: build.selections,
+      factoryPackageIds: build.factoryPackageIds,
+      cameraState: build.cameraState,
+      paintStudio: build.paintStudio,
     });
     rememberConfigurationId(vehicle.slug, created.configurationId);
     trackDeepLinkRestored();
-    return { configuration: created, source: "deep_link" };
+    return { configuration: created, source: "deep_link", deepLinkBroken: false };
   }
+  const deepLinkBroken = restore.status === "invalid";
 
   const storedId = safeReadStoredId(vehicle.slug);
-
   if (storedId) {
     try {
       const existing = await configurationsApi.getConfiguration(storedId);
-      if (existing.vehicleId === vehicle.slug) return { configuration: existing, source: "resume" };
+      if (existing.vehicleId === vehicle.slug) return { configuration: existing, source: "resume", deepLinkBroken };
     } catch {
       // Fall through to creating a new configuration.
     }
@@ -2246,21 +2276,11 @@ async function resumeOrCreateConfiguration(
     gradeId,
   });
   rememberConfigurationId(vehicle.slug, created.configurationId);
-  return { configuration: created, source: "fresh" };
+  return { configuration: created, source: "fresh", deepLinkBroken };
 }
 
-/**
- * Decodes and catalog-validates `?c=…`. Returns null on absence or any validation failure so the
- * builder can fall through to the normal resume/create path rather than blocking on a bad link.
- */
-function tryRestoreFromDeepLink(vehicle: Vehicle): ReturnType<typeof validateBuildDeepLink> | null {
-  try {
-    const encoded = readBuildDeepLinkParam(window.location.search);
-    if (!encoded) return null;
-    return validateBuildDeepLink(vehicle.slug, vehicle.year, encoded);
-  } catch {
-    return null;
-  }
+function currentSearch(): string {
+  return typeof window === "undefined" ? "" : window.location.search;
 }
 
 function safeReadStoredId(vehicleSlug: string): string | null {
