@@ -251,12 +251,6 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [activeBuyerStep, setActiveBuyerStep] = useState<BuyerStepId | "studio">("exterior");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
-  /**
-   * True when the visitor arrived on a `?c=` share link that could not be restored (damaged,
-   * truncated, or stale). Kept separate from `loadError`: the builder still works, and the visitor
-   * needs to know the build on screen is *not* the one that was shared rather than seeing the link
-   * fail silently.
-   */
   const [deepLinkBroken, setDeepLinkBroken] = useState(false);
   /** One-time owner-token reveal after first Save build (#80); null when nothing to show. */
   const [ownerTokenReveal, setOwnerTokenReveal] = useState<{
@@ -332,8 +326,8 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const mobileTriggerRef = useRef<HTMLButtonElement>(null);
   const mobilePanelRef = useRef<HTMLElement>(null);
   const saveButtonRef = useRef<HTMLButtonElement>(null);
-  const undoStack = useRef<SelectionMap[]>([]);
-  const redoStack = useRef<SelectionMap[]>([]);
+  const undoStack = useRef<Array<{ selections: SelectionMap; factoryPackageIds: string[] }>>([]);
+  const redoStack = useRef<Array<{ selections: SelectionMap; factoryPackageIds: string[] }>>([]);
   /** Paint Studio undo/redo (#73) — distinct from selection-map stacks above. */
   const paintHistoryRef = useRef(new PaintStudioHistory());
   /** Which stack Ctrl/⌘Z should drive after the last committed change. */
@@ -460,9 +454,6 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
         if (cancelled) return;
 
-        // Report a `?c=` link that could not be restored, then drop the param so a refresh does not
-        // replay the notice. Both happen before the scene mounts: the notice is about the URL the
-        // visitor followed, not about the (healthy) build that is about to load.
         if (brokenLink) {
           setDeepLinkBroken(true);
           try {
@@ -472,7 +463,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               `${window.location.pathname}${stripBuildDeepLinkParam(window.location.search)}${window.location.hash}`,
             );
           } catch {
-            // History unavailable (sandboxed iframe): the notice still shows; only the cleanup is lost.
+            // The builder still reports the broken link if History is unavailable.
           }
         }
 
@@ -595,6 +586,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         modelYear: bootstrap.vehicle.year,
         gradeId,
         selections: carried,
+        factoryPackageIds: (configuration.factoryPackageIds ?? []).filter((id) =>
+          bootstrap.vehicle.grades.find((grade) => grade.id === gradeId)?.packages.some((pkg) => pkg.id === id),
+        ),
         cameraState: configuration.cameraState,
       });
       rememberConfigurationId(vehicleSlug, fresh.configurationId);
@@ -681,7 +675,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
       complete.add("exterior");
     }
     if ((selections?.interior ?? []).length > 0) complete.add("interior");
-    // Factory package data is informational in this slice; visiting it does not mutate persisted state.
+    // Packages are optional upgrades: a shopper may complete this step with no package selected.
     if (selectedGrade) complete.add("packages");
     if ((selections?.accessory ?? []).length > 0) complete.add("accessories");
     return complete;
@@ -795,7 +789,10 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
   const rememberHistory = useCallback(() => {
     if (!configuration) return;
-    undoStack.current.push(structuredClone(configuration.selections));
+    undoStack.current.push({
+      selections: structuredClone(configuration.selections),
+      factoryPackageIds: [...(configuration.factoryPackageIds ?? [])],
+    });
     redoStack.current = [];
     historyOwnerRef.current = "builder";
     setHistoryAvailability({ canUndo: true, canRedo: false });
@@ -864,15 +861,19 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
     const source = direction === "undo" ? undoStack.current : redoStack.current;
     const target = direction === "undo" ? redoStack.current : undoStack.current;
-    const selections = source.pop();
-    if (!selections) {
+    const snapshot = source.pop();
+    if (!snapshot) {
       syncHistoryAvailability();
       return;
     }
-    target.push(structuredClone(configuration.selections));
+    target.push({
+      selections: structuredClone(configuration.selections),
+      factoryPackageIds: [...(configuration.factoryPackageIds ?? [])],
+    });
     historyOwnerRef.current = "builder";
     setHistoryAvailability({ canUndo: undoStack.current.length > 0, canRedo: redoStack.current.length > 0 });
-    await configurationStore.replaceSelections(selections);
+    // One store update so a scene-apply rollback reverts packages with options (no partial undo).
+    await configurationStore.replaceSelections(snapshot.selections, snapshot.factoryPackageIds);
   }, [configuration, restorePaintHistory, syncHistoryAvailability]);
 
   const surpriseMe = useCallback(async () => {
@@ -916,6 +917,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         model: configuration.model,
         gradeId: configuration.gradeId,
         selections: configuration.selections,
+        factoryPackageIds: configuration.factoryPackageIds,
         cameraState: configuration.cameraState,
         paintStudio: configuration.paintStudio,
       });
@@ -949,6 +951,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           modelYear: imported.modelYear,
           gradeId: imported.gradeId,
           selections: imported.selections,
+          factoryPackageIds: imported.factoryPackageIds,
           cameraState: imported.cameraState,
           paintStudio: imported.paintStudio,
         });
@@ -1075,6 +1078,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     const deepLinkInput = {
       gradeId: configuration.gradeId,
       selections: configuration.selections,
+      factoryPackageIds: configuration.factoryPackageIds,
       cameraState: configuration.cameraState,
       paintStudio: configuration.paintStudio,
     };
@@ -1114,6 +1118,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
     ? createBuildDeepLinkUrl(window.location.origin, window.location.pathname, {
         gradeId: configuration.gradeId,
         selections: configuration.selections,
+        factoryPackageIds: configuration.factoryPackageIds,
         cameraState: configuration.cameraState,
         paintStudio: configuration.paintStudio,
       })
@@ -1122,8 +1127,9 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   /** Same deep link Share copies under local/demo — always `?c=`, never Worker share-card HTML. */
   const shareQrUrl = configuration
     ? createShareQrUrl(window.location.origin, window.location.pathname, {
-        gradeId: configuration.gradeId,
-        selections: configuration.selections,
+      gradeId: configuration.gradeId,
+      selections: configuration.selections,
+      factoryPackageIds: configuration.factoryPackageIds,
         cameraState: configuration.cameraState,
         paintStudio: configuration.paintStudio,
       })
@@ -1280,12 +1286,6 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </div>
       ) : null}
 
-      {/*
-        A `?c=` share link that could not be restored. Separate from `loadError` because nothing is
-        broken — the builder loaded a normal build — but the visitor followed a link expecting
-        someone else's build and would otherwise never learn why it did not appear. The broken param
-        is stripped from the URL as soon as this is raised, so refreshing does not replay it.
-      */}
       {deepLinkBroken ? (
         <div className="config-error build-deeplink-error" role="alert" data-testid="build-deeplink-error">
           <AlertTriangle size={15} aria-hidden />
@@ -1340,7 +1340,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button type="button" className="tour-close" aria-label="Close test drive request" onClick={() => setLeadFormOpen(false)}><X size={15} /></button>
           <div className="owner-token-dialog-heading"><Truck size={16} aria-hidden /><strong id="lead-form-title">Request a test drive</strong></div>
           <p>Tell us how to reach you about this {vehicle.model} build.</p>
-          <ValidatedLeadForm buildSnapshot={{ vehicleId: vehicle.slug, gradeId: configuration?.gradeId ?? "default", selections: configuration?.selections ?? {}, shareUrl: leadShareUrl, configurationId: configuration?.configurationId, ownerTokenPresent: true }} />
+          <ValidatedLeadForm buildSnapshot={{ vehicleId: vehicle.slug, gradeId: configuration?.gradeId ?? "default", selections: configuration?.selections ?? {}, factoryPackageIds: configuration?.factoryPackageIds ?? [], shareUrl: leadShareUrl, configurationId: configuration?.configurationId, ownerTokenPresent: true }} />
         </div>
       ) : null}
 
@@ -1457,10 +1457,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         </p>
         <h2>Selected options</h2>
         <ul className="print-summary-options">
+          {selectedGrade?.packages.filter((pkg) => (configuration?.factoryPackageIds ?? []).includes(pkg.id)).map((pkg) => (
+            <li key={pkg.id}>{pkg.name} ({formatCurrency(pkg.price)})</li>
+          ))}
           {catalog.filter((option) => selectedIds.has(option.id)).map((option) => (
             <li key={option.id}>{option.label}{option.priceDelta ? ` (${formatPriceDelta(option.priceDelta)})` : ""}</li>
           ))}
-          {selectedIds.size === 0 ? <li>No upgrades selected</li> : null}
+          {selectedIds.size === 0 && !(configuration?.factoryPackageIds ?? []).length ? <li>No upgrades selected</li> : null}
         </ul>
         <p className="print-summary-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender.</p>
       </section>
@@ -1915,13 +1918,31 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
 
           {activeBuyerStep === "packages" ? (
             <section className="buyer-step-panel" data-testid="buyer-packages-panel">
-              <p className="buyer-step-copy">Factory packages published for {selectedGrade?.name ?? "this grade"}. Build pricing below still reflects only persisted grade and catalog-option selections.</p>
+              <p className="buyer-step-copy">Choose factory packages available for {selectedGrade?.name ?? "this grade"}. Package pricing is included in your estimate.</p>
               {selectedGrade?.packages.length ? (
                 <div className="factory-package-list">
                   {selectedGrade.packages.map((pkg) => (
-                    <article key={pkg.id} className="factory-package-card">
+                    <article key={pkg.id} className={`factory-package-card ${(configuration?.factoryPackageIds ?? []).includes(pkg.id) ? "selected" : ""}`}>
                       <div><strong>{pkg.name}</strong><b>{formatCurrency(pkg.price)}</b></div>
                       <ul>{pkg.includes.map((feature) => <li key={feature}>{feature}</li>)}</ul>
+                      <button
+                        type="button"
+                        aria-pressed={(configuration?.factoryPackageIds ?? []).includes(pkg.id)}
+                        onClick={() => {
+                          const current = configuration?.factoryPackageIds ?? [];
+                          const selected = current.includes(pkg.id);
+                          const next = selected
+                            ? current.filter((id) => id !== pkg.id)
+                            : [...current.filter((id) => {
+                                const other = selectedGrade.packages.find((item) => item.id === id);
+                                return !other || (other.selectionGroup ?? other.id) !== (pkg.selectionGroup ?? pkg.id);
+                              }), pkg.id];
+                          rememberHistory();
+                          void configurationStore.setFactoryPackages(next);
+                        }}
+                      >
+                        {(configuration?.factoryPackageIds ?? []).includes(pkg.id) ? "Remove package" : "Add package"}
+                      </button>
                     </article>
                   ))}
                 </div>
@@ -1938,10 +1959,13 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
                 <strong>{selectedGrade?.name ?? "Configured build"}</strong>
               </div>
               <ul className="buyer-summary-options">
+                {selectedGrade?.packages.filter((pkg) => (configuration?.factoryPackageIds ?? []).includes(pkg.id)).map((pkg) => (
+                  <li key={pkg.id}><span>{pkg.name}</span><b>{formatCurrency(pkg.price)}</b></li>
+                ))}
                 {catalog.filter((option) => selectedIds.has(option.id)).map((option) => (
                   <li key={option.id}><span>{option.label}</span><b>{option.priceDelta ? formatPriceDelta(option.priceDelta) : "Included"}</b></li>
                 ))}
-                {selectedIds.size === 0 ? <li><span>No upgrades selected</span><b>—</b></li> : null}
+                {selectedIds.size === 0 && (configuration?.factoryPackageIds ?? []).length === 0 ? <li><span>No upgrades selected</span><b>—</b></li> : null}
               </ul>
             </section>
           ) : null}
@@ -2216,13 +2240,8 @@ async function resumeOrCreateConfiguration(
 ): Promise<{
   configuration: VehicleConfiguration;
   source: "fresh" | "resume" | "deep_link";
-  /** True when a `?c=` param was present but could not be restored — see `readBuildDeepLinkRestore`. */
   deepLinkBroken: boolean;
 }> {
-  // Deep-link `?c=…` wins over hash/localStorage: it carries selections + camera inline so Pages
-  // and local static exports can restore a build without a durable configuration id. A link that is
-  // present but invalid falls through to the normal path — with `deepLinkBroken` set so the builder
-  // can say so out loud rather than quietly showing a resumed/fresh build under a shared URL.
   const restore = readBuildDeepLinkRestore(vehicle.slug, vehicle.year, currentSearch());
   if (restore.status === "restored") {
     const { build } = restore;
@@ -2231,6 +2250,7 @@ async function resumeOrCreateConfiguration(
       modelYear: vehicle.year,
       gradeId: build.gradeId,
       selections: build.selections,
+      factoryPackageIds: build.factoryPackageIds,
       cameraState: build.cameraState,
       paintStudio: build.paintStudio,
     });
@@ -2241,13 +2261,10 @@ async function resumeOrCreateConfiguration(
   const deepLinkBroken = restore.status === "invalid";
 
   const storedId = safeReadStoredId(vehicle.slug);
-
   if (storedId) {
     try {
       const existing = await configurationsApi.getConfiguration(storedId);
-      if (existing.vehicleId === vehicle.slug) {
-        return { configuration: existing, source: "resume", deepLinkBroken };
-      }
+      if (existing.vehicleId === vehicle.slug) return { configuration: existing, source: "resume", deepLinkBroken };
     } catch {
       // Fall through to creating a new configuration.
     }
@@ -2262,7 +2279,6 @@ async function resumeOrCreateConfiguration(
   return { configuration: created, source: "fresh", deepLinkBroken };
 }
 
-/** `window.location.search`, empty during a prerender pass where `window` does not exist. */
 function currentSearch(): string {
   return typeof window === "undefined" ? "" : window.location.search;
 }
