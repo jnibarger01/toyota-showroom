@@ -6,6 +6,7 @@ import {
   encodeBuildDeepLink,
   readBuildDeepLinkParam,
   readBuildDeepLinkRestore,
+  preserveBrokenBuildDeepLinkUrl,
   stripBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../lib/showroom/deepLink";
@@ -181,6 +182,16 @@ describe("readBuildDeepLinkRestore", () => {
 
     // A 4Runner link opened on the AE86 page: the vehicle-identity check refuses it.
     expect(readBuildDeepLinkRestore("ae86", 1985, `?c=${unknown}`).status).toBe("invalid");
+  });
+});
+
+describe("preserveBrokenBuildDeepLinkUrl", () => {
+  it("keeps the raw invalid c payload for the builder recovery path", () => {
+    const url = new URL(
+      preserveBrokenBuildDeepLinkUrl("https://showroom.example", "/toyota-showroom/4runner/", "not-valid!!"),
+    );
+    expect(url.pathname).toBe("/toyota-showroom/4runner/");
+    expect(url.searchParams.get("c")).toBe("not-valid!!");
   });
 });
 
