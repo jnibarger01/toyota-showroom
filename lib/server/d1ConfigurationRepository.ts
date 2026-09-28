@@ -62,6 +62,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
         gradeId: input.gradeId,
         ownerTokenHash,
         selections,
+        factoryPackageIds: input.factoryPackageIds,
         cameraState,
         paintStudio,
         revision: 1,
@@ -74,6 +75,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
         configurationId,
         revision: 1,
         selections,
+        factoryPackageIds: input.factoryPackageIds,
         cameraState,
         paintStudio,
         createdAt: now,
@@ -88,6 +90,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
         model: input.model,
         gradeId: input.gradeId,
         selections,
+        factoryPackageIds: input.factoryPackageIds,
         cameraState: cameraState ?? undefined,
         paintStudio: paintStudio ?? undefined,
         revision: 1,
@@ -136,13 +139,14 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
     const now = new Date();
     const nextRevision = row.revision + 1;
     const nextSelections = patch.selections ?? row.selections;
+    const nextFactoryPackageIds = patch.factoryPackageIds ?? row.factoryPackageIds ?? [];
     const nextCameraState = patch.cameraState ?? row.cameraState;
     const nextPaintStudio = patch.paintStudio !== undefined ? patch.paintStudio : row.paintStudio;
     if (nextPaintStudio) validatePaintStudio(nextPaintStudio, nextSelections);
 
     const updateStatement = this.db
       .update(configurations)
-      .set({ selections: nextSelections, cameraState: nextCameraState, paintStudio: nextPaintStudio, revision: nextRevision, updatedAt: now })
+      .set({ selections: nextSelections, factoryPackageIds: nextFactoryPackageIds, cameraState: nextCameraState, paintStudio: nextPaintStudio, revision: nextRevision, updatedAt: now })
       // `AND revision = row.revision` costs nothing and closes most of the narrow race window
       // documented on the class: if another write slipped in between the read above and this
       // statement, this condition fails to match and the batch's second statement (below) would
@@ -155,6 +159,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
       configurationId,
       revision: nextRevision,
       selections: nextSelections,
+      factoryPackageIds: nextFactoryPackageIds,
       cameraState: nextCameraState,
       paintStudio: nextPaintStudio,
       createdAt: now,
@@ -173,6 +178,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
     return this.toVehicleConfiguration({
       ...row,
       selections: nextSelections,
+      factoryPackageIds: nextFactoryPackageIds,
       cameraState: nextCameraState,
       paintStudio: nextPaintStudio,
       revision: nextRevision,
@@ -212,6 +218,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
       model: parent.model,
       gradeId: parent.gradeId,
       selections: revisionRow.selections as SelectionMap,
+      factoryPackageIds: revisionRow.factoryPackageIds ?? [],
       cameraState: (revisionRow.cameraState as CameraState | null) ?? undefined,
       paintStudio: (revisionRow.paintStudio as PaintStudioState | null) ?? undefined,
       revision: revisionRow.revision,
@@ -237,6 +244,7 @@ export class D1ConfigurationRepository implements ConfigurationRepository {
       model: row.model,
       gradeId: row.gradeId,
       selections: row.selections as SelectionMap,
+      factoryPackageIds: row.factoryPackageIds ?? [],
       cameraState: (row.cameraState as CameraState | null) ?? undefined,
       paintStudio: (row.paintStudio as PaintStudioState | null) ?? undefined,
       revision: row.revision,
@@ -251,12 +259,14 @@ function patchMatchesStoredState(
   patch: ValidatedPatch,
   stored: {
     selections: VehicleConfiguration["selections"];
+    factoryPackageIds: VehicleConfiguration["factoryPackageIds"];
     cameraState: VehicleConfiguration["cameraState"] | null;
     paintStudio: VehicleConfiguration["paintStudio"] | null;
   },
 ): boolean {
   return (
     (patch.selections === undefined || JSON.stringify(patch.selections) === JSON.stringify(stored.selections)) &&
+    (patch.factoryPackageIds === undefined || JSON.stringify(patch.factoryPackageIds) === JSON.stringify(stored.factoryPackageIds ?? [])) &&
     (patch.cameraState === undefined || JSON.stringify(patch.cameraState) === JSON.stringify(stored.cameraState)) &&
     (patch.paintStudio === undefined || JSON.stringify(patch.paintStudio) === JSON.stringify(stored.paintStudio))
   );

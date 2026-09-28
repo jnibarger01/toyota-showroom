@@ -30,6 +30,7 @@ export interface CrmLeadWebhookPayload {
   /** Present when the client attached a builder snapshot. */
   vehicle?: { id: string; gradeId: string };
   selections?: LeadBuildSnapshot["selections"];
+  factoryPackageIds?: string[];
   shareUrl?: string;
   /** Metadata only — never a plaintext owner token. */
   ownerToken?: { present: boolean; configurationId?: string };
@@ -99,6 +100,7 @@ export function buildCrmLeadWebhookPayload(lead: Lead, build?: LeadBuildSnapshot
   if (build) {
     payload.vehicle = { id: build.vehicleId, gradeId: build.gradeId };
     payload.selections = build.selections;
+    if (build.factoryPackageIds?.length) payload.factoryPackageIds = build.factoryPackageIds;
     payload.shareUrl = build.shareUrl;
     if (build.ownerToken) {
       payload.ownerToken = {

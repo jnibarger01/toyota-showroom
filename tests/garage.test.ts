@@ -131,6 +131,19 @@ describe("multi-vehicle garage", () => {
     expect(byCategory.wheels.byBuild.get("cfg_a")).toBe("Trail wheels");
     expect(byCategory.accessory.byBuild.get("cfg_a")).toBe("Light bar");
     expect(byCategory.accessory.byBuild.get("cfg_b")).toBe("—");
+    expect(byCategory.packages).toBeUndefined();
+  });
+
+  it("buildSharedOptionRows explains package-only price differences", () => {
+    const builds = [
+      config({ configurationId: "cfg_pkg", vehicleId: "4runner", model: "4Runner", gradeId: "trd-off-road", factoryPackageIds: ["premium-pkg"] }),
+      config({ configurationId: "cfg_nopkg", vehicleId: "4runner", model: "4Runner", gradeId: "trd-off-road" }),
+    ];
+    const rows = buildSharedOptionRows(builds, new Map([["4runner", []]]));
+    const packages = rows.find((row) => row.category === "packages");
+    expect(packages?.label).toBe("Factory packages");
+    expect(packages?.byBuild.get("cfg_pkg")).toBe("Premium Package");
+    expect(packages?.byBuild.get("cfg_nopkg")).toBe("—");
   });
 
   it("canMutateConfiguration reflects remembered owner tokens", () => {

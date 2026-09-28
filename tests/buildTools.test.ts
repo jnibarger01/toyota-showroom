@@ -37,6 +37,18 @@ describe("showroom build tools", () => {
     expect(formatBuildSummary("2024 Toyota 4Runner", 50_000, catalog, configuration)).toContain("Estimated total: $50,700");
   });
 
+  it("includes factory packages and their price in downloaded build summaries", () => {
+    const summary = formatBuildSummary("2024 Toyota 4Runner", 43_955, catalog, {
+      ...configuration,
+      gradeId: "trd-off-road",
+      selections: {},
+      factoryPackageIds: ["premium-pkg"],
+    });
+    expect(summary).toContain("Premium Package ($3,520)");
+    expect(summary).not.toContain("No upgrades selected");
+    expect(summary).toContain("Estimated total: $47,475");
+  });
+
   it("estimates a monthly financing payment via standard amortization", () => {
     // $30,000 at 6% APR over 60 months — a commonly-cited reference figure for this exact loan.
     expect(estimateMonthlyPayment(30_000, 6, 60)).toBeCloseTo(579.98, 1);
@@ -78,5 +90,14 @@ describe("showroom build tools", () => {
     const restored = { ...configuration, configurationId: "build-restore-copy" };
     expect(estimateBuildTotal(resolveGradeMsrp(fourRunner, restored.gradeId), fourRunnerOptions, restored)).toBe(before);
     expect(before).toBe(53_900 + 425 + 1_150);
+  });
+
+  it("includes persisted factory package pricing in the estimated total", () => {
+    const config = {
+      configurationId: "package-build", vehicleId: "4runner", modelYear: 2024, model: "4Runner",
+      gradeId: "trd-off-road", selections: {}, factoryPackageIds: ["premium-pkg"], revision: 1,
+      schemaVersion: "1.0.0", createdAt: "", updatedAt: "",
+    };
+    expect(estimateBuildTotal(resolveGradeMsrp(fourRunner, "trd-off-road"), fourRunnerOptions, config)).toBe(43_955 + 3_520);
   });
 });

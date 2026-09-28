@@ -24,6 +24,7 @@ export const configurations = sqliteTable(
      */
     ownerTokenHash: text("owner_token_hash").notNull(),
     selections: text("selections", { mode: "json" }).notNull().$type<Record<string, string[]>>(),
+    factoryPackageIds: text("factory_package_ids", { mode: "json" }).notNull().$type<string[]>().default([]),
     cameraState: text("camera_state", { mode: "json" }).$type<{
       presetId?: string;
       position: [number, number, number];
@@ -51,6 +52,7 @@ export const configurationRevisions = sqliteTable(
     configurationId: text("configuration_id").notNull(),
     revision: integer("revision").notNull(),
     selections: text("selections", { mode: "json" }).notNull().$type<Record<string, string[]>>(),
+    factoryPackageIds: text("factory_package_ids", { mode: "json" }).notNull().$type<string[]>().default([]),
     cameraState: text("camera_state", { mode: "json" }),
     paintStudio: text("paint_studio", { mode: "json" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),

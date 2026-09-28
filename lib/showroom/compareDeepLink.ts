@@ -1,5 +1,6 @@
 import {
   validateSelections,
+  validateFactoryPackages,
   validateVehicleIdentity,
 } from "../validation/configuration";
 import {
@@ -33,6 +34,7 @@ interface CompactCompareBuild {
   y: number;
   g: string;
   s: SelectionMap;
+  f?: string[];
 }
 
 interface CompactComparePayload {
@@ -45,6 +47,7 @@ export interface CompareDeepLinkBuildInput {
   modelYear: number;
   gradeId: string;
   selections: SelectionMap;
+  factoryPackageIds?: string[];
 }
 
 export interface DecodedCompareDeepLinkBuild {
@@ -52,6 +55,7 @@ export interface DecodedCompareDeepLinkBuild {
   modelYear: number;
   gradeId: string;
   selections: SelectionMap;
+  factoryPackageIds?: string[];
 }
 
 export type CreateCompareDeepLinkResult =
@@ -100,6 +104,7 @@ export function encodeCompareDeepLink(builds: CompareDeepLinkBuildInput[]): stri
       y: build.modelYear,
       g: build.gradeId,
       s: build.selections,
+      ...(build.factoryPackageIds?.length ? { f: build.factoryPackageIds } : {}),
     })),
   };
   return toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
@@ -163,11 +168,15 @@ export function decodeCompareDeepLink(encoded: string): DecodedCompareDeepLinkBu
     if (build.s === undefined) {
       throw invalidBody(`Compare deep-link build[${index}].s (selections) is required.`);
     }
+    if (build.f !== undefined && (!Array.isArray(build.f) || build.f.some((id) => typeof id !== "string"))) {
+      throw invalidBody(`Compare deep-link build[${index}].f (factory package ids) must be an array of strings.`);
+    }
     return {
       vehicleId: build.u,
       modelYear: build.y,
       gradeId: build.g,
       selections: build.s as SelectionMap,
+      factoryPackageIds: build.f as string[] | undefined,
     };
   });
 }
@@ -183,6 +192,7 @@ export function validateCompareDeepLink(encoded: string): VehicleConfiguration[]
   return decoded.map((build, index) => {
     const { vehicle } = validateVehicleIdentity(build.vehicleId, build.modelYear, build.gradeId);
     const selections = validateSelections(build.vehicleId, build.gradeId, build.selections);
+    const factoryPackageIds = validateFactoryPackages(build.vehicleId, build.gradeId, build.factoryPackageIds);
     return {
       configurationId: `cmp_${index}_${build.vehicleId}`,
       vehicleId: build.vehicleId,
@@ -190,6 +200,7 @@ export function validateCompareDeepLink(encoded: string): VehicleConfiguration[]
       model: vehicle.model,
       gradeId: build.gradeId,
       selections,
+      factoryPackageIds,
       revision: 0,
       schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
       createdAt: now,
@@ -258,13 +269,13 @@ export function createCompareDeepLinkUrl(
 
 /** Map garage / saved configs into compare deep-link inputs (drops camera/paint — compare is options-only). */
 export function buildsToCompareDeepLinkInput(
-  builds: Array<Pick<VehicleConfiguration, "vehicleId" | "modelYear" | "gradeId" | "selections">>,
+  builds: Array<Pick<VehicleConfiguration, "vehicleId" | "modelYear" | "gradeId" | "selections" | "factoryPackageIds">>,
 ): CompareDeepLinkBuildInput[] {
   return builds.map((build) => ({
     vehicleId: build.vehicleId,
     modelYear: build.modelYear,
     gradeId: build.gradeId,
     selections: build.selections,
+    factoryPackageIds: build.factoryPackageIds,
   }));
 }
-

@@ -1,5 +1,6 @@
 import {
   validateCameraState,
+  validateFactoryPackages,
   validatePaintStudio,
   validateSelections,
   validateVehicleIdentity,
@@ -11,7 +12,7 @@ import { invalidBody } from "../api/errors";
 /**
  * Shareable deep-link builds (`?c=…`).
  *
- * Encodes option ids + camera state into a URL-safe payload so a visitor can restore a build on
+ * Encodes catalog ids + camera state into a URL-safe payload so a visitor can restore a build on
  * GitHub Pages / local without a D1-backed configuration id. Validation reuses the same catalog
  * checks as saved configurations — never GLB node names or material paths.
  */
@@ -43,6 +44,7 @@ interface CompactPayload {
   s: SelectionMap;
   c?: CompactCamera;
   p?: CompactPaintStudio;
+  f?: string[];
 }
 
 export interface BuildDeepLinkInput {
@@ -50,6 +52,7 @@ export interface BuildDeepLinkInput {
   selections: SelectionMap;
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
+  factoryPackageIds?: string[];
 }
 
 export interface DecodedBuildDeepLink {
@@ -57,6 +60,7 @@ export interface DecodedBuildDeepLink {
   selections: SelectionMap;
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
+  factoryPackageIds?: string[];
 }
 
 const CAMERA_DECIMALS = 3;
@@ -153,6 +157,7 @@ export function encodeBuildDeepLink(input: BuildDeepLinkInput): string {
   if (input.paintStudio) {
     payload.p = compactPaintStudio(input.paintStudio);
   }
+  if (input.factoryPackageIds?.length) payload.f = input.factoryPackageIds;
   const json = JSON.stringify(payload);
   return toBase64Url(new TextEncoder().encode(json));
 }
@@ -196,6 +201,9 @@ export function decodeBuildDeepLink(encoded: string): DecodedBuildDeepLink {
   if (candidate.s === undefined) {
     throw invalidBody(`Deep-link "s" (selections) is required.`);
   }
+  if (candidate.f !== undefined && (!Array.isArray(candidate.f) || candidate.f.some((id) => typeof id !== "string"))) {
+    throw invalidBody(`Deep-link "f" (factory package ids) must be an array of strings.`);
+  }
 
   let cameraState: CameraState | undefined;
   if (candidate.c !== undefined && candidate.c !== null) {
@@ -227,6 +235,7 @@ export function decodeBuildDeepLink(encoded: string): DecodedBuildDeepLink {
     selections: candidate.s as SelectionMap,
     cameraState,
     paintStudio,
+    factoryPackageIds: Array.isArray(candidate.f) ? candidate.f as string[] : [],
   };
 }
 
@@ -244,7 +253,8 @@ export function validateBuildDeepLink(
   const selections = validateSelections(vehicleId, decoded.gradeId, decoded.selections);
   const cameraState = validateCameraState(decoded.cameraState);
   const paintStudio = validatePaintStudio(decoded.paintStudio, selections);
-  return { gradeId: decoded.gradeId, selections, cameraState, paintStudio };
+  const factoryPackageIds = validateFactoryPackages(vehicleId, decoded.gradeId, decoded.factoryPackageIds);
+  return { gradeId: decoded.gradeId, selections, cameraState, paintStudio, factoryPackageIds };
 }
 
 /** Reads the `c` query param from a search string (`?c=…` or bare `c=…`). */

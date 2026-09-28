@@ -6,7 +6,7 @@ import {
 } from "../types/customization";
 import { getPersistenceMode, getConfiguration, deleteConfiguration, listVehicleOptions } from "../api/configurations";
 import { localConfigurationTransport } from "../api/localConfigurationTransport";
-import { VEHICLES } from "../data/vehicles";
+import { getVehicleBySlug, VEHICLES } from "../data/vehicles";
 
 /**
  * Multi-vehicle garage (#17).
@@ -256,7 +256,8 @@ export async function removeGarageBuild(configurationId: string): Promise<{ dele
 
 /** Row for side-by-side build comparison — one option category shared across selected builds. */
 export interface BuildCompareRow {
-  category: CustomizationCategory;
+  /** Option category, or `packages` for grade factory packages (not scene options). */
+  category: CustomizationCategory | "packages";
   label: string;
   /** configurationId → human-readable selection labels (joined), or "—" when empty/unknown. */
   byBuild: Map<string, string>;
@@ -291,6 +292,18 @@ export function buildSharedOptionRows(
     if (!anyValue) continue;
     rows.push({ category, label: CATEGORY_LABELS[category], byBuild });
   }
+
+  // Factory packages carry price, so a package-only difference must show up beside the total.
+  const packagesByBuild = new Map<string, string>();
+  let anyPackage = false;
+  for (const build of builds) {
+    const ids = build.factoryPackageIds ?? [];
+    if (ids.length > 0) anyPackage = true;
+    const grade = getVehicleBySlug(build.vehicleId)?.grades.find((item) => item.id === build.gradeId);
+    const labels = ids.map((id) => grade?.packages.find((pkg) => pkg.id === id)?.name ?? id);
+    packagesByBuild.set(build.configurationId, labels.length > 0 ? labels.join(", ") : "—");
+  }
+  if (anyPackage) rows.push({ category: "packages", label: "Factory packages", byBuild: packagesByBuild });
 
   return rows;
 }

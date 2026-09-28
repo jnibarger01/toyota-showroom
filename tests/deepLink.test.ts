@@ -60,6 +60,15 @@ describe("build deep-link encode/decode", () => {
     expect(validateBuildDeepLink("4runner", 2024, encoded!).selections.paint).toEqual(["paint-1j9-ice-cap"]);
   });
 
+  it("round-trips factory package ids and validates grade compatibility", () => {
+    const encoded = encodeBuildDeepLink({
+      gradeId: "trd-off-road", selections: {}, factoryPackageIds: ["premium-pkg"],
+    });
+    expect(validateBuildDeepLink("4runner", 2024, encoded).factoryPackageIds).toEqual(["premium-pkg"]);
+    const incompatible = encodeBuildDeepLink({ gradeId: "sr5", selections: {}, factoryPackageIds: ["premium-pkg"] });
+    expect(() => validateBuildDeepLink("4runner", 2024, incompatible)).toThrow(/not available on grade/);
+  });
+
   it("reads the c param from a search string", () => {
     expect(readBuildDeepLinkParam("?c=abc")).toBe("abc");
     expect(readBuildDeepLinkParam("c=abc&x=1")).toBe("abc");

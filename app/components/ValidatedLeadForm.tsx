@@ -18,6 +18,7 @@ type BuildSnapshotProps = {
   vehicleId: string;
   gradeId: string;
   selections: SelectionMap;
+  factoryPackageIds?: string[];
   shareUrl: string;
   configurationId?: string;
   /** Metadata only — never pass the plaintext owner token into the lead/CRM path. */
@@ -121,6 +122,9 @@ export function ValidatedLeadForm({ onSubmit, buildSnapshot }: Props) {
                   vehicleId: buildSnapshot.vehicleId,
                   gradeId: buildSnapshot.gradeId,
                   selections: buildSnapshot.selections,
+                  ...(buildSnapshot.factoryPackageIds?.length
+                    ? { factoryPackageIds: buildSnapshot.factoryPackageIds }
+                    : {}),
                   shareUrl: buildSnapshot.shareUrl,
                   ...(buildSnapshot.configurationId
                     ? { configurationId: buildSnapshot.configurationId }

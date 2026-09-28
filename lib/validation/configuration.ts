@@ -34,6 +34,7 @@ export interface ValidatedConfigurationInput {
   model: string;
   gradeId: string;
   selections: SelectionMap;
+  factoryPackageIds: string[];
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
 }
@@ -43,6 +44,7 @@ interface RawConfigurationBody {
   modelYear?: unknown;
   gradeId?: unknown;
   selections?: unknown;
+  factoryPackageIds?: unknown;
   cameraState?: unknown;
   paintStudio?: unknown;
 }
@@ -78,6 +80,27 @@ export function validateVehicleIdentity(vehicleId: string, modelYear: number, gr
   }
 
   return { vehicle, grade };
+}
+
+/** Validate OEM package IDs against the trusted package catalog on the chosen grade. */
+export function validateFactoryPackages(vehicleId: string, gradeId: string, raw: unknown): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw) || raw.some((id) => typeof id !== "string")) {
+    throw invalidBody(`"factoryPackageIds" must be an array of package ids.`);
+  }
+  const { grade } = validateVehicleIdentity(vehicleId, getVehicleBySlug(vehicleId)?.year ?? Number.NaN, gradeId);
+  const ids = raw as string[];
+  if (new Set(ids).size !== ids.length) throw invalidBody(`"factoryPackageIds" contains duplicate package ids.`);
+  const packages = new Map(grade.packages.map((pkg) => [pkg.id, pkg]));
+  const groups = new Set<string>();
+  for (const id of ids) {
+    const pkg = packages.get(id);
+    if (!pkg) throw invalidBody(`Factory package "${id}" is not available on grade "${gradeId}".`);
+    const group = pkg.selectionGroup ?? pkg.id;
+    if (groups.has(group)) throw invalidBody(`Only one factory package from selection group "${group}" may be selected.`);
+    groups.add(group);
+  }
+  return ids;
 }
 
 /**
@@ -288,6 +311,7 @@ export function validateCreateConfiguration(body: unknown): ValidatedConfigurati
     model: vehicle.model,
     gradeId,
     selections,
+    factoryPackageIds: validateFactoryPackages(vehicleId, gradeId, raw.factoryPackageIds),
     cameraState: validateCameraState(raw.cameraState),
     paintStudio: validatePaintStudio(raw.paintStudio, selections),
   };
@@ -295,6 +319,7 @@ export function validateCreateConfiguration(body: unknown): ValidatedConfigurati
 
 export interface ValidatedPatch {
   selections?: SelectionMap;
+  factoryPackageIds?: string[];
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
   expectedRevision?: number;
@@ -309,6 +334,10 @@ export function validatePatchConfiguration(
   const raw = body as RawConfigurationBody & { expectedRevision?: unknown };
 
   const patch: ValidatedPatch = {};
+
+  if ("factoryPackageIds" in raw && raw.factoryPackageIds !== undefined) {
+    patch.factoryPackageIds = validateFactoryPackages(existing.vehicleId, existing.gradeId, raw.factoryPackageIds);
+  }
 
   if ("selections" in raw && raw.selections !== undefined) {
     patch.selections = validateSelections(existing.vehicleId, existing.gradeId, raw.selections);
@@ -369,4 +398,11 @@ export function priceConfiguration(
     ? paintStudioPriceDelta({ ...paintStudio, mode: "oem" })
     : 0;
   return optionsTotal + hdriOnly;
+}
+
+export function priceFactoryPackages(vehicleId: string, gradeId: string | undefined, factoryPackageIds: readonly string[] = []): number {
+  const grade = gradeId ? getVehicleBySlug(vehicleId)?.grades.find((candidate) => candidate.id === gradeId) : undefined;
+  return (grade?.packages ?? [])
+    .filter((pkg) => factoryPackageIds.includes(pkg.id))
+    .reduce((total, pkg) => total + pkg.price, 0);
 }
