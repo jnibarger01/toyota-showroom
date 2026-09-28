@@ -40,8 +40,24 @@ describe("VehicleCanvas direct part interaction", () => {
   it("tracks a single pointerId so a second finger touching down mid-gesture cannot hijack the first finger's tap/drag state", () => {
     expect(source).toContain("activePointerId");
     // pointermove and pointerup must both ignore events from any pointer other than the tracked one.
-    expect(source).toMatch(/handlePointerMove = \(event: PointerEvent\) => \{\s*if \(event\.pointerId !== activePointerId\) return;/);
     expect(source).toMatch(/handlePointerUp = \(event: PointerEvent\) => \{\s*if \(event\.pointerId !== activePointerId\) return;/);
+    expect(source).toMatch(/isTrackedPointer\(event\)/);
+  });
+
+  it("keeps hover alive for a plain mouse hover, which has no pointerdown to be tracked by", () => {
+    // Regression guard: `pointermove` used to early-return on `event.pointerId !== activePointerId`.
+    // `activePointerId` is only ever set by `pointerdown`, so with the mouse up (no press in
+    // flight) its value is null, every pointermove from the mouse was discarded, and the hover
+    // raycast/preview (`controller.hoverPart`, `data-hovered-part`) never ran for the ordinary
+    // desktop hover gesture. Verified live in a browser: on the pre-fix build no pointer
+    // interaction ever wrote `data-hovered-part`; see tests/e2e/partInteraction.spec.ts.
+    const move = source.match(/const handlePointerMove = \(event: PointerEvent\) => \{([\s\S]*?)\n {6}\};/);
+    expect(move, "handlePointerMove not found").not.toBeNull();
+    expect(move![1]).not.toMatch(/if \(event\.pointerId !== activePointerId\) return;/);
+    expect(
+      source,
+      "hover must be tracked when no pointer is pressed, not only while one is",
+    ).toMatch(/activePointerId !== null \? event\.pointerId === activePointerId : event\.pointerType !== "touch"/);
   });
 
   it("still clears hover on pointerleave for a plain (non-dragging) hover, not only for the tracked drag pointer", () => {
