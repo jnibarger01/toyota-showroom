@@ -687,8 +687,22 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         isDragging = false;
       };
 
+      /**
+       * Whether this event belongs to the pointer this block should be tracking.
+       *
+       * With a tap/drag in flight, only the tracked pointer's own events count — that is what
+       * keeps a second finger from hijacking the first finger's state. With nothing in flight
+       * there is no pointer to compare against (`activePointerId` is null), which is the *common*
+       * case: a mouse reports `pointermove` with no button pressed, and hover is the only thing
+       * this block does with it. Requiring a prior `pointerdown` there would silently kill hover
+       * preview entirely (the 2026-09-07 multi-touch fix did exactly that for a while). Touch
+       * cannot hover, so an untracked touch move is the second finger of a pinch/pan, not a hover.
+       */
+      const isTrackedPointer = (event: PointerEvent) =>
+        activePointerId !== null ? event.pointerId === activePointerId : event.pointerType !== "touch";
+
       const handlePointerMove = (event: PointerEvent) => {
-        if (event.pointerId !== activePointerId) return; // a second finger's own movement, not ours to track
+        if (!isTrackedPointer(event)) return;
         if (pointerDownAt) {
           const dx = event.clientX - pointerDownAt.x;
           const dy = event.clientY - pointerDownAt.y;
