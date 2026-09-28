@@ -61,6 +61,26 @@ describe("VehicleCanvas direct part interaction", () => {
     expect(source).toMatch(/scheduleHoverPick[\s\S]{0,200}requestAnimationFrame/);
   });
 
+  it("converts a hover pointer to NDC once per animation frame, not once per pointer event", () => {
+    // The pick itself was already frame-throttled; the bounding-rect read and NDC conversion that
+    // feed it are what this pins. Converting inside `handlePointerMove` meant one layout read and
+    // one NDC allocation per delivered event (pointermove can outrun the display), all describing
+    // positions the next event already superseded. Both now happen inside the frame callback, so a
+    // pointermove flood costs memory allocations per frame, not per event.
+    const move = source.match(/const handlePointerMove = \(event: PointerEvent\) => \{([\s\S]*?)\n {6}\};/);
+    expect(move, "handlePointerMove not found").not.toBeNull();
+    expect(move![1], "handlePointerMove must store raw coordinates only").not.toContain("getBoundingClientRect");
+    expect(move![1], "handlePointerMove must not compute NDC").not.toContain("pointerToNdc");
+    expect(move![1]).toContain("lastHoverSample =");
+
+    const pick = source.match(/const scheduleHoverPick = \(\) => \{([\s\S]*?)\n {6}\};/);
+    expect(pick, "scheduleHoverPick not found").not.toBeNull();
+    expect(pick![1]).toContain("getBoundingClientRect");
+    expect(pick![1]).toContain("pointerToNdc");
+    // …and inside the frame callback, not merely somewhere in the function.
+    expect(pick![1]).toMatch(/requestAnimationFrame\(\(\) => \{[\s\S]*getBoundingClientRect/);
+  });
+
   it("routes every click/tap through pickAt, never a raw scene traversal", () => {
     expect(source).toContain("controller.pickAt(");
     expect(source).not.toMatch(/root\.traverse[\s\S]{0,80}pointer/i);
