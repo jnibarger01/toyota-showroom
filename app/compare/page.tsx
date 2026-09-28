@@ -166,21 +166,13 @@ export default function ComparePage() {
   const [pickedBuilds, setPickedBuilds] = useState<string[]>([]);
   const [fromDeepLink, setFromDeepLink] = useState(false);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
-  /**
-   * A `?cmp=` value that failed restore validation (corrupt, truncated, or stale). Kept separate from
-   * `loadError` so the alert can be specific (plain-language recovery copy + a reset button)
-   * instead of the generic dismiss-only `config-error`, and so `fromDeepLink` stays false —
-   * the "(restored from deep link)" tag must never claim a restore that did not happen.
-   */
   const [deepLinkError, setDeepLinkError] = useState(false);
 
   useEffect(() => {
     const search = window.location.search;
     const cmp = readCompareDeepLinkParam(search);
     /* eslint-disable react-hooks/set-state-in-effect -- one-shot URL seed */
-    // `cmp !== null` rather than truthiness: a present-but-empty `?cmp=` is a fully
-    // truncated payload and must route through validation so it reaches the recovery
-    // alert instead of silently falling through to the catalog picker.
+    // Presence, not truthiness: `?cmp=` is a truncated link and must be reported.
     if (cmp !== null) {
       setMode("builds");
       try {
@@ -325,13 +317,6 @@ export default function ComparePage() {
     });
   };
 
-  /**
-   * Recovery from an unrestorable `?cmp=` link: strip the deep-link params (plus a legacy
-   * `builds=` seed and any `?vehicles=` catalog seed, so the cleared address bar matches the
-   * cleared picker state) without a reload, then drop back to the catalog picker. Reload-free
-   * so the browser back button still reaches the original URL, matching how the page seeds
-   * state from `window.location.search` in its one-shot mount effect.
-   */
   const resetFromBrokenDeepLink = () => {
     try {
       const url = new URL(window.location.href);
@@ -340,7 +325,7 @@ export default function ComparePage() {
       url.searchParams.delete("vehicles");
       window.history.replaceState(null, "", url.pathname + url.search + url.hash);
     } catch {
-      /* URL/history unavailable — the state reset below still recovers the page. */
+      // State recovery below still works if URL/history APIs are unavailable.
     }
     setDeepLinkError(false);
     setFromDeepLink(false);
