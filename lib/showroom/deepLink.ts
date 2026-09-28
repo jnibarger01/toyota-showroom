@@ -278,6 +278,18 @@ export function stripBuildDeepLinkParam(search: string): string {
 }
 
 /**
+ * Rebuilds a builder URL while preserving an unrestorable raw `c=` payload.
+ * The share-card Worker uses this when validation fails so the browser builder
+ * can classify the link as broken and show recovery UI instead of silently
+ * landing on an unrelated resumed/fresh build.
+ */
+export function preserveBrokenBuildDeepLinkUrl(origin: string, pathname: string, encoded: string): string {
+  const url = new URL(pathname, origin);
+  url.searchParams.set(DEEP_LINK_QUERY_PARAM, encoded);
+  return url.toString();
+}
+
+/**
  * Outcome of looking at the `c=` param for a builder bootstrap.
  *
  * `absent` and `invalid` are deliberately different: a visitor arriving without a link should see
@@ -293,7 +305,7 @@ export type BuildDeepLinkRestore =
 /** Copy for the builder's broken-link notice, kept here (pure, no React) so it is testable. */
 export const BUILD_DEEP_LINK_BROKEN_COPY = {
   title: "This share link can’t be restored",
-  body: "The link may be incomplete, damaged, or refer to options that are no longer available. A new build was started for you — ask for a fresh link to see the shared build.",
+  body: "The link may be incomplete, damaged, or refer to options that are no longer available. The build shown isn’t the shared build — ask for a fresh link to see it.",
   dismissLabel: "Dismiss",
 } as const;
 
