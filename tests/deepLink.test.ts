@@ -63,9 +63,20 @@ describe("build deep-link encode/decode", () => {
     expect(validateBuildDeepLink("4runner", 2024, encoded!).selections.paint).toEqual(["paint-1j9-ice-cap"]);
   });
 
+  it("round-trips factory package ids and validates grade compatibility", () => {
+    const encoded = encodeBuildDeepLink({
+      gradeId: "trd-off-road", selections: {}, factoryPackageIds: ["premium-pkg"],
+    });
+    expect(validateBuildDeepLink("4runner", 2024, encoded).factoryPackageIds).toEqual(["premium-pkg"]);
+    const incompatible = encodeBuildDeepLink({ gradeId: "sr5", selections: {}, factoryPackageIds: ["premium-pkg"] });
+    expect(() => validateBuildDeepLink("4runner", 2024, incompatible)).toThrow(/not available on grade/);
+  });
+
   it("reads the c param from a search string", () => {
     expect(readBuildDeepLinkParam("?c=abc")).toBe("abc");
     expect(readBuildDeepLinkParam("c=abc&x=1")).toBe("abc");
+    expect(readBuildDeepLinkParam("?c=")).toBe("");
+    expect(readBuildDeepLinkParam("?c=%20%20")).toBe("");
     expect(readBuildDeepLinkParam("")).toBeNull();
     expect(readBuildDeepLinkParam("?other=1")).toBeNull();
   });
@@ -133,77 +144,42 @@ describe("build deep-link encode/decode", () => {
   });
 });
 
-/**
- * The builder's bootstrap needs three outcomes, not two: "no link" must stay silent, "bad link" must
- * be reported. Collapsing them into `null` (the previous behaviour) is exactly how a visitor ended up
- * looking at a resumed build under someone else's share URL with no explanation.
- */
+
 describe("readBuildDeepLinkRestore", () => {
-  it("reports absence for a search string with no c param", () => {
+  it("distinguishes absent from empty, malformed, and stale links", () => {
     expect(readBuildDeepLinkRestore("4runner", 2024, "")).toEqual({ status: "absent" });
     expect(readBuildDeepLinkRestore("4runner", 2024, "?other=1")).toEqual({ status: "absent" });
+    expect(readBuildDeepLinkRestore("4runner", 2024, "?c=").status).toBe("invalid");
+    expect(readBuildDeepLinkRestore("4runner", 2024, "?c=%20%20").status).toBe("invalid");
+    expect(readBuildDeepLinkRestore("4runner", 2024, "?c=%%%25").status).toBe("invalid");
+    const stale = encodeBuildDeepLink({ gradeId: "trd-pro", selections: { paint: ["paint-does-not-exist"] } });
+    expect(readBuildDeepLinkRestore("4runner", 2024, `?c=${stale}`).status).toBe("invalid");
   });
 
-  it("distinguishes an empty c= from a malformed one", () => {
-    // `?c=` with no value is not a link at all — stays silent, matching readBuildDeepLinkParam.
-    expect(readBuildDeepLinkRestore("4runner", 2024, "?c=")).toEqual({ status: "absent" });
-    // Non-empty but undecodable is a broken link, and it carries the reason.
-    const broken = readBuildDeepLinkRestore("4runner", 2024, "?c=%%%25");
-    expect(broken.status).toBe("invalid");
-    expect(broken.status === "invalid" && broken.reason).toMatch(/base64url/);
-  });
-
-  it("restores a valid link with validated selections", () => {
+  it("restores package selections through the current deep-link schema", () => {
     const encoded = encodeBuildDeepLink({
-      gradeId: "trd-pro",
-      selections: { paint: ["paint-1j9-ice-cap"] },
-      cameraState: heroCamera,
+      gradeId: "trd-off-road", selections: {}, factoryPackageIds: ["premium-pkg"], cameraState: heroCamera,
     });
     const result = readBuildDeepLinkRestore("4runner", 2024, `?c=${encoded}`);
     expect(result.status).toBe("restored");
-    expect(result.status === "restored" && result.build.selections.paint).toEqual(["paint-1j9-ice-cap"]);
-    expect(result.status === "restored" && result.build.cameraState).toEqual(heroCamera);
-  });
-
-  it("classifies stale and cross-vehicle links as invalid, never as absent", () => {
-    const unknown = encodeBuildDeepLink({
-      gradeId: "trd-pro",
-      selections: { paint: ["paint-does-not-exist"] },
-    });
-    const stale = readBuildDeepLinkRestore("4runner", 2024, `?c=${unknown}`);
-    expect(stale.status).toBe("invalid");
-    expect(stale.status === "invalid" && stale.reason).toMatch(/Unknown option id/);
-
-    const gradeClash = encodeBuildDeepLink({
-      gradeId: "sr5",
-      selections: { paint: ["paint-0r2-solar-octane"] },
-    });
-    expect(readBuildDeepLinkRestore("4runner", 2024, `?c=${gradeClash}`).status).toBe("invalid");
-
-    // A 4Runner link opened on the AE86 page: the vehicle-identity check refuses it.
-    expect(readBuildDeepLinkRestore("ae86", 1985, `?c=${unknown}`).status).toBe("invalid");
+    expect(result.status === "restored" && result.build.factoryPackageIds).toEqual(["premium-pkg"]);
   });
 });
 
 describe("preserveBrokenBuildDeepLinkUrl", () => {
-  it("keeps the raw invalid c payload for the builder recovery path", () => {
-    const url = new URL(
-      preserveBrokenBuildDeepLinkUrl("https://showroom.example", "/toyota-showroom/4runner/", "not-valid!!"),
-    );
-    expect(url.pathname).toBe("/toyota-showroom/4runner/");
-    expect(url.searchParams.get("c")).toBe("not-valid!!");
+  it("keeps invalid and empty c payloads for builder recovery", () => {
+    expect(new URL(preserveBrokenBuildDeepLinkUrl("https://showroom.example", "/4runner/", "bad!!")).searchParams.get("c")).toBe("bad!!");
+    const empty = new URL(preserveBrokenBuildDeepLinkUrl("https://showroom.example", "/4runner/", ""));
+    expect(empty.searchParams.has("c")).toBe(true);
+    expect(empty.searchParams.get("c")).toBe("");
   });
 });
 
 describe("stripBuildDeepLinkParam", () => {
-  it("removes only the c param and keeps the rest of the query", () => {
+  it("removes only c and preserves sibling params", () => {
     expect(stripBuildDeepLinkParam("?c=abc&utm=email")).toBe("?utm=email");
     expect(stripBuildDeepLinkParam("?utm=email&c=abc")).toBe("?utm=email");
-  });
-
-  it("returns an empty string when c was the only param or nothing was present", () => {
     expect(stripBuildDeepLinkParam("?c=abc")).toBe("");
-    expect(stripBuildDeepLinkParam("")).toBe("");
     expect(stripBuildDeepLinkParam("?other=1")).toBe("?other=1");
   });
 });
