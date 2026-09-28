@@ -170,6 +170,8 @@ export interface VehicleConfiguration {
   model: string;
   gradeId: string;
   selections: SelectionMap;
+  /** Stable ids from the active grade's OEM package catalog; these do not drive 3D scene operations. */
+  factoryPackageIds?: string[];
   cameraState?: CameraState;
   /** OEM vs custom paint studio; material params never include GLB names. */
   paintStudio?: PaintStudioState;

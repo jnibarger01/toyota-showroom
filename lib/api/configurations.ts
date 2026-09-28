@@ -156,12 +156,14 @@ export interface CreateConfigurationInput {
   modelYear: number;
   gradeId: string;
   selections?: SelectionMap;
+  factoryPackageIds?: string[];
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
 }
 
 export interface UpdateConfigurationInput {
   selections?: SelectionMap;
+  factoryPackageIds?: string[];
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
   /**

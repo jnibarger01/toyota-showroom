@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "../lib/api/errors";
 import {
   priceSelections,
+  priceFactoryPackages,
   resolveOptions,
   validateCameraState,
   validateCreateConfiguration,
+  validateFactoryPackages,
   validatePatchConfiguration,
   validateSelections,
   validateVehicleIdentity,
@@ -187,6 +189,19 @@ describe("request body validation", () => {
       () => validatePatchConfiguration({ expectedRevision: 1.5 }, { vehicleId: "4runner", gradeId: "sr5" }),
       422,
     );
+  });
+
+  it("validates and prices factory package IDs against the selected grade", () => {
+    expect(validateFactoryPackages("4runner", "trd-off-road", ["premium-pkg"])).toEqual(["premium-pkg"]);
+    expect(priceFactoryPackages("4runner", "trd-off-road", ["premium-pkg"])).toBe(3_520);
+    expect(() => validateFactoryPackages("4runner", "sr5", ["premium-pkg"])).toThrow(/not available on grade/);
+    const created = validateCreateConfiguration({
+      vehicleId: "4runner", modelYear: 2024, gradeId: "trd-off-road", factoryPackageIds: ["premium-pkg"],
+    });
+    expect(created.factoryPackageIds).toEqual(["premium-pkg"]);
+    expect(() => validateCreateConfiguration({
+      vehicleId: "4runner", modelYear: 2024, gradeId: "trd-off-road", factoryPackageIds: ["unknown-pkg"],
+    })).toThrow(/not available on grade/);
   });
 });
 

@@ -139,6 +139,26 @@ describe("validateCreateLead build snapshot (CRM handoff)", () => {
     );
   });
 
+  it("accepts grade-valid factory packages and rejects packages the grade does not offer", () => {
+    const validated = validateCreateLead({
+      ...validContact,
+      kind: "model",
+      vehicleId: "4runner",
+      build: { ...build, gradeId: "trd-off-road", selections: {}, factoryPackageIds: ["premium-pkg"] },
+    });
+    expect(validated.build?.factoryPackageIds).toEqual(["premium-pkg"]);
+    expectApiError(
+      () =>
+        validateCreateLead({
+          ...validContact,
+          vehicleId: "4runner",
+          build: { ...build, factoryPackageIds: ["premium-pkg"] },
+        }),
+      422,
+      /not available on grade/i,
+    );
+  });
+
   it("rejects non-http share URLs", () => {
     expectApiError(
       () =>

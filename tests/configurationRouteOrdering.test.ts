@@ -118,4 +118,17 @@ describe("PATCH /api/v1/configurations/:id — check ordering", () => {
 
     expect(response.status).toBe(422);
   });
+
+  it("persists grade-compatible factory package ids and returns their catalog price", async () => {
+    const { configuration, ownerToken } = await repository.create(validateCreateConfiguration({
+      vehicleId: "4runner", modelYear: 2024, gradeId: "trd-off-road",
+    }));
+    const response = await callPatch(configuration.configurationId, {
+      factoryPackageIds: ["premium-pkg"], expectedRevision: 1,
+    }, ownerToken);
+    const body = await response.json() as { data: { factoryPackageIds: string[] }; pricing: { factoryPackagesTotal: number } };
+    expect(response.status).toBe(200);
+    expect(body.data.factoryPackageIds).toEqual(["premium-pkg"]);
+    expect(body.pricing.factoryPackagesTotal).toBe(3_520);
+  });
 });

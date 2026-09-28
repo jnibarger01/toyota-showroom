@@ -220,6 +220,38 @@ export class MaterialWriter {
     this.textures.clear();
   }
 
+  /**
+   * Drops the slot records written on meshes that have left the scene, returning how many were
+   * dropped. `restoreOriginals()` already covers a full configuration replay and disposal; this is
+   * its counterpart for the incremental path — a mesh-replacement option detaching the subtree an
+   * earlier write landed in (`sceneController`'s `detachFromMount` call sites).
+   *
+   * Without it a slot outlives the mesh it was written on: its clone is already disposed by
+   * `disposeSubtree`, yet the record keeps the clone *and* a strong reference to the detached mesh,
+   * so a session that swaps wheel packages grows by one retained record per swap and never shrinks.
+   * `slot.mesh` is the only identity needed — the same mesh cannot come back attached elsewhere.
+   */
+  releaseSubtrees(roots: readonly THREE.Object3D[]): number {
+    if (roots.length === 0 || this.slots.size === 0) return 0;
+
+    const removed = new Set<THREE.Mesh>();
+    for (const root of roots) {
+      root.traverse((object) => {
+        if (object instanceof THREE.Mesh) removed.add(object);
+      });
+    }
+    if (removed.size === 0) return 0;
+
+    let dropped = 0;
+    for (const [key, slot] of this.slots) {
+      if (!removed.has(slot.mesh)) continue;
+      slot.clone.dispose();
+      this.slots.delete(key);
+      dropped += 1;
+    }
+    return dropped;
+  }
+
   /** Test/diagnostic hook: how many clones this writer is holding. */
   get clonedSlotCount(): number {
     return this.slots.size;
