@@ -98,12 +98,13 @@ export const GET = withRouteTelemetry(
     let preview = buildSharePreview({ vehicle, pageUrl: absolutePageUrl(slug) });
     let builderUrl = `${request.nextUrl.origin}${path}`;
 
-    if (encoded && encoded.trim() !== "") {
+    if (encoded !== null) {
       try {
         const decoded = validateBuildDeepLink(vehicle.slug, vehicle.year, encoded);
         builderUrl = createBuildDeepLinkUrl(request.nextUrl.origin, path, {
           gradeId: decoded.gradeId,
           selections: decoded.selections,
+          factoryPackageIds: decoded.factoryPackageIds,
           cameraState: decoded.cameraState,
           paintStudio: decoded.paintStudio,
         });
@@ -113,10 +114,7 @@ export const GET = withRouteTelemetry(
           pageUrl: builderUrl,
         });
       } catch {
-        // Keep the raw failing payload in the browser redirect. Builder bootstrap owns the
-        // recovery UX: it classifies this as invalid, strips it from history, and tells the
-        // visitor that the shared build was not restored. Dropping `c` here would make the
-        // normal production share-card path bypass that recovery notice entirely.
+        // Keep the failing payload so browser bootstrap can report that the shared build was not restored.
         preview = buildSharePreview({ vehicle, pageUrl: absolutePageUrl(slug) });
         builderUrl = preserveBrokenBuildDeepLinkUrl(request.nextUrl.origin, path, encoded);
       }
