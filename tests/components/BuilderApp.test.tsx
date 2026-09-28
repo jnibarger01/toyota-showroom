@@ -412,6 +412,42 @@ describe("BuilderApp", () => {
     expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("front");
     expect(screen.getByRole("button", { name: "Barcelona Red Metallic" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Front" })).toHaveClass("selected");
+    // A link that did restore must not raise the recovery notice.
+    expect(screen.queryByTestId("build-deeplink-error")).not.toBeInTheDocument();
+  });
+
+  /**
+   * The silent-degradation case: a `?c=` param that cannot be decoded/validated used to be treated
+   * exactly like no link at all, so a visitor following a truncated or stale share URL saw a
+   * resumed/fresh build with no hint that the shared one had been dropped.
+   */
+  it("reports a broken ?c= deep link instead of silently loading an unrelated build", async () => {
+    window.history.replaceState({}, "", "/4runner/?c=not-valid-base64!!&utm=email");
+
+    await renderBuilderReady();
+
+    const notice = screen.getByTestId("build-deeplink-error");
+    expect(notice).toHaveTextContent(/this share link can’t be restored/i);
+    // The build on screen is the normal fresh build, not a bogus "restored" one.
+    expect(configurationStore.getSnapshot().configuration?.selections).toEqual({});
+    // The unusable param is dropped so a refresh does not replay the notice; siblings survive.
+    expect(window.location.search).toBe("?utm=email");
+
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByTestId("build-deeplink-error")).not.toBeInTheDocument();
+  });
+
+  it("reports a structurally valid but stale ?c= deep link (unknown option)", async () => {
+    const stale = encodeBuildDeepLink({
+      gradeId: "trd-pro",
+      selections: { paint: ["paint-no-longer-offered"] },
+    });
+    window.history.replaceState({}, "", `/4runner/?c=${encodeURIComponent(stale)}`);
+
+    await renderBuilderReady();
+
+    expect(screen.getByTestId("build-deeplink-error")).toBeInTheDocument();
+    expect(configurationStore.getSnapshot().configuration?.selections).toEqual({});
   });
 
   it("updates the running build total and financing payment when an option with priceDelta is selected", async () => {

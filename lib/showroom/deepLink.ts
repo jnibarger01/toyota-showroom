@@ -259,6 +259,62 @@ export function readBuildDeepLinkParam(search: string): string | null {
   }
 }
 
+/**
+ * Removes the `c` param from a search string while preserving every other param, so a link that
+ * could not be restored is reported once instead of on every refresh. Returns `""` when nothing is
+ * left; the caller re-assembles pathname + hash.
+ */
+export function stripBuildDeepLinkParam(search: string): string {
+  const normalized = search.startsWith("?") ? search.slice(1) : search;
+  if (!normalized) return "";
+  try {
+    const params = new URLSearchParams(normalized);
+    params.delete(DEEP_LINK_QUERY_PARAM);
+    const rest = params.toString();
+    return rest ? `?${rest}` : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Outcome of looking at the `c=` param for a builder bootstrap.
+ *
+ * `absent` and `invalid` are deliberately different: a visitor arriving without a link should see
+ * nothing, while a visitor following a damaged or stale link needs to be told why the build on
+ * screen is not the one that was shared — silently falling back to a resumed/fresh build is the
+ * failure this distinction exists to make visible.
+ */
+export type BuildDeepLinkRestore =
+  | { status: "absent" }
+  | { status: "invalid"; reason: string }
+  | { status: "restored"; build: DecodedBuildDeepLink };
+
+/** Copy for the builder's broken-link notice, kept here (pure, no React) so it is testable. */
+export const BUILD_DEEP_LINK_BROKEN_COPY = {
+  title: "This share link can’t be restored",
+  body: "The link may be incomplete, damaged, or refer to options that are no longer available. A new build was started for you — ask for a fresh link to see the shared build.",
+  dismissLabel: "Dismiss",
+} as const;
+
+/**
+ * Classifies the `c=` param on a search string: absent, restored (decoded **and** catalog-validated
+ * against this vehicle), or invalid with the reason the validation refused it.
+ */
+export function readBuildDeepLinkRestore(
+  vehicleId: string,
+  modelYear: number,
+  search: string,
+): BuildDeepLinkRestore {
+  const encoded = readBuildDeepLinkParam(search);
+  if (!encoded) return { status: "absent" };
+  try {
+    return { status: "restored", build: validateBuildDeepLink(vehicleId, modelYear, encoded) };
+  } catch (error) {
+    return { status: "invalid", reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Builds `/[slug]/?c=…` share URL from the current selections + camera. */
 export function createBuildDeepLinkUrl(
   origin: string,
