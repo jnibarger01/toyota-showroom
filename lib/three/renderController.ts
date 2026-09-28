@@ -128,6 +128,9 @@ export class RenderController {
   private readonly gpuTimer: GpuTimer | null;
 
   private quality: QualitySettings;
+  /** The CSS box + effective pixel ratio the renderer was last sized to; `null` until the first
+   * `resize()`. Read by `applySize` to tell a real resize from a redundant one. */
+  private appliedSize: { width: number; height: number; pixelRatio: number } | null = null;
   private scene: THREE.Scene | null = null;
   private camera: THREE.Camera | null = null;
   private tick: (() => void) | undefined;
@@ -248,8 +251,9 @@ export class RenderController {
     this.handleContextRestored = () => {
       console.info("[canvas] WebGL context restored; resuming render loop.");
       // Reallocates the drawing buffer against the restored context; without it the renderer keeps
-      // the dimensions of a buffer that no longer exists.
-      this.resize();
+      // the dimensions of a buffer that no longer exists. Forced: the buffer is gone, so this has
+      // to reallocate even though the box and pixel ratio are unchanged since before the loss.
+      this.applySize(true);
       this.options.onContextRestored?.();
       if (this.running) return;
       this.running = true;
@@ -274,10 +278,48 @@ export class RenderController {
   /** Sizes the renderer to the host's current CSS box and notifies `onResize`. Called once
    * explicitly by the caller after every other controller exists (so `onResize` — typically a
    * camera aspect update — has something to call into), and automatically on every host resize
-   * and context restoration afterward. */
+   * and context restoration afterward.
+   *
+   * Redundant calls are dropped by `applySize`: this runs from a `ResizeObserver`, which reports
+   * *fractional* box changes that round to the same integer `clientWidth`/`clientHeight`, and from
+   * `applyQuality` after every governor tier change. */
   resize(): void {
+    this.applySize(false);
+  }
+
+  /**
+   * The one place the renderer is actually resized.
+   *
+   * `renderer.setSize` assigns `canvas.width`/`canvas.height`, and assigning those clears the
+   * canvas and reallocates its drawing buffer — so a call that changes nothing is not free, it
+   * costs a frame and throws away whatever the GPU had queued. Two sources of exactly that in this
+   * app: the `ResizeObserver` above fires for fractional box changes that round to the same integer
+   * `clientWidth`/`clientHeight`, and every governor tier change calls back in here — including on
+   * the many displays where `devicePixelRatio` is 1, where the tier's pixel-ratio cap changes
+   * nothing about the effective ratio, so the reallocation bought no resolution at all.
+   *
+   * `force` bypasses the check for the one caller where the buffer really is gone regardless of
+   * size: `webglcontextrestored`. `onResize` is notified either way — it is a cheap, idempotent
+   * aspect update, and skipping it would make "the host's box changed" invisible to callers that
+   * only listen there.
+   */
+  private applySize(force: boolean): void {
     const width = Math.max(this.host.clientWidth, 1);
     const height = Math.max(this.host.clientHeight, 1);
+    // The same effective ratio `applyRendererQuality` has just pushed into the renderer, so a tier
+    // change that lowers the cap (and therefore the buffer) is still treated as a real resize.
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, this.quality.maxPixelRatio);
+    if (
+      !force &&
+      this.appliedSize !== null &&
+      this.appliedSize.width === width &&
+      this.appliedSize.height === height &&
+      this.appliedSize.pixelRatio === pixelRatio
+    ) {
+      this.options.onResize?.(width, height);
+      return;
+    }
+    this.appliedSize = { width, height, pixelRatio };
     this.renderer.setSize(width, height);
     this.options.onResize?.(width, height);
   }

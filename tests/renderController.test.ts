@@ -231,6 +231,57 @@ describe("RenderController", () => {
       expect(fakeRenderer.setSizeCalls).toEqual([[800, 450]]);
       expect(onResize).toHaveBeenCalledTimes(1);
     });
+
+    it("does not reallocate the drawing buffer when the box and effective pixel ratio are unchanged", async () => {
+      const onResize = vi.fn();
+      const { fakeRenderer, controller } = await makeController({ onResize });
+      controller.resize();
+      fakeRenderer.setSizeCalls.length = 0;
+      onResize.mockClear();
+      controller.resize();
+      // `setSize` assigns `canvas.width`/`height`, which clears the canvas and reallocates its
+      // drawing buffer — so an unchanged size must not reach the renderer at all.
+      expect(fakeRenderer.setSizeCalls).toEqual([]);
+      // …while the notification is not part of that check: a caller that only listens for resize
+      // still hears it.
+      expect(onResize).toHaveBeenCalledWith(800, 450);
+    });
+
+    it("ignores fractional observer ticks that round to the same client box, and still handles a real change", async () => {
+      const { host, fakeRenderer, controller } = await makeController();
+      controller.resize();
+      fakeRenderer.setSizeCalls.length = 0;
+      const observer = FakeResizeObserver.instances[FakeResizeObserver.instances.length - 1]!;
+      // ResizeObserver reports fractional content-box sizes; `clientWidth`/`clientHeight` round, so
+      // several of its callbacks can agree on the same integer box (the address-bar / devtools
+      // jitter case). `makeHost` pins the box, which is exactly that state.
+      observer.trigger();
+      observer.trigger();
+      expect(fakeRenderer.setSizeCalls).toEqual([]);
+      Object.defineProperty(host, "clientWidth", { value: 1024, configurable: true });
+      observer.trigger();
+      expect(fakeRenderer.setSizeCalls).toEqual([[1024, 450]]);
+    });
+
+    it("re-syncs the buffer only when a tier change actually changes the effective pixel ratio", async () => {
+      const { fakeRenderer, controller } = await makeController();
+      const cap = controller.currentQuality.maxPixelRatio;
+      const previousDpr = window.devicePixelRatio;
+      try {
+        Object.defineProperty(window, "devicePixelRatio", { value: cap, configurable: true });
+        controller.resize(); // applied ratio = min(cap, cap) = cap
+        fakeRenderer.setSizeCalls.length = 0;
+        // Same box and same effective ratio: on a display whose devicePixelRatio is 1 every tier's
+        // cap resolves to the same buffer, so the old unconditional re-sync bought no resolution.
+        controller.applyQuality({ ...controller.currentQuality, shadowsEnabled: false, maxPixelRatio: cap });
+        expect(fakeRenderer.setSizeCalls).toEqual([]);
+        // A cap that lowers the effective ratio is a real resize and must still reallocate.
+        controller.applyQuality({ ...controller.currentQuality, maxPixelRatio: cap / 2 });
+        expect(fakeRenderer.setSizeCalls).toEqual([[800, 450]]);
+      } finally {
+        Object.defineProperty(window, "devicePixelRatio", { value: previousDpr, configurable: true });
+      }
+    });
   });
 
   describe("applyQuality", () => {
@@ -334,6 +385,9 @@ describe("RenderController", () => {
         await vi.advanceTimersByTimeAsync(16 * 5);
         expect(fakeRenderer.renderCalls).toBe(rendersBeforeLoss); // loop stayed paused
 
+        // A resize *before* the loss leaves the controller believing the buffer matches the box, so
+        // the restored path has to reallocate unconditionally rather than noticing "no change".
+        controller.resize();
         fakeRenderer.setSizeCalls.length = 0;
         controller.canvas.dispatchEvent(new Event("webglcontextrestored"));
         expect(onContextRestored).toHaveBeenCalledTimes(1);
