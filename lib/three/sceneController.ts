@@ -131,7 +131,7 @@ export class VehicleSceneController {
     }
     if (option.operation === "mesh-replacement") {
       for (const mount of resolveNodes(this.root, option.mountNodes ?? []).found) {
-        detachFromMount(mount);
+        this.writer.releaseSubtrees(detachFromMount(mount));
       }
     }
   }
@@ -364,7 +364,7 @@ export class VehicleSceneController {
   private removeOptionFromScene(option: CustomizationOption): boolean {
     if (option.operation === "mesh-replacement") {
       const { found } = resolveNodes(this.root, option.mountNodes ?? []);
-      for (const mount of found) detachFromMount(mount);
+      for (const mount of found) this.writer.releaseSubtrees(detachFromMount(mount));
       // Bring back whatever the replacement stood in for. Without this, deselecting leaves neither
       // the replacement nor the original in the scene — a missing wheel rather than a stock one.
       this.restoreDisplaced(option);
@@ -473,7 +473,9 @@ export class VehicleSceneController {
     for (const node of replaced) node.visible = false;
 
     for (const mount of mounts) {
-      attachToMount(mount, instantiateAsset(source), option.id);
+      // `attachToMount` replaces whatever this integration previously attached there; releasing
+      // the replaced subtree's slots keeps the writer's bookkeeping in step with the scene.
+      this.writer.releaseSubtrees(attachToMount(mount, instantiateAsset(source), option.id));
     }
     // Newly-mounted geometry has no bounds tree yet; `prepare` only builds one for meshes that
     // don't already have it, so this is cheap for every mesh already covered by the constructor's
