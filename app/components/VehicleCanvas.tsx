@@ -590,7 +590,18 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       let isDragging = false;
       let hoverRafPending = false;
       let hoverRafId = 0;
-      let lastHoverNdc: THREE.Vector2 | null = null;
+      /**
+       * The newest pointer position awaiting a hover pick, in raw client coordinates.
+       *
+       * Deliberately *not* the derived NDC vector: turning client coordinates into a raycast target
+       * needs `canvasElement.getBoundingClientRect()` (`pointerToNdc`, `lib/three/picking.ts`), and
+       * that read is only worth doing once per painted frame — the frame `scheduleHoverPick` already
+       * awaits — rather than once per event. `pointermove` fires far faster than the display
+       * refreshes (a high-polling mouse or a trackpad can deliver well past 60/s), and every event
+       * that converted its own coordinates would force its own layout read to describe a frame that
+       * the next event has already superseded: only the newest position is ever picked.
+       */
+      let lastHoverSample: { x: number; y: number } | null = null;
       /**
        * The one pointer this block is currently tracking for a potential tap/click, by
        * `PointerEvent.pointerId`. Without this, a second finger touching down mid-gesture (the
@@ -611,22 +622,29 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
       };
 
       const clearHover = () => {
-        lastHoverNdc = null;
+        lastHoverSample = null;
         if (!controller) return;
         controller.hoverPart(undefined);
         reportHover(undefined);
       };
 
-      // Bounded cost: at most one raycast per animation frame no matter how many pointermove
-      // events the browser delivers in between (touchpads and high-polling mice can fire well
-      // past 60/s).
+      // Bounded cost: at most one raycast *and one canvas bounding-rect read* per animation frame,
+      // no matter how many pointermove events the browser delivers in between (touchpads and
+      // high-polling mice can fire well past 60/s). The coordinate conversion lives inside the
+      // frame callback for the same reason the raycast does: it is per-frame work describing the
+      // newest pointer position, not per-event work every intermediate position would redo.
       const scheduleHoverPick = () => {
         if (hoverRafPending) return;
         hoverRafPending = true;
         hoverRafId = requestAnimationFrame(() => {
           hoverRafPending = false;
-          if (!controller || !lastHoverNdc) return;
-          const result = controller.pickAt(lastHoverNdc, camera);
+          if (!controller || !lastHoverSample) return;
+          const ndc = pointerToNdc(
+            lastHoverSample.x,
+            lastHoverSample.y,
+            canvasElement.getBoundingClientRect(),
+          );
+          const result = controller.pickAt(ndc, camera);
           controller.hoverPart(result?.entry.id);
           reportHover(result?.entry);
         });
@@ -677,7 +695,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
           if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) isDragging = true;
           return; // Orbiting (or about to be) — no hover raycast until the pointer is released.
         }
-        lastHoverNdc = pointerToNdc(event.clientX, event.clientY, canvasElement.getBoundingClientRect());
+        lastHoverSample = { x: event.clientX, y: event.clientY };
         scheduleHoverPick();
       };
 
