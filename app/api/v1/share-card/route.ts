@@ -7,6 +7,7 @@ import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 import {
   createBuildDeepLinkUrl,
   DEEP_LINK_QUERY_PARAM,
+  preserveBrokenBuildDeepLinkUrl,
   validateBuildDeepLink,
 } from "../../../../lib/showroom/deepLink";
 import {
@@ -112,10 +113,12 @@ export const GET = withRouteTelemetry(
           pageUrl: builderUrl,
         });
       } catch {
-        // Malformed/incompatible `c` — still unfurl the vehicle card and send the visitor to the
-        // bare builder (client bootstrap ignores a bad deep link the same way).
+        // Keep the raw failing payload in the browser redirect. Builder bootstrap owns the
+        // recovery UX: it classifies this as invalid, strips it from history, and tells the
+        // visitor that the shared build was not restored. Dropping `c` here would make the
+        // normal production share-card path bypass that recovery notice entirely.
         preview = buildSharePreview({ vehicle, pageUrl: absolutePageUrl(slug) });
-        builderUrl = `${request.nextUrl.origin}${path}`;
+        builderUrl = preserveBrokenBuildDeepLinkUrl(request.nextUrl.origin, path, encoded);
       }
     }
 
