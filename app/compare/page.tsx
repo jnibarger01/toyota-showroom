@@ -19,6 +19,7 @@ import {
   validateCompareDeepLink,
 } from "../../lib/showroom/compareDeepLink";
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
+import { CompareDeepLinkError } from "../components/CompareDeepLinkError";
 import { formatCurrency } from "../../lib/shared/currency";
 import { getVehicle } from "../../lib/api/client";
 import { canOfferCompare3d, COMPARE_3D_MIN_MODELS, withCompareModels } from "../../lib/three/compareLayout";
@@ -165,16 +166,18 @@ export default function ComparePage() {
   const [pickedBuilds, setPickedBuilds] = useState<string[]>([]);
   const [fromDeepLink, setFromDeepLink] = useState(false);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
+  const [deepLinkError, setDeepLinkError] = useState(false);
 
   useEffect(() => {
     const search = window.location.search;
     const cmp = readCompareDeepLinkParam(search);
     /* eslint-disable react-hooks/set-state-in-effect -- one-shot URL seed */
-    if (cmp) {
+    // Presence, not truthiness: `?cmp=` is a truncated link and must be reported.
+    if (cmp !== null) {
       setMode("builds");
-      setFromDeepLink(true);
       try {
         const restored = validateCompareDeepLink(cmp).slice(0, MAX_COMPARE);
+        setFromDeepLink(true);
         setBuilds(restored);
         setPickedBuilds(restored.map((build) => build.configurationId));
         void loadCatalogsForBuilds(restored).then((catalogs) => {
@@ -199,7 +202,8 @@ export default function ComparePage() {
           setBuildTotals(totals);
         })();
       } catch (err) {
-        setLoadError(err instanceof Error ? err.message : String(err));
+        console.error("[compare] unrestorable ?cmp= deep link rejected", err);
+        setDeepLinkError(true);
       }
     } else {
       const buildIds = parseBuildIdsFromSearch(search).slice(0, MAX_COMPARE);
@@ -313,6 +317,24 @@ export default function ComparePage() {
     });
   };
 
+  const resetFromBrokenDeepLink = () => {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("cmp");
+      url.searchParams.delete("builds");
+      url.searchParams.delete("vehicles");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } catch {
+      // State recovery below still works if URL/history APIs are unavailable.
+    }
+    setDeepLinkError(false);
+    setFromDeepLink(false);
+    setMode("catalog");
+    setPicked([]);
+    setPickedBuilds([]);
+    setBuilds(null);
+  };
+
   const shareCompareDeepLink = async () => {
     if (!builds || builds.length < MIN_COMPARE) return;
     const result = createCompareDeepLinkUrl(
@@ -395,6 +417,10 @@ export default function ComparePage() {
           <span>{loadError}</span>
           <button onClick={() => setLoadError(null)}>Dismiss</button>
         </div>
+      ) : null}
+
+      {deepLinkError ? (
+        <CompareDeepLinkError onReset={resetFromBrokenDeepLink} onDismiss={() => setDeepLinkError(false)} />
       ) : null}
 
       {mode === "catalog" ? (
