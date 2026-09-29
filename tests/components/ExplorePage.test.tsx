@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { VehicleSummary } from "../../lib/types/vehicle";
 import { DEFAULT_PAGE_SIZE } from "../../lib/api/query";
@@ -76,6 +76,16 @@ vi.mock("../../lib/api/dealerInventory", () => ({
 }));
 
 const { default: ExplorePage } = await import("../../app/explore/page");
+
+/**
+ * Every test starts from a clean URL. The page mirrors its facets and page number into
+ * `location.search` (see the "ExplorePage URL state" block below), so a test that pages or filters
+ * would otherwise hand the next test an already-filtered lineup. jsdom's base URL is
+ * `http://localhost/` (vitest.config.ts's `environmentOptions`).
+ */
+beforeEach(() => {
+  window.history.replaceState(null, "", "/");
+});
 
 describe("ExplorePage pagination", () => {
   it("offers a test-drive action on every visible vehicle card without navigating", async () => {
@@ -215,6 +225,69 @@ describe("ExplorePage inventory badges", () => {
         "No matching dealer inventory is available for these vehicles.",
       ),
     );
+  });
+});
+
+describe("ExplorePage URL state", () => {
+  it("restores a shared, pre-filtered lineup from the query string", async () => {
+    window.history.replaceState(null, "", "/?powertrainType=hybrid");
+
+    render(<ExplorePage />);
+
+    await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(1));
+    expect(screen.getByText("truck-0", { selector: "h2" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /hybrid/i })).toBeChecked();
+    // The link itself is left untouched — a canonical rewrite here would be invisible, but this
+    // asserts the read path doesn't fight the write path on load.
+    expect(window.location.search).toBe("?powertrainType=hybrid");
+  });
+
+  it("keeps a deep-linked page instead of clamping it back to page 1", async () => {
+    window.history.replaceState(null, "", "/?page=2");
+
+    render(<ExplorePage />);
+
+    // The "a filter change resets to page 1" rule must not fire for a page number that arrived
+    // with the URL rather than from a click.
+    await screen.findByText(`Page 2 of ${Math.ceil(TOTAL / DEFAULT_PAGE_SIZE)}`);
+    expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(TOTAL - DEFAULT_PAGE_SIZE);
+  });
+
+  it("writes a facet into the URL as it is picked, and clears it again", async () => {
+    render(<ExplorePage />);
+    await screen.findByText(`Page 1 of ${Math.ceil(TOTAL / DEFAULT_PAGE_SIZE)}`);
+    expect(window.location.search).toBe("");
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /hybrid/i }));
+
+    await waitFor(() => expect(window.location.search).toBe("?powertrainType=hybrid"));
+
+    fireEvent.click(screen.getByRole("button", { name: /clear filters/i }));
+
+    await waitFor(() => expect(window.location.search).toBe(""));
+  });
+
+  it("writes the page number so the link reopens on the same page", async () => {
+    render(<ExplorePage />);
+    await screen.findByText(`Page 1 of ${Math.ceil(TOTAL / DEFAULT_PAGE_SIZE)}`);
+
+    fireEvent.click(screen.getByRole("button", { name: /^next/i }));
+
+    await waitFor(() => expect(window.location.search).toBe("?page=2"));
+  });
+
+  it("re-applies the URL on a back/forward navigation", async () => {
+    render(<ExplorePage />);
+    await screen.findByText(`Page 1 of ${Math.ceil(TOTAL / DEFAULT_PAGE_SIZE)}`);
+
+    // What the browser does on Back: swap the URL, then fire `popstate` — nothing else. The page
+    // has to read the new URL itself, since a `replaceState` history entry never re-renders.
+    window.history.replaceState(null, "", "/?minSeating=6");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+
+    await waitFor(() => expect(screen.getAllByText(/^suv-|^truck-/, { selector: "h2" })).toHaveLength(1));
+    expect(screen.getByText("truck-0", { selector: "h2" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/min\. seating/i)).toHaveValue(6);
   });
 });
 

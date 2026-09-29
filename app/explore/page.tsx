@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, GitCompare, Loader2, Truck, X } from "lucide-react";
 import { listVehicles, pageUrl, MAX_COMPARE } from "../../lib/api/client";
 import { loadExploreInventoryBadges } from "../../lib/api/dealerInventory";
 import { ValidatedLeadForm } from "../components/ValidatedLeadForm";
 import { matchesFilters, paginateAndFilter, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, type VehicleFilters } from "../../lib/api/query";
+import {
+  buildExploreQuery,
+  parseExploreQuery,
+  type ExploreQueryState,
+} from "../../lib/showroom/exploreQuery";
 import type { InventoryBadge } from "../../lib/dealerInventory";
 import type { BodyStyle, PowertrainType, VehicleSummary } from "../../lib/types/vehicle";
 import { formatCurrency } from "../../lib/shared/currency";
@@ -37,6 +42,24 @@ const AVAILABILITY_LABELS: Record<VehicleSummary["availability"], string> = {
   coming_soon: "Coming soon",
   discontinued: "Discontinued",
 };
+
+/**
+ * The one place the page's individual facet states collapse into the `VehicleFilters` shape
+ * `matchesFilters` (`lib/api/query.ts`) understands. Shared with the URL reader below, which has to
+ * hand the render-phase page reset the exact key it would have computed for that same state —
+ * otherwise restoring `?page=2` would be clamped straight back to page 1.
+ */
+function facetFiltersOf(
+  state: Pick<ExploreQueryState, "bodyStyle" | "powertrainTypes" | "minPrice" | "maxPrice" | "minSeating">,
+): VehicleFilters {
+  return {
+    ...(state.bodyStyle ? { bodyStyle: [state.bodyStyle] } : {}),
+    ...(state.powertrainTypes.length ? { powertrainType: state.powertrainTypes } : {}),
+    ...(state.minPrice !== null ? { minPrice: state.minPrice } : {}),
+    ...(state.maxPrice !== null ? { maxPrice: state.maxPrice } : {}),
+    ...(state.minSeating !== null ? { minSeating: state.minSeating } : {}),
+  };
+}
 
 export default function ExplorePage() {
   const [allSummaries, setAllSummaries] = useState<VehicleSummary[] | null>(null);
@@ -108,13 +131,7 @@ export default function ExplorePage() {
   // already understands server-side — the same object the API's own query params resolve to, so a
   // chip here and a `?minSeating=` URL param can never disagree about what counts as a match.
   const facetFilters: VehicleFilters = useMemo(
-    () => ({
-      ...(bodyStyle ? { bodyStyle: [bodyStyle] } : {}),
-      ...(powertrainTypes.length ? { powertrainType: powertrainTypes } : {}),
-      ...(minPrice !== null ? { minPrice } : {}),
-      ...(maxPrice !== null ? { maxPrice } : {}),
-      ...(minSeating !== null ? { minSeating } : {}),
-    }),
+    () => facetFiltersOf({ bodyStyle, powertrainTypes, minPrice, maxPrice, minSeating }),
     [bodyStyle, powertrainTypes, minPrice, maxPrice, minSeating],
   );
   const hasActiveFacets = Object.keys(facetFilters).length > 0;
@@ -136,6 +153,54 @@ export default function ExplorePage() {
     setPrevFiltersKey(filtersKey);
     setPage(1);
   }
+
+  /**
+   * Adopt a whole lineup state read out of the URL (initial load, or a back/forward navigation).
+   * `prevFiltersKey` is set alongside the facets so the reset above sees no change: the URL is
+   * authoritative for this transition, and the page number in it has to survive (a deep-linked
+   * `?page=2` must not be clamped back to page 1 by the same rule that resets a *clicked* filter).
+   */
+  const applyExploreQuery = useCallback((state: ExploreQueryState) => {
+    setBodyStyle(state.bodyStyle);
+    setPowertrainTypes(state.powertrainTypes);
+    setMinPrice(state.minPrice);
+    setMaxPrice(state.maxPrice);
+    setMinSeating(state.minSeating);
+    setPage(state.page);
+    setPrevFiltersKey(JSON.stringify(facetFiltersOf(state)));
+  }, []);
+
+  // Read once after mount, never in a `useState` initializer: on the server prerender `window`
+  // doesn't exist (so an initializer would always produce the unfiltered lineup) while the client's
+  // first paint runs the same initializer for real — the React #418 hydration mismatch
+  // `docs/INTEGRATION_GUIDE.md` §13 already documents and fixed for `/compare` the same way.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time, client-only read of the URL
+    applyExploreQuery(parseExploreQuery(window.location.search));
+  }, [applyExploreQuery]);
+
+  const queryString = buildExploreQuery({ bodyStyle, powertrainTypes, minPrice, maxPrice, minSeating, page });
+  const urlWriteSkipped = useRef(true);
+  useEffect(() => {
+    if (urlWriteSkipped.current) {
+      // First commit: the state here is still the pre-URL default (the read effect above hasn't
+      // been applied yet), so writing it would strip a deep link before it was ever restored.
+      urlWriteSkipped.current = false;
+      return;
+    }
+    const next = `${window.location.pathname}${queryString}${window.location.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    // `replaceState`, not `pushState`: typing in a price field would otherwise stack one history
+    // entry per keystroke. Back/forward still works — `popstate` below re-applies whatever URL
+    // arrives, including one this page never wrote itself.
+    if (next !== current) window.history.replaceState(null, "", next);
+  }, [queryString]);
+
+  useEffect(() => {
+    const onPopState = () => applyExploreQuery(parseExploreQuery(window.location.search));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [applyExploreQuery]);
 
   const togglePowertrain = (type: PowertrainType) => {
     setPowertrainTypes((current) =>
