@@ -19,6 +19,7 @@ import {
   validateCompareDeepLink,
 } from "../../lib/showroom/compareDeepLink";
 import { estimateBuildTotal, resolveGradeMsrp } from "../../lib/showroom/buildTools";
+import { reconcileCompareSelection } from "../../lib/showroom/compareSelection";
 import { CompareDeepLinkError } from "../components/CompareDeepLinkError";
 import { formatCurrency } from "../../lib/shared/currency";
 import { getVehicle } from "../../lib/api/client";
@@ -240,6 +241,28 @@ export default function ComparePage() {
     return picked.filter((slug) => known.has(slug));
   }, [picked, allSummaries]);
 
+  /*
+   * `?vehicles=` is free text, so a stale, truncated or hand-edited link can name a slug this
+   * catalog no longer has. Once the catalog is known, drop those from the selection itself
+   * (adjusting state during render, the same pattern `app/explore/page.tsx` uses for its page
+   * reset) so no consumer — the picker's checkboxes, the `MAX_COMPARE` cap, the "Update
+   * comparison" link — can disagree with a picker that has no checkbox for that slug. The dropped
+   * names are kept for the notice below rather than discarded in silence, and `reconciledCatalog`
+   * keys the adjustment to one catalog response so a later refresh cannot re-drop a slug the
+   * visitor picked after it.
+   */
+  const [reconciledCatalog, setReconciledCatalog] = useState<VehicleSummary[] | null>(null);
+  const [droppedSlugs, setDroppedSlugs] = useState<string[]>([]);
+  if (allSummaries !== null && allSummaries !== reconciledCatalog) {
+    const { selected, dropped } = reconcileCompareSelection(
+      picked,
+      allSummaries.map((summary) => summary.slug),
+    );
+    setReconciledCatalog(allSummaries);
+    setPicked(selected);
+    setDroppedSlugs(dropped);
+  }
+
   const canCompareCatalog = mode === "catalog" && (validSlugs?.length ?? 0) >= MIN_COMPARE;
   const canCompareBuilds = mode === "builds" && pickedBuilds.length >= MIN_COMPARE;
 
@@ -421,6 +444,24 @@ export default function ComparePage() {
 
       {deepLinkError ? (
         <CompareDeepLinkError onReset={resetFromBrokenDeepLink} onDismiss={() => setDeepLinkError(false)} />
+      ) : null}
+
+      {/*
+        * A `?vehicles=` link can name a vehicle this catalog no longer has. Saying so is the whole
+        * point of the reconciliation above: the alternative was a selection the visitor could see
+        * counted (against `MAX_COMPARE`) but could not see, uncheck, or explain.
+        */}
+      {droppedSlugs.length > 0 ? (
+        <div className="config-error compare-unknown-vehicles" role="status" data-testid="compare-unknown-vehicles">
+          <span>
+            {droppedSlugs.length === 1
+              ? `This link named 1 vehicle the catalog doesn’t have, so it was left out: ${droppedSlugs[0]}.`
+              : `This link named ${droppedSlugs.length} vehicles the catalog doesn’t have, so they were left out: ${droppedSlugs.join(", ")}.`}
+          </span>
+          <button type="button" onClick={() => setDroppedSlugs([])}>
+            Dismiss
+          </button>
+        </div>
       ) : null}
 
       {mode === "catalog" ? (
