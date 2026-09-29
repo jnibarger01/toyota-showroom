@@ -215,7 +215,9 @@ export function readCompareDeepLinkParam(search: string): string | null {
   if (!normalized) return null;
   try {
     const value = new URLSearchParams(normalized).get(COMPARE_DEEP_LINK_QUERY_PARAM);
-    return value && value.trim() !== "" ? value : null;
+    // Preserve present-but-empty separately from an absent parameter so a truncated
+    // compare link reaches validation and the recovery alert.
+    return value === null ? null : value.trim();
   } catch {
     return null;
   }
