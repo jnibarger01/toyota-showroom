@@ -51,6 +51,7 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
       model: input.model,
       gradeId: input.gradeId,
       selections: input.selections,
+      factoryPackageIds: input.factoryPackageIds,
       cameraState: input.cameraState,
       paintStudio: input.paintStudio,
       revision: 1,
@@ -102,12 +103,14 @@ export class InMemoryConfigurationRepository implements ConfigurationRepository 
     }
 
     const nextSelections = patch.selections ?? existing.selections;
+    const nextFactoryPackageIds = patch.factoryPackageIds ?? existing.factoryPackageIds ?? [];
     const nextPaintStudio = patch.paintStudio ?? existing.paintStudio;
     if (nextPaintStudio) validatePaintStudio(nextPaintStudio, nextSelections);
 
     const next: VehicleConfiguration = {
       ...existing,
       selections: nextSelections,
+      factoryPackageIds: nextFactoryPackageIds,
       cameraState: patch.cameraState ?? existing.cameraState,
       paintStudio: nextPaintStudio,
       revision: existing.revision + 1,
@@ -159,10 +162,11 @@ export function setConfigurationRepository(next: ConfigurationRepository): void 
 
 function patchMatchesStoredState(
   patch: ValidatedPatch,
-  stored: Pick<VehicleConfiguration, "selections" | "cameraState" | "paintStudio">,
+  stored: Pick<VehicleConfiguration, "selections" | "factoryPackageIds" | "cameraState" | "paintStudio">,
 ): boolean {
   return (
     (patch.selections === undefined || JSON.stringify(patch.selections) === JSON.stringify(stored.selections)) &&
+    (patch.factoryPackageIds === undefined || JSON.stringify(patch.factoryPackageIds) === JSON.stringify(stored.factoryPackageIds ?? [])) &&
     (patch.cameraState === undefined || JSON.stringify(patch.cameraState) === JSON.stringify(stored.cameraState)) &&
     (patch.paintStudio === undefined || JSON.stringify(patch.paintStudio) === JSON.stringify(stored.paintStudio))
   );

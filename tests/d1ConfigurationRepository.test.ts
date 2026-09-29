@@ -148,6 +148,20 @@ describe("create", () => {
 });
 
 describe("update", () => {
+  it("persists factory package choices in the configuration and revision history", async () => {
+    const { configuration, ownerToken } = await repo.create(validateCreateConfiguration({
+      vehicleId: "4runner", modelYear: 2024, gradeId: "trd-off-road", factoryPackageIds: ["premium-pkg"],
+    }));
+    const patch = validatePatchConfiguration({ factoryPackageIds: [] }, {
+      vehicleId: configuration.vehicleId, gradeId: configuration.gradeId,
+    });
+    const updated = await repo.update(configuration.configurationId, patch, ownerToken);
+    expect((await repo.get(configuration.configurationId))?.factoryPackageIds).toEqual([]);
+    const history = await repo.listRevisions(configuration.configurationId);
+    expect(history.map((entry) => entry.factoryPackageIds)).toEqual([["premium-pkg"], []]);
+    expect(updated.factoryPackageIds).toEqual([]);
+  });
+
   it("bumps the revision, writes a revision-history row, and leaves createdAt untouched", async () => {
     const { configuration: saved, ownerToken } = await repo.create(baseInput());
     const patch = validatePatchConfiguration(

@@ -7,6 +7,7 @@ import {
 import type { PaintStudioState } from "../types/paintStudio";
 import {
   validateCameraState,
+  validateFactoryPackages,
   validatePaintStudio,
   validateSelections,
   validateVehicleIdentity,
@@ -16,7 +17,7 @@ import {
  * Portable configuration JSON export / import (issue #45).
  *
  * Complements deep links (`?c=…`) and Worker/local saves: a readable file for support,
- * backups, and offline handoff. Payload carries option ids + camera + meta only — never GLB
+ * backups, and offline handoff. Payload carries catalog ids + camera + meta only — never GLB
  * node or material names. Import reuses the same catalog validators as Worker / local transports.
  */
 
@@ -32,6 +33,7 @@ export interface ConfigurationJsonInput {
   selections: SelectionMap;
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
+  factoryPackageIds?: string[];
   /** Override export timestamp (tests). Defaults to `new Date().toISOString()`. */
   exportedAt?: string;
 }
@@ -48,6 +50,7 @@ export interface ConfigurationJsonDocument {
   selections: SelectionMap;
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
+  factoryPackageIds?: string[];
 }
 
 export interface ValidatedConfigurationJson {
@@ -58,6 +61,7 @@ export interface ValidatedConfigurationJson {
   selections: SelectionMap;
   cameraState?: CameraState;
   paintStudio?: PaintStudioState;
+  factoryPackageIds?: string[];
 }
 
 export interface ValidateConfigurationJsonOptions {
@@ -85,6 +89,7 @@ export function exportConfigurationJson(input: ConfigurationJsonInput): string {
     selections: validated.selections,
     ...(validated.cameraState ? { cameraState: validated.cameraState } : {}),
     ...(validated.paintStudio ? { paintStudio: validated.paintStudio } : {}),
+    ...(validated.factoryPackageIds?.length ? { factoryPackageIds: validated.factoryPackageIds } : {}),
   };
   return `${JSON.stringify(document, null, 2)}\n`;
 }
@@ -194,6 +199,7 @@ function parseConfigurationJsonDocument(raw: string | unknown): ConfigurationJso
     selections: candidate.selections as SelectionMap,
     cameraState: candidate.cameraState as CameraState | undefined,
     paintStudio: candidate.paintStudio as PaintStudioState | undefined,
+    factoryPackageIds: candidate.factoryPackageIds as string[] | undefined,
   };
 }
 
@@ -204,11 +210,13 @@ function validateConfigurationFields(input: {
   selections: unknown;
   cameraState?: unknown;
   paintStudio?: unknown;
+  factoryPackageIds?: unknown;
 }): ValidatedConfigurationJson {
   const { vehicle } = validateVehicleIdentity(input.vehicleId, input.modelYear, input.gradeId);
   const selections = validateSelections(input.vehicleId, input.gradeId, input.selections);
   const cameraState = validateCameraState(input.cameraState);
   const paintStudio = validatePaintStudio(input.paintStudio, selections);
+  const factoryPackageIds = validateFactoryPackages(input.vehicleId, input.gradeId, input.factoryPackageIds);
   return {
     vehicleId: input.vehicleId,
     modelYear: input.modelYear,
@@ -217,5 +225,6 @@ function validateConfigurationFields(input: {
     selections,
     cameraState,
     paintStudio,
+    factoryPackageIds,
   };
 }

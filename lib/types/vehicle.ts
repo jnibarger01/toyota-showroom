@@ -90,6 +90,8 @@ export interface Package {
   name: string;
   price: number;
   includes: string[];
+  /** Packages in the same group are mutually exclusive (for example, alternate equipment bundles). */
+  selectionGroup?: string;
 }
 
 export interface Grade {

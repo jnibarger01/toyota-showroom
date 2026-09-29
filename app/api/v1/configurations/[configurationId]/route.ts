@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { invalidBody, notFound } from "../../../../../lib/api/errors";
 import { getConfigurationRepository } from "../../../../../lib/server/configurationRepository";
-import { priceConfiguration, validatePatchConfiguration } from "../../../../../lib/validation/configuration";
+import { priceConfiguration, priceFactoryPackages, validatePatchConfiguration } from "../../../../../lib/validation/configuration";
 import { CUSTOMIZATION_SCHEMA_VERSION, type VehicleConfiguration } from "../../../../../lib/types/customization";
 import { enforceConfigWriteRateLimit } from "../../../../../lib/server/rateLimit";
 import { withRouteTelemetry } from "../../../../../lib/server/apiResponse";
@@ -35,7 +35,10 @@ function respond(record: VehicleConfiguration, status = 200) {
     {
       schemaVersion: CUSTOMIZATION_SCHEMA_VERSION,
       data: record,
-      pricing: { optionsTotal: priceConfiguration(record.vehicleId, record.selections, record.paintStudio) },
+      pricing: {
+        optionsTotal: priceConfiguration(record.vehicleId, record.selections, record.paintStudio),
+        factoryPackagesTotal: priceFactoryPackages(record.vehicleId, record.gradeId, record.factoryPackageIds),
+      },
     },
     {
       status,

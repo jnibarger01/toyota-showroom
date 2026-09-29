@@ -80,6 +80,14 @@ describe("configuration JSON export / import", () => {
     expect(imported.paintStudio?.material?.color).toBe("#1558d6");
   });
 
+  it("round-trips factory package selections", () => {
+    const json = exportConfigurationJson({
+      vehicleId: "4runner", modelYear: 2024, gradeId: "trd-off-road", selections: {},
+      factoryPackageIds: ["premium-pkg"],
+    });
+    expect(validateConfigurationJson(json).factoryPackageIds).toEqual(["premium-pkg"]);
+  });
+
   it("rejects invalid JSON, wrong kind, and schema version mismatches with clear errors", () => {
     expect(() => validateConfigurationJson("{")).toThrow(/not valid JSON/i);
     expect(() => validateConfigurationJson("{}")).toThrow(/Not a Toyota Showroom configuration export/);

@@ -62,6 +62,7 @@ export const localConfigurationTransport = {
       model: validated.model,
       gradeId: validated.gradeId,
       selections: validated.selections,
+      factoryPackageIds: validated.factoryPackageIds,
       cameraState: validated.cameraState,
       paintStudio: validated.paintStudio,
       revision: 1,
@@ -110,6 +111,7 @@ export const localConfigurationTransport = {
     const next: VehicleConfiguration = {
       ...existing,
       selections: validated.selections ?? existing.selections,
+      factoryPackageIds: validated.factoryPackageIds ?? existing.factoryPackageIds ?? [],
       cameraState: validated.cameraState ?? existing.cameraState,
       paintStudio: validated.paintStudio ?? existing.paintStudio,
       revision: existing.revision + 1,

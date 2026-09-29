@@ -7,6 +7,7 @@ import { withSecurityHeaders } from "../../../../lib/server/securityHeaders";
 import {
   createBuildDeepLinkUrl,
   DEEP_LINK_QUERY_PARAM,
+  preserveBrokenBuildDeepLinkUrl,
   validateBuildDeepLink,
 } from "../../../../lib/showroom/deepLink";
 import {
@@ -97,12 +98,13 @@ export const GET = withRouteTelemetry(
     let preview = buildSharePreview({ vehicle, pageUrl: absolutePageUrl(slug) });
     let builderUrl = `${request.nextUrl.origin}${path}`;
 
-    if (encoded && encoded.trim() !== "") {
+    if (encoded !== null) {
       try {
         const decoded = validateBuildDeepLink(vehicle.slug, vehicle.year, encoded);
         builderUrl = createBuildDeepLinkUrl(request.nextUrl.origin, path, {
           gradeId: decoded.gradeId,
           selections: decoded.selections,
+          factoryPackageIds: decoded.factoryPackageIds,
           cameraState: decoded.cameraState,
           paintStudio: decoded.paintStudio,
         });
@@ -112,10 +114,9 @@ export const GET = withRouteTelemetry(
           pageUrl: builderUrl,
         });
       } catch {
-        // Malformed/incompatible `c` — still unfurl the vehicle card and send the visitor to the
-        // bare builder (client bootstrap ignores a bad deep link the same way).
+        // Keep the failing payload so browser bootstrap can report that the shared build was not restored.
         preview = buildSharePreview({ vehicle, pageUrl: absolutePageUrl(slug) });
-        builderUrl = `${request.nextUrl.origin}${path}`;
+        builderUrl = preserveBrokenBuildDeepLinkUrl(request.nextUrl.origin, path, encoded);
       }
     }
 

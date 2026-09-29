@@ -9,7 +9,7 @@ import { validateSelections } from "../lib/validation/configuration";
 import { withOptionSelected, type CustomizationOption } from "../lib/types/customization";
 import { ApiError } from "../lib/api/errors";
 import { resolveAssetUrl } from "../lib/three/assetUrl";
-import { DRACO_DECODER_PATH, markAttached } from "../lib/three/assets";
+import { DRACO_DECODER_PATH, attachToMount, markAttached } from "../lib/three/assets";
 
 /**
  * Regression coverage for the issues raised in review of PR #2. Each block names the behaviour it
@@ -189,6 +189,78 @@ describe("material disposal", () => {
     // therefore reach. Previously it was stranded inside the writer and leaked.
     expect(materialAt(fixture.root, "BODY", "body.carmain")).toBe(fixture.materials.bodyPaint);
     expect(controller.clonedMaterialCount).toBe(0);
+  });
+
+  it("drops the slots written on a mounted replacement that is removed again", async () => {
+    const fixture = createVehicleFixture();
+    const replacement: CustomizationOption = {
+      id: "wheels-swap-beadlock",
+      category: "wheels",
+      label: "Beadlock swap",
+      operation: "mesh-replacement",
+      assetUrl: "/models/wheels/beadlock.glb",
+      mountNodes: ["MOUNT_WHEEL_FRONT_LEFT"],
+      hidesNodes: [],
+      compatibleVehicleIds: ["4runner"],
+    };
+    // A sidewall finish is the write that really lands inside a mounted subtree: `runningGear.ts`
+    // targets the tyres a fitted wheel package mounts, not only the factory ones.
+    const sidewall: CustomizationOption = {
+      id: "tire-sidewall-beadlock-test",
+      category: "wheels",
+      selectionGroup: "tire-sidewall",
+      label: "Sidewall",
+      operation: "material-update",
+      targetNodes: ["MOUNTED_TIRE"],
+      targetMaterials: ["tire.sidewall"],
+      materialConfig: { color: "#f2f2ee" },
+      compatibleVehicleIds: ["4runner"],
+    };
+    const controller = new VehicleSceneController(fixture.root, [replacement, sidewall]);
+
+    // Stand in for the GLB `applyMeshReplacement` would fetch, with the named material slot the
+    // finish writes — the same shape `attachToMount` produces, minus the network.
+    const mounted = new THREE.Group();
+    mounted.name = "MOUNTED_ASSET";
+    const tire = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      Object.assign(new THREE.MeshStandardMaterial(), { name: "tire.sidewall" }),
+    );
+    tire.name = "MOUNTED_TIRE";
+    mounted.add(tire);
+    markAttached(mounted, replacement.id);
+    fixture.root.getObjectByName("MOUNT_WHEEL_FRONT_LEFT")!.add(mounted);
+
+    await controller.applyOption(sidewall);
+    expect(controller.clonedMaterialCount).toBe(1);
+
+    await controller.removeOption(replacement);
+
+    // The detached subtree is gone from the scene, and the writer must not keep holding the slot
+    // it wrote on it: a builder session that swaps wheel packages repeatedly would otherwise grow
+    // one retained clone — and a strong reference to the disposed mesh — per swap, forever.
+    expect(fixture.root.getObjectByName("MOUNTED_TIRE")).toBeUndefined();
+    expect(controller.clonedMaterialCount).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────── mount bookkeeping
+
+describe("mount bookkeeping", () => {
+  it("reports the subtree a new attachment replaces, and nothing else", () => {
+    const mount = new THREE.Group();
+    const previous = new THREE.Group();
+    markAttached(previous, "option-a");
+    mount.add(previous);
+    // Geometry this integration did not attach — a Blender-authored child of the mount node —
+    // must be left alone by both the detach and the return value.
+    const foreign = new THREE.Group();
+    mount.add(foreign);
+
+    const replaced = attachToMount(mount, new THREE.Group(), "option-b");
+
+    expect(replaced).toEqual([previous]);
+    expect(mount.children).toContain(foreign);
   });
 });
 

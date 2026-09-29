@@ -9,6 +9,13 @@ name: E2E and visual regression
 # after Playwright, reusing the same Chromium install. Separate from ci.yml's "verify" job so a
 # flaky visual diff (see playwright.config.ts's maxDiffPixelRatio note) never blocks the fast
 # unit/lint/typecheck gate that job is for.
+#
+# The suite is serial within a job (playwright.config.ts workers: 1) because two concurrent 3D
+# / GLB loads starve the software rasteriser on ubuntu-latest. That makes a single job take
+# ~18–19 minutes of Playwright alone on a good run — inside the 20-minute job limit with almost
+# no headroom, so normal runner jitter cancels mid-suite (e.g. PR #161 and occasional main runs).
+# Shard across two runners instead of raising timeout-minutes: wall clock drops to roughly half
+# while each shard stays workers: 1. Lighthouse is its own short job so it never races the suite.
 on:
   pull_request:
   push:
@@ -23,6 +30,11 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2]
+        shardTotal: [2]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,15 +44,30 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run build
-      - run: npm run test:e2e
-      # Desktop Lighthouse on the builder route after the same production preview Playwright uses
-      # (#79). Reuses the Chromium install above; fails on serious LCP/TBT or entry-JS gzip regressions.
-      - name: Lighthouse budget (builder route)
-        run: npm run test:perf
+      - name: Playwright (shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+        run: npm run test:e2e -- --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shardIndex }}
           path: playwright-report/
           retention-days: 14
+
+  perf:
+    name: Lighthouse budget (builder route)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      # Desktop Lighthouse on the builder route after the same production preview Playwright uses
+      # (#79). Own job so it never competes with the serial e2e wall clock for the 20-minute budget.
+      - name: Lighthouse budget (builder route)
+        run: npm run test:perf

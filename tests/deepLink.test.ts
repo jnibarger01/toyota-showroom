@@ -5,6 +5,9 @@ import {
   decodeBuildDeepLink,
   encodeBuildDeepLink,
   readBuildDeepLinkParam,
+  readBuildDeepLinkRestore,
+  preserveBrokenBuildDeepLinkUrl,
+  stripBuildDeepLinkParam,
   validateBuildDeepLink,
 } from "../lib/showroom/deepLink";
 import type { CameraState, SelectionMap } from "../lib/types/customization";
@@ -60,9 +63,20 @@ describe("build deep-link encode/decode", () => {
     expect(validateBuildDeepLink("4runner", 2024, encoded!).selections.paint).toEqual(["paint-1j9-ice-cap"]);
   });
 
+  it("round-trips factory package ids and validates grade compatibility", () => {
+    const encoded = encodeBuildDeepLink({
+      gradeId: "trd-off-road", selections: {}, factoryPackageIds: ["premium-pkg"],
+    });
+    expect(validateBuildDeepLink("4runner", 2024, encoded).factoryPackageIds).toEqual(["premium-pkg"]);
+    const incompatible = encodeBuildDeepLink({ gradeId: "sr5", selections: {}, factoryPackageIds: ["premium-pkg"] });
+    expect(() => validateBuildDeepLink("4runner", 2024, incompatible)).toThrow(/not available on grade/);
+  });
+
   it("reads the c param from a search string", () => {
     expect(readBuildDeepLinkParam("?c=abc")).toBe("abc");
     expect(readBuildDeepLinkParam("c=abc&x=1")).toBe("abc");
+    expect(readBuildDeepLinkParam("?c=")).toBe("");
+    expect(readBuildDeepLinkParam("?c=%20%20")).toBe("");
     expect(readBuildDeepLinkParam("")).toBeNull();
     expect(readBuildDeepLinkParam("?other=1")).toBeNull();
   });
@@ -127,5 +141,45 @@ describe("build deep-link encode/decode", () => {
     const json = Buffer.from(encoded.replace(/-/g, "+").replace(/_/g, "/") + "==", "base64").toString("utf8");
     expect(json).not.toMatch(/BODY|body\.carmain|MOUNT_/);
     expect(json).toContain("paint-3u5-barcelona-red");
+  });
+});
+
+
+describe("readBuildDeepLinkRestore", () => {
+  it("distinguishes absent from empty, malformed, and stale links", () => {
+    expect(readBuildDeepLinkRestore("4runner", 2024, "")).toEqual({ status: "absent" });
+    expect(readBuildDeepLinkRestore("4runner", 2024, "?other=1")).toEqual({ status: "absent" });
+    expect(readBuildDeepLinkRestore("4runner", 2024, "?c=").status).toBe("invalid");
+    expect(readBuildDeepLinkRestore("4runner", 2024, "?c=%20%20").status).toBe("invalid");
+    expect(readBuildDeepLinkRestore("4runner", 2024, "?c=%%%25").status).toBe("invalid");
+    const stale = encodeBuildDeepLink({ gradeId: "trd-pro", selections: { paint: ["paint-does-not-exist"] } });
+    expect(readBuildDeepLinkRestore("4runner", 2024, `?c=${stale}`).status).toBe("invalid");
+  });
+
+  it("restores package selections through the current deep-link schema", () => {
+    const encoded = encodeBuildDeepLink({
+      gradeId: "trd-off-road", selections: {}, factoryPackageIds: ["premium-pkg"], cameraState: heroCamera,
+    });
+    const result = readBuildDeepLinkRestore("4runner", 2024, `?c=${encoded}`);
+    expect(result.status).toBe("restored");
+    expect(result.status === "restored" && result.build.factoryPackageIds).toEqual(["premium-pkg"]);
+  });
+});
+
+describe("preserveBrokenBuildDeepLinkUrl", () => {
+  it("keeps invalid and empty c payloads for builder recovery", () => {
+    expect(new URL(preserveBrokenBuildDeepLinkUrl("https://showroom.example", "/4runner/", "bad!!")).searchParams.get("c")).toBe("bad!!");
+    const empty = new URL(preserveBrokenBuildDeepLinkUrl("https://showroom.example", "/4runner/", ""));
+    expect(empty.searchParams.has("c")).toBe(true);
+    expect(empty.searchParams.get("c")).toBe("");
+  });
+});
+
+describe("stripBuildDeepLinkParam", () => {
+  it("removes only c and preserves sibling params", () => {
+    expect(stripBuildDeepLinkParam("?c=abc&utm=email")).toBe("?utm=email");
+    expect(stripBuildDeepLinkParam("?utm=email&c=abc")).toBe("?utm=email");
+    expect(stripBuildDeepLinkParam("?c=abc")).toBe("");
+    expect(stripBuildDeepLinkParam("?other=1")).toBe("?other=1");
   });
 });

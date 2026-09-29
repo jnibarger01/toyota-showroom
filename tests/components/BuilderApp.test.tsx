@@ -146,6 +146,7 @@ vi.mock("../../lib/api/configurations", () => ({
       model: fourRunner.model,
       gradeId: input.gradeId,
       selections: input.selections ?? {},
+      factoryPackageIds: input.factoryPackageIds ?? [],
       cameraState: input.cameraState,
       paintStudio: input.paintStudio,
       revision,
@@ -184,6 +185,7 @@ vi.mock("../../lib/api/configurations", () => ({
       model: fourRunner.model,
       gradeId: "trd-pro",
       selections: input.selections ?? {},
+      factoryPackageIds: input.factoryPackageIds ?? [],
       cameraState: input.cameraState,
       paintStudio: input.paintStudio,
       revision,
@@ -295,6 +297,21 @@ describe("BuilderApp", () => {
     // The right panel only shows one category at a time; each rail label now maps to its typed category.
     fireEvent.click(screen.getByRole("button", { name: "Build step: Accessories" }));
     expect(screen.getByRole("button", { name: /overland roof rack/i })).toBeInTheDocument();
+  });
+
+  it("toggles a grade-compatible factory package through the configuration store", async () => {
+    await renderBuilderReady();
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Grade" }));
+    fireEvent.click(within(screen.getByTestId("buyer-grade-panel")).getByRole("button", { name: /TRD Off-Road/i }));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.gradeId).toBe("trd-off-road"));
+    fireEvent.click(screen.getByRole("button", { name: "Build step: Packages" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add package" }));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.factoryPackageIds).toEqual(["premium-pkg"]));
+    expect(within(screen.getByLabelText("Printable build summary")).getByText("Premium Package ($3,520)")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Undo (Ctrl/⌘ Z)"));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.factoryPackageIds).toEqual([]));
+    fireEvent.click(screen.getByTitle("Redo (Ctrl/⌘ Shift Z)"));
+    await waitFor(() => expect(configurationStore.getSnapshot().configuration?.factoryPackageIds).toEqual(["premium-pkg"]));
   });
 
   it("exposes runtime performance systems and their generated options", async () => {
@@ -412,6 +429,30 @@ describe("BuilderApp", () => {
     expect(configurationStore.getSnapshot().configuration?.cameraState?.presetId).toBe("front");
     expect(screen.getByRole("button", { name: "Barcelona Red Metallic" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "Front" })).toHaveClass("selected");
+    expect(screen.queryByTestId("build-deeplink-error")).not.toBeInTheDocument();
+  });
+
+  it("reports a malformed ?c= link and strips only that parameter", async () => {
+    window.history.replaceState({}, "", "/4runner/?c=not-valid-base64!!&utm=email");
+    await renderBuilderReady();
+    expect(screen.getByTestId("build-deeplink-error")).toHaveTextContent(/can’t be restored/i);
+    expect(window.location.search).toBe("?utm=email");
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByTestId("build-deeplink-error")).not.toBeInTheDocument();
+  });
+
+  it("reports an empty ?c= link instead of silently loading another build", async () => {
+    window.history.replaceState({}, "", "/4runner/?c=&utm=email");
+    await renderBuilderReady();
+    expect(screen.getByTestId("build-deeplink-error")).toBeInTheDocument();
+    expect(window.location.search).toBe("?utm=email");
+  });
+
+  it("reports a structurally valid but stale ?c= link", async () => {
+    const stale = encodeBuildDeepLink({ gradeId: "trd-pro", selections: { paint: ["paint-no-longer-offered"] } });
+    window.history.replaceState({}, "", `/4runner/?c=${encodeURIComponent(stale)}`);
+    await renderBuilderReady();
+    expect(screen.getByTestId("build-deeplink-error")).toBeInTheDocument();
   });
 
   it("updates the running build total and financing payment when an option with priceDelta is selected", async () => {
@@ -729,4 +770,3 @@ describe("BuilderApp stale-revision conflict UX (#52)", () => {
     expect(configurationStore.getSnapshot().configuration?.revision).toBe(9);
   });
 });
-

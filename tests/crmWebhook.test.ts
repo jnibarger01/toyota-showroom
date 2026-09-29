@@ -58,6 +58,16 @@ describe("buildCrmLeadWebhookPayload", () => {
     });
   });
 
+  it("carries validated factory package ids so CRM totals match the shopper's build", () => {
+    const payload = buildCrmLeadWebhookPayload(lead, {
+      ...build,
+      gradeId: "trd-off-road",
+      factoryPackageIds: ["premium-pkg"],
+    });
+    expect(payload.factoryPackageIds).toEqual(["premium-pkg"]);
+    expect(buildCrmLeadWebhookPayload(lead, build)).not.toHaveProperty("factoryPackageIds");
+  });
+
   it("never embeds webhook secrets in the JSON payload", () => {
     const secret = "super-secret-crm-token";
     const payload = buildCrmLeadWebhookPayload(lead, build);

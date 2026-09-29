@@ -211,4 +211,25 @@ describe("after the scene rejects a selection", () => {
 
     expect(configurationStore.getSnapshot().pending.size).toBe(0);
   });
+
+  it("rolls back packages with options when an undo snapshot fails to apply", async () => {
+    const { configuration, ownerToken } = await repo.create(
+      validateCreateConfiguration({ vehicleId: "4runner", modelYear: 2024, gradeId: "trd-off-road" }),
+    );
+    ownerTokens.set(configuration.configurationId, ownerToken);
+    const scene = freshScene();
+    const permissiveCatalog = [...fourRunnerOptions, ...plannedFourRunnerOptions];
+    const permissive = new VehicleSceneController(scene.fixture.root, permissiveCatalog);
+    await configurationStore.attachScene(permissive, configuration, permissiveCatalog);
+
+    const callsBefore = updateCalls;
+    await configurationStore.replaceSelections({ hood: [plannedHood.id] }, ["premium-pkg"]);
+    await configurationStore.flush();
+
+    // Atomic restore: the scene failure must not leave a package-only partial undo to persist.
+    expect(updateCalls).toBe(callsBefore);
+    expect(configurationStore.getSnapshot().status).toBe("error");
+    expect(configurationStore.getSnapshot().configuration?.factoryPackageIds ?? []).toEqual([]);
+    expect((await repo.get(configuration.configurationId))?.factoryPackageIds ?? []).toEqual([]);
+  });
 });

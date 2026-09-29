@@ -52,6 +52,33 @@ test("clicking the vehicle's paint selects body.exterior specifically and shows 
   await expect(page.locator(".selected-part-badge")).toContainText("Exterior paint");
 });
 
+test("hovering the vehicle's paint highlights that part without selecting it", async ({ page }) => {
+  const canvas = await waitForSettledCanvas(page);
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas has no bounding box");
+
+  // Start on the background (the same corner the click tests treat as empty space), then move —
+  // with no button pressed — onto the spot that provably has a part under it. A plain mouse hover
+  // is the common desktop gesture and has no `pointerdown` to be tracked by: a `pointermove`
+  // handler that only accepts the "active" pointer drops every one of these events, which is
+  // exactly how this path came to be dead while the click path kept working.
+  await page.mouse.move(box.x + 6, box.y + 6);
+  await page.mouse.move(box.x + box.width * 0.62, box.y + box.height * 0.48);
+
+  // Same point test 1 uses, so the expected semantic id is the one this framing is documented to
+  // put under it.
+  await expect
+    .poll(async () => canvas.getAttribute("data-hovered-part"), { timeout: 5_000 })
+    .toBe("body.exterior");
+  // A hover previews, it never selects.
+  const selected = await canvas.getAttribute("data-selected-part");
+  expect(selected === null || selected === "").toBe(true);
+
+  // Moving off the vehicle clears the highlight again, with still no press in flight.
+  await page.mouse.move(box.x + 6, box.y + 6);
+  await expect.poll(async () => canvas.getAttribute("data-hovered-part"), { timeout: 5_000 }).toBe("");
+});
+
 test("dragging to orbit does not select a part", async ({ page }) => {
   const canvas = await waitForSettledCanvas(page);
   const box = await canvas.boundingBox();

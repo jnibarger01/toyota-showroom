@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-test("Build & Price uses the OEM buyer step order and keeps factory package data honest", async ({ page }) => {
+test("Build & Price persists OEM packages and includes them in the saved build estimate", async ({ page }) => {
   await page.goto("4runner/");
 
   const flow = page.getByTestId("buyer-flow");
@@ -26,6 +26,14 @@ test("Build & Price uses the OEM buyer step order and keeps factory package data
   await expect(packages).toContainText("Premium Package");
   await expect(packages).toContainText("Leather-trimmed seats");
   await expect(packages).toContainText("$3,520");
+  const addPackage = packages.getByRole("button", { name: "Add package" });
+  await addPackage.click();
+  await expect(packages.getByRole("button", { name: "Remove package" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("estimated-total")).toContainText("$47,475");
+  await expect(page.getByRole("button", { name: "Saved locally" })).toBeVisible();
+  await page.reload();
+  await page.getByRole("button", { name: "Build step: Packages" }).click();
+  await expect(page.getByTestId("buyer-packages-panel").getByRole("button", { name: "Remove package" })).toHaveAttribute("aria-pressed", "true");
 
   await page.getByRole("button", { name: "Build step: Exterior" }).click();
   await expect(page.getByRole("tab", { name: "Paint" })).toHaveAttribute("aria-selected", "true");
@@ -36,6 +44,8 @@ test("Build & Price uses the OEM buyer step order and keeps factory package data
   await expect(page.getByTestId("buyer-summary-panel")).toBeVisible();
   await expect(page.getByTestId("estimated-total")).toBeVisible();
   await expect(page.getByTestId("estimated-monthly-payment")).toBeVisible();
+  await expect(page.getByTestId("buyer-summary-panel")).toContainText("Premium Package");
+  await expect(page.getByTestId("buyer-summary-panel")).not.toContainText("No upgrades selected");
 });
 
 test("OEM spin keeps 3D Studio out of the primary flow until the shopper requests 3D", async ({ page }) => {

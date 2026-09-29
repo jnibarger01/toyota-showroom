@@ -127,23 +127,36 @@ export function attachedOptionId(object: THREE.Object3D): string | undefined {
  * mount rather than carrying coordinates: re-authoring the vehicle in Blender moves the part
  * without a code or data change. Removing the previous attachment before adding the new one is
  * what prevents duplicate meshes accumulating across repeated selections.
+ *
+ * Returns what that removal detached (empty when the mount held nothing of this integration's), so
+ * a caller holding per-mesh bookkeeping — `MaterialWriter`'s written slots — can drop it for the
+ * same nodes this call just disposed.
  */
-export function attachToMount(mount: THREE.Object3D, asset: THREE.Object3D, optionId: string): void {
-  detachFromMount(mount);
+export function attachToMount(mount: THREE.Object3D, asset: THREE.Object3D, optionId: string): THREE.Object3D[] {
+  const detached = detachFromMount(mount);
   markAttached(asset, optionId);
   asset.position.set(0, 0, 0);
   asset.quaternion.identity();
   asset.scale.set(1, 1, 1);
   mount.add(asset);
+  return detached;
 }
 
-export function detachFromMount(mount: THREE.Object3D): void {
+/**
+ * Detaches and disposes every subtree this integration attached to `mount`, returning the roots it
+ * removed. The return value exists for the same reason `attachToMount`'s does: the caller may hold
+ * per-mesh state that has to be released alongside the disposed geometry.
+ */
+export function detachFromMount(mount: THREE.Object3D): THREE.Object3D[] {
+  const detached: THREE.Object3D[] = [];
   // Copy first: removing during iteration mutates the array being walked.
   for (const child of [...mount.children]) {
     if (attachedOptionId(child) === undefined) continue;
     mount.remove(child);
     disposeSubtree(child);
+    detached.push(child);
   }
+  return detached;
 }
 
 /**
