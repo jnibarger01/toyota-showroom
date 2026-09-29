@@ -70,7 +70,8 @@ import type { LampMode } from "../../lib/three/vehicleLights";
 import { DoorRig } from "../../lib/three/doors";
 import { driverEyeFromSteeringWheel } from "../../lib/three/interiorView";
 import { buildDimensionsOverlay, disposeDimensionsOverlay, type DimensionLabel, type DimensionSpec } from "../../lib/three/dimensions";
-import { projectToScreen, resolveHotspotAnchor, selectHotspots, surfaceSamples, visibleStandIn, type Hotspot } from "../../lib/three/hotspots";
+import { resolveHotspotAnchor, selectHotspots, surfaceSamples, visibleStandIn, type Hotspot } from "../../lib/three/hotspots";
+import { hideOverlayElements, placeOverlayElement } from "../../lib/three/overlayPlacement";
 import { ArPlacement, trueScaleFactor, type HitTestFrame, type PlacementSession } from "../../lib/three/arPlacement";
 import { exportQuickLookUrl, supportsQuickLook } from "../../lib/three/quickLook";
 import type { CustomizationCategory } from "../../lib/types/customization";
@@ -770,11 +771,10 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         overlay.frame += 1;
         const width = canvasElement.clientWidth;
         const height = canvasElement.clientHeight;
-        const place = (element: HTMLElement, point: THREE.Vector3 | null | undefined) => {
-          const screen = point ? projectToScreen(point, camera, width, height) : null;
-          element.hidden = !screen;
-          if (screen) element.style.transform = `translate(${screen.x}px, ${screen.y}px) translate(-50%, -50%)`;
-        };
+        // Delegates to `placeOverlayElement` so a still view costs no DOM writes: it compares the
+        // projected placement against what the element already has before touching `style`/`hidden`.
+        const place = (element: HTMLElement, point: THREE.Vector3 | null | undefined) =>
+          placeOverlayElement(element, point, camera, width, height);
         if (overlay.showHotspots && controller && !cameraController.isDriverView) {
           // Camera pose and vehicle placement (lift) together decide what is visible. Samples are
           // world-space, so only a vehicle move (or a new vehicle) invalidates them.
@@ -818,7 +818,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, lift,
         } else {
           hotspotAnchors.clear();
           lastHotspots = null;
-          for (const element of overlay.hotspotElements.values()) element.hidden = true;
+          hideOverlayElements(overlay.hotspotElements.values());
         }
         for (const label of overlay.labels) {
           const element = overlay.labelElements.get(label.key);
