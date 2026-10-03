@@ -66,8 +66,13 @@ html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--te
 body { font-family: var(--font-family-base); overflow: auto; }
 button { font: inherit; color: inherit; }
 
-/* Only the fixed-height configurator owns viewport locking. Document-flow routes (Explore/Compare/Garage) must scroll normally. */
-.builder-shell { height: 100vh; min-height: 100vh; overflow: hidden; background: radial-gradient(circle at 45% 10%, #18202a 0, #0b0f14 38%, #07090c 100%); }
+/*
+ * Only the fixed-height configurator owns viewport locking. Document-flow routes (Explore/Compare/Garage) must scroll normally.
+ * `100dvh` tracks the visible viewport as mobile toolbars show and hide; `100vh` alone is the largest viewport, which leaves
+ * the shell taller than the screen while the address bar is visible. The `:has` rule locks the document itself on this route.
+ */
+body:has(.builder-shell) { overflow: hidden; overscroll-behavior: none; }
+.builder-shell { height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; background: radial-gradient(circle at 45% 10%, #18202a 0, #0b0f14 38%, #07090c 100%); }
 .builder-status { display: grid; place-items: center; color: var(--muted); font-size: 14px; }
 .topbar {
   height: 72px; display: grid; grid-template-columns: 260px 1fr auto; align-items: center;
@@ -183,7 +188,7 @@ button { font: inherit; color: inherit; }
 }
 
 
-.workspace { height: calc(100vh - 72px); display: grid; grid-template-columns: 238px minmax(0, 1fr) 304px; }
+.workspace { height: calc(100vh - 72px); height: calc(100dvh - 72px); display: grid; grid-template-columns: 238px minmax(0, 1fr) 304px; }
 .left-rail, .right-panel { background: rgba(12,16,21,.95); overflow: auto; }
 .left-rail { border-right: 1px solid #202731; padding: 24px 16px; }
 .right-panel { border-left: 1px solid #202731; padding: 22px 16px; }
@@ -257,7 +262,9 @@ button { font: inherit; color: inherit; }
 
 .static-vehicle-preview {
   z-index: 3; display: grid; place-items: center; overflow: hidden; pointer-events: auto;
-  background: radial-gradient(circle at 50% 42%, #1d2732 0, #0c1117 58%, #080b0f 100%);
+  /* Flat, matching the edge colour of the static stills: they carry their own opaque backdrop (share-card
+     crawlers need one), so a gradient here would outline the image. */
+  background: #0b0f14;
 }
 .static-vehicle-preview img {
   width: 100%; height: 100%; object-fit: contain; padding: clamp(28px, 6vw, 72px);
@@ -510,7 +517,7 @@ button { font: inherit; color: inherit; }
     display: grid; place-items: center; width: 38px; height: 38px; padding: 0;
     border: 1px solid var(--border); border-radius: 9px; background: #151a21;
   }
-  .workspace { height: calc(100vh - 72px); grid-template-columns: 1fr; }
+  .workspace { height: calc(100vh - 72px); height: calc(100dvh - 72px); grid-template-columns: 1fr; }
   .left-rail, .right-panel {
     display: block; position: fixed; top: 72px; bottom: 0; width: min(92vw, 340px);
     z-index: 22; visibility: hidden;

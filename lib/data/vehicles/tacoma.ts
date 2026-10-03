@@ -104,9 +104,9 @@ export const tacoma: Vehicle = {
   ],
 
   media: {
-    hero: { url: "/images/vehicles/tacoma/tacoma-static-preview.svg", alt: "2024 Toyota Tacoma static pickup preview" },
+    hero: { url: "/images/vehicles/tacoma/tacoma-static-preview.png", alt: "2024 Toyota Tacoma static pickup preview" },
     gallery: [],
-    thumbnails: [{ url: "/images/vehicles/tacoma/tacoma-static-preview.svg", alt: "2024 Toyota Tacoma thumbnail" }],
+    thumbnails: [{ url: "/images/vehicles/tacoma/tacoma-static-preview.png", alt: "2024 Toyota Tacoma thumbnail" }],
     videos: [],
     environmentMaps: [],
   },

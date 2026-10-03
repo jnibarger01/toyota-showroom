@@ -33,6 +33,16 @@ describe("Open Graph share preview (#41)", () => {
     expect(preview.pageUrl).toBe(absolutePageUrl("4runner"));
   });
 
+  it("never hands crawlers an SVG og:image", () => {
+    const vehicle = {
+      ...fourRunner,
+      media: { ...fourRunner.media, hero: { url: "/images/vehicles/x/preview.svg", alt: "SVG hero" } },
+    };
+    const preview = buildSharePreview({ vehicle });
+    expect(preview.imageUrl).toBe(absoluteAssetUrl("/images/modsnation_7416_final_hero_tweaked.png"));
+    expect(preview.imageAlt).not.toBe("SVG hero");
+  });
+
   it("enriches title/description from grade + paint + wheels fixtures", () => {
     const preview = buildSharePreview({
       vehicle: fourRunner,

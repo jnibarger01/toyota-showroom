@@ -61,7 +61,9 @@ test("Tacoma uses an explicit static preview instead of exposing the procedural 
   const preview = page.getByTestId("static-vehicle-preview");
   await expect(preview).toBeVisible();
   await expect(preview).toContainText("3D model unavailable");
-  await expect(preview.locator("img")).toHaveAttribute("src", /vehicles\/tacoma\/tacoma-static-preview\.svg/);
+  await expect(preview.locator("img")).toHaveAttribute("src", /vehicles\/tacoma\/tacoma-static-preview\.png/);
+  // A src match alone let a corrupt file ship; require the browser to actually decode it.
+  await expect.poll(() => preview.locator("img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)).toBeGreaterThan(0);
   await expect(page.locator(".stage-toolbar")).toHaveCount(0);
   await expect(page.getByRole("group", { name: /Vehicle viewer/i })).toHaveCount(0);
 });
@@ -76,9 +78,15 @@ test("Explore uses vehicle-specific Tacoma and AE86 imagery", async ({ page }) =
   const tacoma = await sourceFor("Tacoma");
   const ae86 = await sourceFor("Corolla GT-S (AE86)");
 
-  expect(tacoma).toContain("/vehicles/tacoma/tacoma-static-preview.svg");
+  expect(tacoma).toContain("/vehicles/tacoma/tacoma-static-preview.png");
   expect(ae86).toContain("/vehicles/ae86/ae86-front-three-quarter.webp");
   expect(tacoma).not.toBe(runner);
   expect(ae86).not.toBe(runner);
   expect(ae86).not.toBe(tacoma);
+
+  for (const model of ["Tacoma", "Corolla GT-S (AE86)"]) {
+    const img = page.locator(".vehicle-card").filter({ hasText: model }).locator("img").first();
+    await img.scrollIntoViewIfNeeded();
+    await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(0);
+  }
 });

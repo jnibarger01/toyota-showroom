@@ -114,6 +114,8 @@ export class RenderController {
   private tick: (() => void) | undefined;
   private running = true;
   private suspended: boolean;
+  /** Set by the owner when the canvas is covered (e.g. a static vehicle preview) — no frames are painted. */
+  private paused = false;
   private rafId = 0;
   private framePublishCount = 0;
   private disposed = false;
@@ -346,6 +348,7 @@ export class RenderController {
     // Idle suspension is a page-visibility concept and does not apply in XR: the canvas is not what
     // the viewer is looking at, and an IntersectionObserver on it says nothing about the headset.
     if (this.suspended && !this.xrPresenting) return;
+    if (this.paused) return;
     const stats = this.frameStats.record(performance.now());
     // Reuses the delta frameStats already computed rather than timing the loop a second time.
     this.governor.recordFrame(stats.lastFrameMs);
@@ -376,6 +379,25 @@ export class RenderController {
       // In XR the device asks for the next frame itself; self-queueing would run two loops.
       if (this.running && !this.suspended && !this.xrPresenting) this.queueFrame();
     });
+  }
+
+  /**
+   * Stops or resumes painting frames while keeping the scene loaded. For an owner that covers the
+   * canvas with something opaque: an invisible scene should not spend GPU time or battery.
+   */
+  setPaused(paused: boolean): void {
+    if (this.disposed || this.paused === paused) return;
+    this.paused = paused;
+    if (paused) {
+      this.cancelPendingRaf();
+      return;
+    }
+    if (this.running && !this.suspended && !this.xrPresenting) {
+      this.cancelPendingRaf();
+      this.frameStats.reset();
+      this.governor.reset();
+      this.loop();
+    }
   }
 
   /**

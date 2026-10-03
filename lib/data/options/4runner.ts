@@ -1,4 +1,5 @@
 import type { CustomizationOption } from "../../types/customization";
+import { paintCustomSentinel } from "../paintStudio";
 
 /**
  * 4Runner customization catalog.
@@ -75,23 +76,7 @@ export const fourRunnerOptions: CustomizationOption[] = [
 
   // Custom paint studio sentinel — material numbers persist on VehicleConfiguration.paintStudio,
   // not as GLB material names. Targets stay catalog-owned (BODY / body.carmain).
-  {
-    id: "paint-custom",
-    category: "paint",
-    label: "Custom Paint Studio",
-    operation: "material-update",
-    targetNodes: PAINT_NODES,
-    targetMaterials: PAINT_MATERIALS,
-    materialConfig: {
-      color: "#1558d6",
-      metalness: 0.65,
-      roughness: 0.28,
-      clearcoat: 1,
-      clearcoatRoughness: 0.06,
-    },
-    priceDelta: 595,
-    compatibleVehicleIds: VEHICLE,
-  },
+  paintCustomSentinel({ vehicleIds: VEHICLE, targetNodes: PAINT_NODES, targetMaterials: PAINT_MATERIALS }),
 
   // ---------------------------------------------------------- wheel finish
   // `wheel.metal` is also used by the hidden donor node `322-1790(MD010)`, so these updates go

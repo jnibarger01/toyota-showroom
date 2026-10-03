@@ -69,6 +69,10 @@ function joinWithAnd(parts: string[]): string {
   return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
 }
 
+function isRasterImagePath(url: string): boolean {
+  return /\.(png|jpe?g|webp|gif)$/i.test(url.split(/[?#]/)[0] ?? "");
+}
+
 /**
  * Builds title / description / image for a vehicle page, optionally enriched from a deep-link
  * payload (`gradeId` + paint/wheels selections).
@@ -96,7 +100,8 @@ export function buildSharePreview(input: BuildSharePreviewInput): SharePreviewPa
       ? `${subject} with ${joinWithAnd(optionBits)}.`
       : `Configure the ${subject} — paint, wheels, accessories, and more.`;
 
-  const hero = vehicle.media?.hero;
+  // Link-preview crawlers (Facebook, X, LinkedIn, Slack) do not render SVG og:images.
+  const hero = vehicle.media?.hero && isRasterImagePath(vehicle.media.hero.url) ? vehicle.media.hero : undefined;
   const imagePath = hero?.url ?? FALLBACK_OG_IMAGE_PATH;
   const imageAlt = hero?.alt ?? `${label} showroom preview`;
 

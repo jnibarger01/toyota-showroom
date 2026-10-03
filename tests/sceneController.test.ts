@@ -383,3 +383,24 @@ describe("procedural runtime modification replay", () => {
     expect(node.visible).toBe(false);
   });
 });
+
+describe("paint studio targets", () => {
+  it("falls back to the shared node/material pair when a sentinel only names one half", () => {
+    const fixture = createVehicleFixture();
+    const { satisfied } = verifyNodeContract(fixture.root, fourRunnerOptions);
+    // A sentinel with nodes but no materials must not pair its nodes with the shared material names.
+    const catalog = satisfied.map((option) =>
+      option.id === "paint-custom" ? { ...option, targetNodes: ["SENTINEL_ONLY_NODE"], targetMaterials: undefined } : option,
+    );
+    const controller = new VehicleSceneController(fixture.root, catalog);
+
+    const applied = controller.applyPaintStudio({
+      mode: "custom",
+      hdriPresetId: "hdri-studio",
+      material: { color: "#123456", metalness: 0.5, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.05 },
+    });
+
+    expect(applied).toBe(true);
+    expect(colorHexAt(fixture.root, "BODY", "body.carmain")).toBe("123456");
+  });
+});

@@ -1,4 +1,4 @@
-import type { MaterialConfig } from "../types/customization";
+import type { CustomizationOption, MaterialConfig } from "../types/customization";
 import type { PaintStudioMaterialParams, PaintStudioState } from "../types/paintStudio";
 
 /**
@@ -18,6 +18,29 @@ export const PAINT_CUSTOM_OPTION_ID = "paint-custom";
 
 /** Studio fee when the builder is in custom paint mode. */
 export const PAINT_CUSTOM_PRICE_DELTA = 595;
+
+/**
+ * Builds a vehicle catalog's `paint-custom` sentinel. Node and material targets are a required pair:
+ * the scene layer takes both from the sentinel, so they must describe the same asset.
+ */
+export function paintCustomSentinel(input: {
+  vehicleIds: string[];
+  targetNodes: string[];
+  targetMaterials: string[];
+  materialConfig?: Partial<MaterialConfig>;
+}): CustomizationOption {
+  return {
+    id: PAINT_CUSTOM_OPTION_ID,
+    category: "paint",
+    label: "Custom Paint Studio",
+    operation: "material-update",
+    targetNodes: input.targetNodes,
+    targetMaterials: input.targetMaterials,
+    materialConfig: { ...DEFAULT_CUSTOM_MATERIAL, ...input.materialConfig },
+    priceDelta: PAINT_CUSTOM_PRICE_DELTA,
+    compatibleVehicleIds: input.vehicleIds,
+  };
+}
 
 export type HdriLightingKey = "studio" | "showroom" | "overcast" | "sunset";
 

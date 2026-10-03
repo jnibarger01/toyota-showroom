@@ -192,8 +192,11 @@ export class VehicleSceneController {
   applyPaintStudio(paintStudio: PaintStudioState | undefined): boolean {
     if (!paintStudio || paintStudio.mode !== "custom" || !paintStudio.material) return false;
     const sentinel = this.catalog.get(PAINT_CUSTOM_OPTION_ID);
-    const targetNodes = sentinel?.targetNodes?.length ? sentinel.targetNodes : [...PAINT_STUDIO_TARGET_NODES];
-    const targetMaterials = sentinel?.targetMaterials?.length ? sentinel.targetMaterials : [...PAINT_STUDIO_TARGET_MATERIALS];
+    // Nodes and materials must come from the same source — mixing a vehicle's nodes with the shared
+    // material names would silently match nothing.
+    const sentinelTargetsComplete = Boolean(sentinel?.targetNodes?.length && sentinel.targetMaterials?.length);
+    const targetNodes = sentinelTargetsComplete ? sentinel!.targetNodes! : [...PAINT_STUDIO_TARGET_NODES];
+    const targetMaterials = sentinelTargetsComplete ? sentinel!.targetMaterials! : [...PAINT_STUDIO_TARGET_MATERIALS];
     const meshes = resolveMeshes(this.root, targetNodes);
     if (meshes.length === 0) return false;
     const config = materialConfigFromPaintStudio(paintStudio.material);

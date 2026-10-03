@@ -94,7 +94,7 @@ export const ae86: Vehicle = {
   ],
 
   media: {
-    // Dedicated still captured from this vehicle's verified in-app GLB so lineup cards never borrow another model's imagery.
+    // Dedicated still rendered from this vehicle's GLB (at the scale below) so lineup cards never borrow another model's imagery.
     hero: { url: "/images/vehicles/ae86/ae86-front-three-quarter.webp", alt: "1985 Toyota Corolla GT-S AE86 front three-quarter 3D render" },
     gallery: [],
     thumbnails: [{ url: "/images/vehicles/ae86/ae86-front-three-quarter.webp", alt: "1985 Toyota Corolla GT-S AE86 thumbnail" }],
@@ -105,8 +105,11 @@ export const ae86: Vehicle = {
   threeDConfig: {
     hasModel: true,
     modelUrl: "/models/toyota-ae86-ivofficial.glb",
+    // The asset is authored ~4.4x real size (18.6 units long); this brings it to the AE86's 4.19 m so
+    // the metre-based camera presets below frame it instead of sitting inside the body.
+    scale: [0.225, 0.225, 0.225],
     // Distances scaled down from the 4Runner's presets for a car roughly two-thirds the length and
-    // notably lower. These presets have since been browser-verified at desktop and mobile sizes.
+    // notably lower.
     cameraPresets: [
       { id: "hero", label: "Hero", position: [5.0, 2.2, 5.5], target: [0, 0.55, 0] },
       { id: "wheels", label: "Wheels", position: [3.0, 0.65, 3.1], target: [-0.55, 0.35, 0.85] },

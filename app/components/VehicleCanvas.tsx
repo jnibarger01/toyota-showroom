@@ -225,6 +225,7 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, inter
   const onXrErrorRef = useRef(onXrError);
   const onQualityPreferenceLoadedRef = useRef(onQualityPreferenceLoaded);
   const qualityPreferenceRef = useRef(qualityPreference);
+  const interactiveRef = useRef(interactive);
   const onQualityNeedsReloadRef = useRef(onQualityNeedsReload);
   const xrControllerRef = useRef<XrSessionController | null>(null);
   useEffect(() => {
@@ -565,6 +566,9 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, inter
       // Priority 6) — `tick` is the one per-frame hook it doesn't own: the camera update that has
       // to happen before each paint.
       renderController.start(() => cameraController.update());
+      // A non-interactive canvas sits under an opaque static preview; it keeps loading the model
+      // (the builder's option list comes from `onReady`) but paints nothing.
+      renderController.setPaused(!interactiveRef.current);
 
       // Assign cleanup before any await so an unmount mid-load still tears the renderer down.
       cleanup = () => {
@@ -890,6 +894,11 @@ export function VehicleCanvas({ threeDConfig, slug, catalog, cameraPreset, inter
     // (including `antialias`, which only construction can set).
     writeQualityPreference(qualityPreference);
   }, [qualityPreference]);
+
+  useEffect(() => {
+    interactiveRef.current = interactive;
+    renderControllerRef.current?.setPaused(!interactive);
+  }, [interactive]);
 
   useEffect(() => {
     if (enterXrSignal === undefined) return;

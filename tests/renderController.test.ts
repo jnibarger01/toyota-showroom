@@ -240,6 +240,21 @@ describe("RenderController", () => {
       expect(fakeRenderer.renderCalls).toBe(0);
     });
 
+    it("paints nothing while paused and resumes the chain when unpaused", async () => {
+      const { fakeRenderer, controller } = await makeController();
+      controller.attachScene(new THREE.Scene(), new THREE.PerspectiveCamera());
+      controller.start(() => {});
+      controller.setPaused(true);
+      await vi.advanceTimersByTimeAsync(16 * 3);
+      const pausedRenders = fakeRenderer.renderCalls;
+      await vi.advanceTimersByTimeAsync(16 * 5);
+      expect(fakeRenderer.renderCalls).toBe(pausedRenders);
+
+      controller.setPaused(false);
+      await vi.advanceTimersByTimeAsync(16 * 3);
+      expect(fakeRenderer.renderCalls).toBeGreaterThan(pausedRenders);
+    });
+
     it("publishes a frame-stats dataset snapshot after enough frames", async () => {
       const { controller } = await makeController();
       controller.attachScene(new THREE.Scene(), new THREE.PerspectiveCamera());
