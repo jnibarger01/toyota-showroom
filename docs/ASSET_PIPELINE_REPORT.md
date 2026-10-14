@@ -34,10 +34,10 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 
 ## GR Corolla body (`gr-corolla`)
 
-- Source: `/models/gr-corolla-2023/gr-corolla.glb` — 3725.7 KiB
-- Meshes: 44   Triangles: 482,036   Materials: 25   Textures: 3
+- Source: `/models/gr-corolla-2023/gr-corolla.glb` — 1213.9 KiB
+- Meshes: 44   Triangles: 182,527   Materials: 25   Textures: 3
 - Compression: draco
-- Largest textures: (unnamed) (2048×2048, 1669.5 KiB), (unnamed) (1024×1024, 669.7 KiB), (unnamed) (256×256, 2.5 KiB)
+- Largest textures: (unnamed) (1024×1024, 347.3 KiB), (unnamed) (1024×1024, 155.6 KiB), (unnamed) (256×256, 2.1 KiB)
 - Semantic contract: 12 satisfied, 0 unsatisfied
 
 ## Corolla GT-S (AE86) body (`ae86`)
@@ -58,18 +58,18 @@ touching a shipped GLB or a `lib/data/sceneMap/*.ts` entry.
 
 ## RAV4 Hybrid body (`rav4-hybrid`)
 
-- Source: `/models/rav4-hybrid-2023/rav4-hybrid.glb` — 3499.6 KiB
+- Source: `/models/rav4-hybrid-2023/rav4-hybrid.glb` — 2699.2 KiB
 - Meshes: 205   Triangles: 284,009   Materials: 21   Textures: 31
 - Compression: draco
-- Largest textures: (unnamed) (512×512, 317.2 KiB), (unnamed) (512×512, 282.1 KiB), (unnamed) (512×512, 162.0 KiB)
+- Largest textures: (unnamed) (512×512, 86.4 KiB), (unnamed) (512×512, 75.9 KiB), (unnamed) (512×512, 62.0 KiB)
 - Semantic contract: 11 satisfied, 0 unsatisfied
 
 ## Land Cruiser body (`land-cruiser`)
 
-- Source: `/models/land-cruiser-250-2025/land-cruiser-250.glb` — 4417.8 KiB
+- Source: `/models/land-cruiser-250-2025/land-cruiser-250.glb` — 3597.5 KiB
 - Meshes: 289   Triangles: 708,340   Materials: 36   Textures: 9
 - Compression: draco
-- Largest textures: (unnamed) (1024×1024, 605.0 KiB), (unnamed) (512×512, 358.4 KiB), (unnamed) (2048×1024, 37.6 KiB)
+- Largest textures: (unnamed) (1024×1024, 87.1 KiB), (unnamed) (512×512, 70.0 KiB), (unnamed) (2048×1024, 37.6 KiB)
 - Semantic contract: 10 satisfied, 0 unsatisfied
 
 ## GR Supra body (`gr-supra`)

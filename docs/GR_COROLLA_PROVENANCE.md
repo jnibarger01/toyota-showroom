@@ -6,9 +6,12 @@ added it), optimized by `scripts/optimize-models.mjs` to
 
 - Source SHA-256: `47feb3fddd7d6253a7e251a28784e1b58487d6e6d6e55ae0503d46823f8476fc`
 - Source size: 20,142,488 bytes (19.21 MiB), generator `Sketchfab-0.3.0`, uncompressed
-- Shipped size: 3.64 MiB — Draco (edgebreaker) + dedup + prune; textures kept (`texturePolicy: "preserve"`)
-- Contract: 64 nodes, 44 meshes, 25 materials, 3 textures, 0 animations, ~482k triangles. Every
-  node and material name is preserved by the optimization.
+- Shipped size: 1.19 MiB — Draco (edgebreaker) + dedup + prune, then a second pass that
+  WebP-encodes the textures (the 2048² glass normal is capped at 1024, quality 93) and simplifies
+  non-paint meshes under a 0.05% error bound. Paint, roof, and spoiler triangles are left intact.
+  `texturePolicy` stays `preserve`. Low tier loads `gr-corolla.lod1.glb` (~0.25 MiB).
+- Contract: 64 nodes, 44 meshes, 25 materials, 3 textures, 0 animations, ~183k triangles on the
+  full asset (was ~482k; the paint primitive stays ~17k). Every node and material name is preserved.
 - **License / author: not recorded in the file.** Node names (`desirefx.me_014.*`) suggest a
   desirefx.me-distributed source. Confirm the license permits redistribution before a public deploy.
 

@@ -80,9 +80,9 @@ const MODELS = [
   // repackaging the container only; the primitives are already Draco-compressed on read, and the
   // draco() transform below re-applies the same codec on write, not a different one.
   { path: asset("rav4-2024/rav4_2024_limited_decoded.gltf"), label: "RAV4 body" },
-  { path: asset("rav4-hybrid-2023/rav4-hybrid.glb"), label: "2023 RAV4 Hybrid" },
-  { path: asset("land-cruiser-250-2025/land-cruiser-250.glb"), label: "2025 Land Cruiser 250" },
-  { path: asset("gr-corolla-2023/gr-corolla.glb"), label: "2023 GR Corolla" },
+  { path: asset("rav4-hybrid-2023/rav4-hybrid.glb"), label: "2023 RAV4 Hybrid", simplify: true, webp: true, lod: true },
+  { path: asset("land-cruiser-250-2025/land-cruiser-250.glb"), label: "2025 Land Cruiser 250", simplify: true, webp: true, lod: true },
+  { path: asset("gr-corolla-2023/gr-corolla.glb"), label: "2023 GR Corolla", simplify: true, webp: true, lod: true },
 ];
 
 /**
@@ -108,9 +108,12 @@ const MODELS = [
  *
  * ## WebP textures (`webp: true`)
  *
- * PNG colour/ORM textures are re-encoded as WebP (`EXT_texture_webp`, which `GLTFLoader` decodes
- * natively) and capped at 2048px. Normal maps keep their original lossless format and are only
- * resized: lossy compression on a normal map shows up as faceting in reflections.
+ * Colour, ORM, and emissive images are re-encoded as WebP (`EXT_texture_webp`, which `GLTFLoader`
+ * decodes natively) and capped at 2048px. Normal maps are WebP too, but at a higher quality and
+ * never larger than 1024px: the GR Corolla ships a 2048² glass normal (1.6 MiB of PNG noise) and
+ * the Land Cruiser / RAV4 Hybrid ship 0.3–0.6 MiB PNG normals that are nearly flat. Quality 93
+ * keeps the tangent-space detail; a second, lower-quality pass is what facets clearcoat, and this
+ * script refuses to run that (`normalWebp` on the pipeline marker).
  *
  * ## LOD (`lod: true`)
  *
@@ -148,6 +151,8 @@ const LOD_PAINT_ERROR = 0.002;
  * texture re-encoding do not change any count `summarize` reports.
  */
 const PIPELINE_MARKER = "showroomPipeline";
+/** Bumped when the texture pass changes. Geometry that already has `simplify: true` is not run again. */
+const PIPELINE_REVISION = 3;
 
 function triangleCount(primitive) {
   const indices = primitive.getIndices();
@@ -180,16 +185,29 @@ function simplifyDocument(document, { ratio, error, minTriangles, skipMaterial =
   return { before, after };
 }
 
-function textureTransforms({ maxSize, normalMaxSize }) {
+function textureTransforms({ maxSize, normalMaxSize, formats }) {
+  const shared = formats ? { formats } : {};
   return [
     textureCompress({
       encoder: sharp,
       targetFormat: "webp",
       resize: [maxSize, maxSize],
-      quality: 88,
+      quality: 90,
+      effort: 6,
       slots: /^(?!normalTexture).*$/,
+      ...shared,
     }),
-    textureCompress({ encoder: sharp, resize: [normalMaxSize, normalMaxSize], slots: /^normalTexture$/ }),
+    // Normals stay sharper than colour maps (q93, 4:4:4-equivalent WebP — no chroma subsampling
+    // knob on WebP, so quality carries it). Resize cap is what removes the 2K glass normal.
+    textureCompress({
+      encoder: sharp,
+      targetFormat: "webp",
+      resize: [normalMaxSize, normalMaxSize],
+      quality: 93,
+      effort: 6,
+      slots: /^normalTexture$/,
+      ...shared,
+    }),
   ];
 }
 
@@ -370,23 +388,48 @@ for (const { path: sourcePath, label, stripTextures = false, simplify = false, w
 
   if (lod) lodJobs.push({ path: targetPath, label });
 
-  const wantedMarker = { revision: 2, simplify, webp };
   const marker = readPipelineMarker(sourcePath);
-  const markerCurrent = JSON.stringify(marker) === JSON.stringify(wantedMarker);
+  // A previous revision already simplified this file. Do not run meshoptimizer again: the error
+  // bound compounds, and paint highlights move even when the catalog names are untouched.
+  const geometryDone = marker?.simplify === true;
+  const texturesDone =
+    !webp || (marker?.webp === true && marker?.normalWebp === true && marker?.revision >= PIPELINE_REVISION);
+  const pendingSimplify = Boolean(simplify) && !geometryDone;
+  const pendingTextures = Boolean(webp) && !texturesDone;
+  const wantedMarker = {
+    revision: PIPELINE_REVISION,
+    simplify: Boolean(simplify),
+    webp: Boolean(webp),
+    normalWebp: Boolean(webp),
+  };
 
   const bytesBefore = statSync(sourcePath).size;
   const wasDracoEncoded = isAlreadyDracoEncoded(sourcePath);
+
+  // Decode is the expensive step, and Draco decode + re-encode is lossy. Bail before `io.read`
+  // when this revision has nothing left to do to an already-compressed file.
+  if (!FORCE && !REPORT_ONLY && !rewritesContainer && wasDracoEncoded && !pendingSimplify && !pendingTextures) {
+    console.log(`${label}: already optimized (${mib(bytesBefore)}).`);
+    totalBefore += bytesBefore;
+    totalAfter += bytesBefore;
+    continue;
+  }
+
   const document = await io.read(sourcePath);
   const before = summarize(document);
 
   const removedTargets = dropDeadMorphTargets(document);
   if (stripTextures) stripMaterialTextures(document);
-  // Only on a file that has not already been through this revision: a second simplify pass would
-  // compound error, the same reason the Draco re-encode refuses to run twice.
-  const simplified = simplify && !markerCurrent
+  const simplified = pendingSimplify
     ? simplifyDocument(document, { ratio: SIMPLIFY_RATIO, error: SIMPLIFY_ERROR, minTriangles: SIMPLIFY_MIN_TRIANGLES, skipMaterial: paintMatcherFor(sourcePath) })
     : null;
-  if (webp && !markerCurrent) await document.transform(...textureTransforms({ maxSize: 2048, normalMaxSize: 1024 }));
+  // Only PNG/JPEG: re-encoding an existing WebP at the same quality is a second generation for
+  // no gain. Normals that are still PNG are the case this revision exists for.
+  if (pendingTextures) {
+    await document.transform(
+      ...textureTransforms({ maxSize: 2048, normalMaxSize: 1024, formats: /png|jpeg/ }),
+    );
+  }
 
   await document.transform(
     // Merges byte-identical meshes into shared references so the Draco pass encodes that geometry
@@ -425,7 +468,9 @@ for (const { path: sourcePath, label, stripTextures = false, simplify = false, w
     continue;
   }
 
-  if (!FORCE && !rewritesContainer && wasDracoEncoded && structurallyUnchanged && (markerCurrent || (!simplify && !webp))) {
+  const pendingWrite =
+    FORCE || rewritesContainer || !wasDracoEncoded || pendingSimplify || pendingTextures || removedTargets > 0 || !structurallyUnchanged;
+  if (!pendingWrite) {
     console.log(`${label}: already optimized (${mib(bytesBefore)}).`);
     totalBefore += bytesBefore;
     totalAfter += bytesBefore;

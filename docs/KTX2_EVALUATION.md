@@ -1,5 +1,15 @@
 # KTX2 / Basis Universal texture compression — evaluation
 
+> **Update.** The inventory below was taken when the catalog was the 4Runner and the AE86. Later
+> vehicles (GR Corolla, RAV4 Hybrid, Land Cruiser) ship multi-hundred-KiB textures. Those were
+> re-encoded as WebP (`EXT_texture_webp`, already decoded by `GLTFLoader`) in
+> `scripts/optimize-models.mjs` — colour/ORM at quality 90, normal maps at quality 93 and capped at
+> 1024px. KTX2 is still not adopted: it needs an external Basis encoder plus a runtime transcoder,
+> and WebP already removed the download that those textures were costing. GPU-memory compression
+> remains a follow-up if a vehicle arrives with multi-megabyte 2K/4K PBR sets.
+
+
+
 Mission Priority 4. Evaluates KTX2/Basis Universal adoption for the vehicle assets currently
 shipped in `public/models/`.
 
