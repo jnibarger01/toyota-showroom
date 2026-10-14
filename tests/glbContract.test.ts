@@ -179,13 +179,15 @@ describe("shipped GLB payload budget", () => {
     "/models/camry/camry.glb": 3.5 * 1024 * 1024,
     "/models/camry/camry.lod1.glb": 2 * 1024 * 1024,
     "/models/modsnation_7416_assets_assembled.lod1.glb": 1 * 1024 * 1024,
-    // ~3.64 MiB after Draco (19.21 MiB Sketchfab source, textures kept). 5 MiB leaves headroom.
-    "/models/gr-corolla-2023/gr-corolla.glb": 5 * 1024 * 1024,
+    // ~3.64 MiB after Draco (19.21 MiB Sketchfab source). WebP + paint-preserving simplify
+    // brought it down further; 4 MiB still leaves headroom under the original payload.
+    "/models/gr-corolla-2023/gr-corolla.glb": 4 * 1024 * 1024,
+    "/models/gr-corolla-2023/gr-corolla.lod1.glb": 2 * 1024 * 1024,
     "/models/gr-supra-2024/toyota_gr_supra.glb": 18 * 1024 * 1024,
-    // ~3.42 MiB: paint-preserving simplification plus WebP textures (was 4.61 MiB).
+    // ~2.64 MiB after PNG normal maps were re-encoded as WebP (was 3.42 MiB; triangles unchanged).
     "/models/rav4-hybrid-2023/rav4-hybrid.glb": 4.25 * 1024 * 1024,
     "/models/rav4-hybrid-2023/rav4-hybrid.lod1.glb": 2 * 1024 * 1024,
-    // ~4.31 MiB: 1.56M -> 0.73M triangles outside the paint, WebP textures (was 7.37 MiB).
+    // ~3.51 MiB after the same normal-map WebP pass (was 4.31 MiB; triangles unchanged).
     "/models/land-cruiser-250-2025/land-cruiser-250.glb": 5.25 * 1024 * 1024,
     "/models/land-cruiser-250-2025/land-cruiser-250.lod1.glb": 3 * 1024 * 1024,
   };

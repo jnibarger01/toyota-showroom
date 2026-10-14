@@ -34,7 +34,7 @@ not adaptive.
 ## Model detail and LOD
 
 `scripts/optimize-models.mjs` does two geometry passes beyond Draco on the heavy bodies (Camry,
-RAV4 Hybrid, Land Cruiser):
+RAV4 Hybrid, Land Cruiser, GR Corolla):
 
 - **Full asset:** meshoptimizer simplification at a 0.05% error bound on every primitive of ≥4k
   triangles *except paint*, plus WebP colour textures (≤2048px). Paint is excluded by exact material
@@ -46,8 +46,9 @@ RAV4 Hybrid, Land Cruiser):
 
 | Model | Before | Full | LOD1 |
 |---|---|---|---|
-| Land Cruiser 250 | 7.37 MiB / 1.56M tris | 4.31 MiB / 0.71M | 2.18 MiB / 0.35M |
-| RAV4 Hybrid | 4.60 MiB / 0.37M | 3.42 MiB / 0.28M | 1.52 MiB / 0.07M |
+| Land Cruiser 250 | 7.37 MiB / 1.56M tris | 3.51 MiB / 0.71M | 2.05 MiB / 0.35M |
+| RAV4 Hybrid | 4.60 MiB / 0.37M | 2.64 MiB / 0.28M | 1.14 MiB / 0.07M |
+| GR Corolla | 19.21 MiB / 0.48M tris | 1.19 MiB / 0.18M | 0.25 MiB / 0.04M |
 | Camry | 3.91 MiB / 1.23M | 2.58 MiB / 0.60M | 1.40 MiB / 0.20M |
 | 4Runner | 1.21 MiB / 0.33M | unchanged | 0.52 MiB / 0.11M |
 

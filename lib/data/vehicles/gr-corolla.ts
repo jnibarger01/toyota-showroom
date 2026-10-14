@@ -114,6 +114,7 @@ export const grCorolla: Vehicle = {
   threeDConfig: {
     hasModel: true,
     modelUrl: "/models/gr-corolla-2023/gr-corolla.glb",
+    lodModelUrl: "/models/gr-corolla-2023/gr-corolla.lod1.glb",
     // Sketchfab export: ~18.9 units long for a 4.38 m car, authored along X. Scale to metres and
     // yaw 90° so the nose lands on -z like the rest of the catalog (confirmed in the thumbnail).
     scale: [0.231, 0.231, 0.231],
