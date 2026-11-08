@@ -90,6 +90,7 @@ describe("Toyota Showroom v2 panel", () => {
       category: "paint",
       label: "Rally Red",
       operation: "material-update",
+      compatibleVehicleIds: ["4runner"],
       materialConfig: { color: "#aa0011" },
     };
     const wheel: CustomizationOption = {
@@ -97,6 +98,7 @@ describe("Toyota Showroom v2 panel", () => {
       category: "wheels",
       label: "Forged Preview",
       operation: "material-update",
+      compatibleVehicleIds: ["4runner"],
     };
     const props = { ...defaults(), paintOptions: [paint], wheelOptions: [wheel] };
     render(<ShowroomV2Panel {...props} />);
