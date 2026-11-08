@@ -168,7 +168,7 @@ export function ShowroomV2Panel({
               <button type="button" aria-pressed={doorsOpen} onClick={onToggleDoors}>Open doors <span>{doorsOpen ? "On" : "Off"}</span></button>
             ) : null}
             {driverViewAvailable ? (
-              <button type="button" aria-pressed={driverView} onClick={onToggleDriverView}>Driver's view <span>{driverView ? "On" : "Off"}</span></button>
+              <button type="button" aria-pressed={driverView} onClick={onToggleDriverView}>Driver&apos;s view <span>{driverView ? "On" : "Off"}</span></button>
             ) : null}
           </div>
           <p className={styles.note}>X-ray and exploded views require independently modeled parts; unavailable controls are intentionally omitted.</p>
