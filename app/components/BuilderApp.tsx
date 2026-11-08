@@ -47,7 +47,6 @@ import { BuyerFlowNav } from "./BuyerFlowNav";
 import { LAMP_MODES, type LampMode } from "../../lib/three/vehicleLights";
 import { dimensionSpecsFrom } from "../../lib/showroom/dimensionSpecs";
 import { PaintStudioPanel } from "./PaintStudioPanel";
-import { ShowroomV2Panel } from "./ShowroomV2Panel";
 import showroomV2Styles from "./ShowroomV2Panel.module.css";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
@@ -130,6 +129,8 @@ import {
  * become interactive before that chunk finishes downloading.
  */
 const VehicleCanvas = lazy(() => import("./VehicleCanvas").then((module) => ({ default: module.VehicleCanvas })));
+/** The opt-in showroom shell stays out of the default builder bundle. */
+const ShowroomV2Panel = lazy(() => import("./ShowroomV2Panel").then((module) => ({ default: module.ShowroomV2Panel })));
 /** QR share card (#50) — keeps `uqr` out of the BuilderApp chrome chunk. */
 const ShareQrCard = lazy(() => import("./ShareQrCard").then((module) => ({ default: module.ShareQrCard })));
 
@@ -1847,6 +1848,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           )}
 
           {showroomV2 && !showSpin ? (
+            <Suspense fallback={null}>
             <ShowroomV2Panel
               vehicle={vehicle}
               cameraPresets={cameraPresets}
@@ -1892,6 +1894,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               onLampModeChange={setLampMode}
               onExit={() => setShowroomV2(false)}
             />
+            </Suspense>
           ) : null}
           <div className="gpu-status">
             {showSpin ? (
