@@ -1,0 +1,246 @@
+/* Showroom v2 is an opt-in presentation over the existing verified GLB viewer. */
+.studioMode { grid-template-columns: minmax(0, 1fr); }
+.studioMode :global(.left-rail),
+.studioMode :global(.right-panel),
+.studioMode :global(.stage-toolbar),
+.studioMode :global(.mobile-config-trigger),
+.studioMode :global(.mobile-panel-backdrop),
+.studioMode :global(.gpu-status) { display: none !important; }
+.studioMode :global(.stage) {
+  min-width: 0;
+  background: radial-gradient(ellipse 95% 90% at 48% 31%, #f0f0f3 0%, #d4d5db 72%, #a6a9b2 100%);
+}
+.studioMode :global(.selected-part-badge) { right: 375px; }
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+  color: #16171b;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+.hero {
+  position: absolute;
+  top: 24px;
+  left: 26px;
+  max-width: min(430px, calc(100% - 410px));
+  text-shadow: 0 1px 10px rgba(255,255,255,.5);
+}
+.kicker {
+  display: block;
+  color: #ae1024;
+  text-transform: uppercase;
+  letter-spacing: .17em;
+  font-size: 10px;
+  font-weight: 800;
+}
+.hero h2 {
+  text-transform: uppercase;
+  font-size: clamp(28px, 4vw, 52px);
+  font-weight: 900;
+  letter-spacing: -.035em;
+  line-height: 1;
+  margin: 7px 0;
+}
+.hero p { margin: 0; font-size: 13px; font-weight: 600; }
+.assetNote { display: block; margin-top: 8px; color: #40444b; font-size: 10px; line-height: 1.5; }
+
+.panel {
+  pointer-events: auto;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 354px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 20px 20px 28px;
+  border-left: 1px solid #d3d4d9;
+  background: #fcfcfd;
+  box-shadow: -15px 0 45px rgba(19,22,29,.11);
+  color: #1b1d21;
+}
+.panelHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 3px 0 18px;
+}
+.panelHeader h2 { font-size: 18px; line-height: 1.2; margin: 5px 0 0; }
+.exit {
+  flex-shrink: 0;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  background: #f0f0f2;
+  border: 1px solid #d4d4da;
+  border-radius: 9px;
+  padding: 8px 9px;
+}
+.section { border-top: 1px solid #e1e1e5; padding: 17px 0 15px; }
+.section h3 {
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #4c5057;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.swatches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.paintChoice { min-width: 0; }
+.paintChoice :global(button) {
+  display: block;
+  width: 100%;
+  height: 29px;
+  border: 1px solid #bdc0c7;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.paintChoice :global(button[aria-pressed="true"]) {
+  outline: 2px solid #ae1024;
+  outline-offset: 2px;
+}
+.paintChoice span {
+  color: #555860;
+  display: block;
+  font-size: 10px;
+  margin-top: 7px;
+  line-height: 1.2;
+}
+.note {
+  color: #565a63;
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 8px 0 0;
+}
+.textAction {
+  border: 0;
+  background: transparent;
+  padding: 9px 0 0;
+  color: #a61227;
+  font-size: 11px;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chips :global(.option-chip),
+.choice {
+  min-height: 33px;
+  width: auto;
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid #d5d6dc;
+  background: #f0f0f3;
+  color: #22252a;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.chips :global(.option-chip.active),
+.choice[aria-pressed="true"] {
+  color: white;
+  background: #a51025;
+  border-color: #a51025;
+}
+.chips :global(.option-chip:disabled) { opacity: .55; cursor: wait; }
+.chips :global(.option-preview-badge) { font-size: 9px; }
+.views { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.views button {
+  min-height: 38px;
+  padding: 8px;
+  text-align: left;
+  background: #f2f2f4;
+  border: 1px solid #d7d8de;
+  color: #25272c;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.views button.selected { border-color: #a51025; box-shadow: inset 0 0 0 1px #a51025; }
+.toggles { display: grid; gap: 5px; }
+.toggles button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  text-align: left;
+  cursor: pointer;
+  padding: 10px 11px;
+  color: #272a30;
+  background: #f2f2f4;
+  border: 1px solid #dedee4;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.toggles button span { color: #656976; }
+.toggles button[aria-pressed="true"] span { color: #a51025; }
+.disclaimer {
+  border-top: 1px solid #e1e1e5;
+  margin: 16px 0 0;
+  padding-top: 15px;
+  color: #636771;
+  font-size: 10px;
+  line-height: 1.55;
+}
+.specStrip {
+  position: absolute;
+  left: 22px;
+  bottom: 20px;
+  max-width: calc(100% - 406px);
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid #d2d2da;
+  border-radius: 10px;
+  background: rgba(255,255,255,.94);
+  overflow: hidden;
+}
+.specCell {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 10px 14px;
+  min-width: 98px;
+  border-right: 1px solid #e0e0e5;
+}
+.specCell:last-child { border-right: 0; }
+.specCell strong { font-size: 14px; line-height: 1.15; white-space: nowrap; }
+.specCell span {
+  font-size: 9px;
+  font-weight: 700;
+  color: #585d65;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.panel :is(button, a):focus-visible {
+  outline: 2px solid #a51025;
+  outline-offset: 3px;
+}
+@media (max-width: 920px) {
+  .studioMode { grid-template-columns: minmax(0, 1fr); }
+  .hero { top: 15px; left: 16px; max-width: calc(100% - 30px); }
+  .hero h2 { font-size: clamp(24px, 7vw, 36px); }
+  .hero .assetNote { max-width: 65%; }
+  .panel {
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    height: min(45%, 420px);
+    border-left: 0;
+    border-top: 1px solid #d3d4d9;
+    box-shadow: 0 -12px 40px rgba(19,22,29,.12);
+    padding: 14px 17px 24px;
+  }
+  .specStrip { display: none; }
+  .studioMode :global(.selected-part-badge) { right: 12px; top: 98px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel { scroll-behavior: auto; }
+}
