@@ -1235,7 +1235,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         <div className="top-actions">
           <button
             type="button"
-            className="ghost"
+            className={showroomV2Styles.entryButton}
             data-testid="showroom-v2-toggle"
             aria-pressed={showroomV2}
             onClick={() => {
@@ -1250,7 +1250,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
               setEnvironmentPreset("Daytime");
             }}
           >
-            {showroomV2 ? "Builder" : "Showroom v2"}
+            {showroomV2 ? "Builder" : "Studio v2"}
           </button>
           <button className="ghost icon-action" title="Undo (Ctrl/⌘ Z)" disabled={!historyAvailability.canUndo} onClick={() => void restoreHistory("undo")}><Undo2 size={16} /></button>
           <button className="ghost icon-action" title="Redo (Ctrl/⌘ Shift Z)" disabled={!historyAvailability.canRedo} onClick={() => void restoreHistory("redo")}><Redo2 size={16} /></button>
