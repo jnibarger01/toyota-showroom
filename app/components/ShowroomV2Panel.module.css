@@ -1,3 +1,20 @@
+.entryButton {
+  border-radius: 9px;
+  border: 1px solid #9b3341 !important;
+  background: #3b161d;
+  color: white;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.entryButton[aria-pressed="true"] { background: #eb0a1e; border-color: #eb0a1e !important; }
+.entryButton:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+@media (max-width: 560px) {
+  .entryButton { padding: 0 7px; font-size: 10px; }
+}
+
 /* Showroom v2 is an opt-in presentation over the existing verified GLB viewer. */
 .studioMode { grid-template-columns: minmax(0, 1fr); }
 .studioMode :global(.left-rail),
