@@ -47,6 +47,7 @@ import { BuyerFlowNav } from "./BuyerFlowNav";
 import { LAMP_MODES, type LampMode } from "../../lib/three/vehicleLights";
 import { dimensionSpecsFrom } from "../../lib/showroom/dimensionSpecs";
 import { PaintStudioPanel } from "./PaintStudioPanel";
+import showroomV2Styles from "./ShowroomV2Panel.module.css";
 import { CanvasErrorBoundary } from "./CanvasErrorBoundary";
 import { getVehicle, pageUrl } from "../../lib/api/client";
 import * as configurationsApi from "../../lib/api/configurations";
@@ -128,6 +129,8 @@ import {
  * become interactive before that chunk finishes downloading.
  */
 const VehicleCanvas = lazy(() => import("./VehicleCanvas").then((module) => ({ default: module.VehicleCanvas })));
+/** The opt-in showroom shell stays out of the default builder bundle. */
+const ShowroomV2Panel = lazy(() => import("./ShowroomV2Panel").then((module) => ({ default: module.ShowroomV2Panel })));
 /** QR share card (#50) — keeps `uqr` out of the BuilderApp chrome chunk. */
 const ShareQrCard = lazy(() => import("./ShareQrCard").then((module) => ({ default: module.ShareQrCard })));
 
@@ -248,6 +251,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
   const [terrain, setTerrain] = useState<Terrain>("Studio");
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>("Daytime");
   const [visualMode, setVisualMode] = useState<"oem" | "3d">("oem");
+  const [showroomV2, setShowroomV2] = useState(false);
   const [activeBuyerStep, setActiveBuyerStep] = useState<BuyerStepId | "studio">("exterior");
   const [activeCategory, setActiveCategory] = useState<CustomizationCategory>("paint");
   const [garageMessage, setGarageMessage] = useState("Changes save automatically");
@@ -1230,6 +1234,25 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
           <button onClick={() => window.location.assign(pageUrl("garage"))}>Garage</button>
         </nav>
         <div className="top-actions">
+          <button
+            type="button"
+            className={showroomV2Styles.entryButton}
+            data-testid="showroom-v2-toggle"
+            aria-pressed={showroomV2}
+            onClick={() => {
+              if (showroomV2) {
+                setShowroomV2(false);
+                return;
+              }
+              setShowroomV2(true);
+              setMobilePanelOpen(false);
+              setVisualMode("3d");
+              setTerrain("Studio");
+              setEnvironmentPreset("Daytime");
+            }}
+          >
+            {showroomV2 ? "Builder" : "Studio v2"}
+          </button>
           <button className="ghost icon-action" title="Undo (Ctrl/⌘ Z)" disabled={!historyAvailability.canUndo} onClick={() => void restoreHistory("undo")}><Undo2 size={16} /></button>
           <button className="ghost icon-action" title="Redo (Ctrl/⌘ Shift Z)" disabled={!historyAvailability.canRedo} onClick={() => void restoreHistory("redo")}><Redo2 size={16} /></button>
           <button className="ghost" onClick={() => void reset()}>
@@ -1468,7 +1491,7 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
         <p className="print-summary-disclaimer">Estimate only — not a real financing offer. Actual rate and terms depend on credit and lender.</p>
       </section>
 
-      <section className="workspace">
+      <section className={showroomV2 ? "workspace " + showroomV2Styles.studioMode : "workspace"}>
         <aside className="left-rail">
           <div className="vehicle-title">
             <span>{vehicle.year} TOYOTA</span>
@@ -1824,6 +1847,55 @@ export function BuilderApp({ vehicleSlug = DEFAULT_VEHICLE_SLUG }: Props) {
             </div>
           )}
 
+          {showroomV2 && !showSpin ? (
+            <Suspense fallback={null}>
+            <ShowroomV2Panel
+              vehicle={vehicle}
+              cameraPresets={cameraPresets}
+              activePresetId={preset.id}
+              onCameraChange={(item) => {
+                if (cinematicTourStatus !== "idle") dispatchCinematicTour("cancel");
+                setDriverView(false);
+                setPreset(item);
+                configurationStore.setCameraState({
+                  presetId: item.id,
+                  position: item.position,
+                  target: item.target,
+                });
+              }}
+              paintOptions={oemPaintColourOptions}
+              finishOptions={catalog.filter((option) =>
+                option.category === "paint" && selectionGroupOf(option) === PAINT_FINISH_GROUP,
+              )}
+              wheelOptions={catalog.filter((option) => option.category === "wheels")}
+              paintMode={configuration?.paintStudio?.mode ?? "oem"}
+              onBeforePaintChange={rememberPaintHistory}
+              onBeforeWheelChange={rememberHistory}
+              onEditCategory={(category) => {
+                setShowroomV2(false);
+                openCategory(category);
+              }}
+              selectedGradeName={selectedGrade?.name}
+              lift={lift}
+              onLiftChange={setLift}
+              showHotspots={showHotspots}
+              hotspotsAvailable={hotspotsAvailable}
+              onToggleHotspots={() => setShowHotspots((on) => !on)}
+              showDimensions={showDimensions}
+              onToggleDimensions={() => setShowDimensions((on) => !on)}
+              doorsAvailable={doorsAvailable}
+              doorsOpen={doorsOpen}
+              onToggleDoors={() => setDoorsOpen((on) => !on)}
+              driverViewAvailable={driverViewAvailable}
+              driverView={driverView}
+              onToggleDriverView={() => setDriverView((on) => !on)}
+              lampModes={lampModes}
+              lampMode={lampMode}
+              onLampModeChange={setLampMode}
+              onExit={() => setShowroomV2(false)}
+            />
+            </Suspense>
+          ) : null}
           <div className="gpu-status">
             {showSpin ? (
               <>
