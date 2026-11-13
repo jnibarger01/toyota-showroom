@@ -54,6 +54,10 @@ export const landCruiser: Vehicle = {
     lodModelUrl: "/models/land-cruiser-250-2025/land-cruiser-250.lod1.glb",
     rotation: [0, 0, 0],
     texturePolicy: "preserve",
+    // The GLB keeps its textures, but the mirror material was authored with no baseColorFactor
+    // and no baseColorTexture, so the side mirrors render flat white. Light_emiss is left
+    // alone — it is a light lens. See tests/materialColorFallbacks.test.ts.
+    materialColorFallbacks: { mirror: "#111417" },
     cameraPresets: [
       { id: "hero", label: "Hero", position: [7.4, 3.2, -8.0], target: [0, 1.1, 0] },
       { id: "front", label: "Front", position: [0, 2.0, -9.5], target: [0, 1.0, 0] },

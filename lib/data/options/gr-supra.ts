@@ -10,7 +10,6 @@ export const grSupraOptions: CustomizationOption[] = [
   paint("supra-paint-black", "Black", "#101114"),
   paint("supra-paint-gray", "Steel Gray Metallic", "#59616a"),
   paint("supra-paint-red", "Renaissance Red 2.0", "#b51f2c", { metalness: .6 }),
-  paint("supra-paint-blue", "Deep Blue", "#174c93"),
   paint("supra-paint-yellow", "Nitro Yellow", "#e4c21c", { metalness: .5 }),
   option("supra-wheels-stock", "wheels", "Factory wheels", wheels, ["Wheel1A"], { color: "#36383c", metalness: .85, roughness: .3 }),
   option("supra-wheels-dark", "wheels", "Dark forged finish", wheels, ["Wheel1A"], { color: "#111317", metalness: .8, roughness: .42 }, 650),
