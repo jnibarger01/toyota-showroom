@@ -170,6 +170,26 @@ export interface Vehicle3DConfig {
   rotation?: [number, number, number];
   /** Optional renderer compatibility policy for authored textures that fail on a target backend. */
   texturePolicy?: "preserve" | "factors-only";
+  /**
+   * Base colors for materials whose color lived in a texture that no longer ships.
+   *
+   * `scripts/optimize-models.mjs` strips textures from some assets (GR Supra, Camry — see
+   * `stripTextures` there), and `factors-only` strips the rest at load. A material whose
+   * `baseColorFactor` was never authored then defaults to white, so grilles, interiors, engines
+   * and — worst — the Supra's whole wheel assemblies render flat white, and no paint option can
+   * fix them because paint only targets `paintableMaterialNames`.
+   *
+   * Each entry is a material name → sRGB hex, applied by `prepareVehicleRoot` only when that
+   * material is textureless and still white after the texture policy runs. A material with a
+   * real factor or a surviving texture is never touched, so a future re-authored GLB silently
+   * wins over the fallback. Keep entries to parts whose color is unambiguous from the part
+   * itself (tires are black, grilles are dark, chrome is silver). The one deliberate exception
+   * is the Camry's `Decals`: badge/label quads whose authored texture is gone, where dark is
+   * the least-wrong single color (dark lettering reads correctly; a white quad reads as a
+   * sticker). Do not guess at stitching or lights, whose authored color cannot be derived
+   * from the name.
+   */
+  materialColorFallbacks?: Record<string, string>;
   cameraPresets: CameraPresetConfig[];
   paintableMaterialNames: string[];
   wheelMountNames: string[];

@@ -14,8 +14,8 @@ export const grSupra: Vehicle = {
     "i6-3.0l": { id: "i6-3.0l", type: "gas", engine: "3.0L turbocharged inline-6", horsepowerHp: 382, torqueLbFt: 368, transmission: "6-speed manual or 8-speed automatic", drivetrain: "rwd", fuelEconomy: { unit: "mpg", city: 22, highway: 30, combined: 25 } },
   },
   grades: [
-    { id: "2-0", name: "2.0", msrp: 45540, powertrainId: "i4-2.0l", seating: 2, availableExteriorColorCodes: ["040", "202", "1G3", "3U5", "8X7", "yellow"], availableInteriorColorCodes: ["black"], standardFeatures: ["255-hp turbocharged engine", "Active rear sport differential", "8.8-in touchscreen"], packages: [] },
-    { id: "3-0-premium", name: "3.0 Premium", msrp: 54890, powertrainId: "i6-3.0l", seating: 2, availableExteriorColorCodes: ["040", "202", "1G3", "3U5", "8X7", "yellow"], availableInteriorColorCodes: ["black"], standardFeatures: ["382-hp turbocharged engine", "Adaptive variable suspension", "JBL audio", "Head-up display"], packages: [] },
+    { id: "2-0", name: "2.0", msrp: 45540, powertrainId: "i4-2.0l", seating: 2, availableExteriorColorCodes: ["040", "202", "1G3", "3U5", "8X7"], availableInteriorColorCodes: ["black"], standardFeatures: ["255-hp turbocharged engine", "Active rear sport differential", "8.8-in touchscreen"], packages: [] },
+    { id: "3-0-premium", name: "3.0 Premium", msrp: 54890, powertrainId: "i6-3.0l", seating: 2, availableExteriorColorCodes: ["040", "202", "1G3", "3U5", "8X7"], availableInteriorColorCodes: ["black"], standardFeatures: ["382-hp turbocharged engine", "Adaptive variable suspension", "JBL audio", "Head-up display"], packages: [] },
   ],
   specs: [
     { category: "dimensions", key: "length_in", label: "Overall length", value: 172.5, unit: "in" },
@@ -34,8 +34,6 @@ export const grSupra: Vehicle = {
     { code: "1G3", name: "Steel Gray Metallic", hex: "#59616a", availableGradeIds: ["2-0", "3-0-premium"] },
     { code: "3U5", name: "Renaissance Red 2.0", hex: "#b51f2c", availableGradeIds: ["2-0", "3-0-premium"], isPremium: true },
     { code: "8X7", name: "Nitro Yellow", hex: "#e4c21c", availableGradeIds: ["2-0", "3-0-premium"], isPremium: true },
-    { code: "blue", name: "Deep Blue", hex: "#174c93", availableGradeIds: ["2-0", "3-0-premium"] },
-    { code: "yellow", name: "Solar Yellow", hex: "#f1b91b", availableGradeIds: ["2-0", "3-0-premium"], isPremium: true },
   ],
   interiorColors: [{ code: "black", name: "Black leather", hex: "#18191b", material: "leather", availableGradeIds: ["2-0", "3-0-premium"] }],
   media: {
@@ -51,6 +49,19 @@ export const grSupra: Vehicle = {
     // the generic Vehicle3DConfig boundary so the shared camera and grounding logic see a car-sized
     // object rather than baking a Supra-only transform into VehicleCanvas.
     hasModel: true, modelUrl: "/models/gr-supra-2024/toyota_gr_supra.glb", scale: [100, 100, 100], rotation: [0, 0, 0], texturePolicy: "factors-only",
+    // The shipped GLB carries no textures (stripped by scripts/optimize-models.mjs), so every
+    // material below defaults to white: the whole wheel assemblies (one Wheel1A material covers
+    // tyre and rim), all grilles, the interior tub and the engine. Verified against the GLB's
+    // material table — each name exists there with no baseColorFactor and no baseColorTexture.
+    // Lights stay white on purpose (clear lenses); see tests/materialColorFallbacks.test.ts.
+    materialColorFallbacks: {
+      Wheel1A: "#0d0d0d",
+      Grille1A: "#161616", Grille2A: "#161616", Grille3A: "#161616", Grille4A: "#161616",
+      Grille5A: "#161616", Grille6A: "#161616", Grille7A: "#161616",
+      InteriorBase: "#171717", InteriorBaseOpacity: "#171717",
+      Engine: "#202020", Engine_0: "#202020", EngineOpacity: "#202020", EngineOpacity_0: "#202020",
+      BadgeA: "#b9bdc2",
+    },
     // After prepareVehicleRoot's π yaw this asset's nose points at -z (verified in the rendered
     // catalog thumbnail); the earlier +z hero/front presets both framed the tail.
     cameraPresets: [{ id: "hero", label: "Hero", position: [4.2, 2.1, -5.8], target: [0, 1.1, 0] }, { id: "front", label: "Front", position: [0, 1.5, -6], target: [0, 1, 0] }, { id: "side", label: "Side", position: [5.5, 1.5, 0], target: [0, 1, 0] }],

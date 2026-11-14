@@ -19,6 +19,16 @@ const CHUNK_TYPE_JSON = 0x4e4f534a; // "JSON"
 
 interface GltfMaterial {
   name?: string;
+  pbrMetallicRoughness?: {
+    baseColorFactor?: [number, number, number, number];
+    baseColorTexture?: unknown;
+  };
+}
+
+/** What a material's base color actually is in the file: authored factor, texture, or neither. */
+export interface MaterialFactors {
+  hasBaseColorTexture: boolean;
+  baseColorFactor?: [number, number, number, number];
 }
 
 interface GltfMeshPrimitive {
@@ -58,6 +68,8 @@ export interface GlbJson {
 }
 
 export interface GlbInspection {
+  /** Material name → whether its base color comes from a texture, an authored factor, or neither. */
+  materials: Map<string, MaterialFactors>;
   /** Every named node in the document (mesh-bearing or transform-only). */
   nodeNames: Set<string>;
   /** Node name → the set of material names its mesh (if any) carries across all primitives. */
@@ -102,6 +114,14 @@ export function readGlbJson(filePath: string): GlbJson {
 /** Parses a `.glb` file at `filePath` into the node/material name maps the catalog checks against. */
 export function inspectGlb(filePath: string): GlbInspection {
   const document = readGlbJsonChunk(readFileSync(filePath));
+  const materials = new Map<string, MaterialFactors>();
+  for (const material of document.materials ?? []) {
+    if (!material.name) continue;
+    materials.set(material.name, {
+      hasBaseColorTexture: material.pbrMetallicRoughness?.baseColorTexture !== undefined,
+      baseColorFactor: material.pbrMetallicRoughness?.baseColorFactor,
+    });
+  }
   const nodeNames = new Set<string>();
   const materialsByNode = new Map<string, Set<string>>();
 
@@ -162,5 +182,5 @@ export function inspectGlb(filePath: string): GlbInspection {
     else materialsInSubtree.set(name, new Set(names));
   }
 
-  return { nodeNames, materialsByNode, materialsInSubtree };
+  return { materials, nodeNames, materialsByNode, materialsInSubtree };
 }
