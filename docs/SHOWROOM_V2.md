@@ -36,6 +36,15 @@ Showroom. Existing Toyota GLBs and their provenance remain unchanged.
 - **Missing vehicle assets:** the catalog remains truthful; no generic placeholder is
   presented as a production-accurate Tacoma, AE86, or other model.
 - **Reference asset license:** this PR changes no third-party GLB and imports none.
+- **White-default materials:** some shipped GLBs lost their textures at build time
+  (GR Supra, Camry — `scripts/optimize-models.mjs` `stripTextures`), so materials whose
+  color lived only in a texture default to white: the Supra's wheel assemblies, grilles,
+  interior and engine, the Camry's chrome, mirrors and decals. The catalog repairs exactly
+  those materials with `materialColorFallbacks` (applied by `prepareVehicleRoot` only when
+  a named material is textureless and still white — see `lib/three/materialColorFallbacks.ts`
+  and `tests/materialColorFallbacks.test.ts`). A fallback is a flat color, not the authored
+  texture: it fixes the white, it does not restore tread, lettering or grille detail. The
+  long-term fix is the asset-quality gate below, re-authoring or re-sourcing those GLBs.
 
 ## Acceptance checks
 

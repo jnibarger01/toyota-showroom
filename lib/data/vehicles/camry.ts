@@ -116,6 +116,17 @@ export const camry: Vehicle = {
     scale: [100, 100, 100],
     rotation: [0, 0, 0],
     texturePolicy: "factors-only",
+    // As with the Supra, the shipped GLB carries no textures (stripped by
+    // scripts/optimize-models.mjs), so the materials below default to white: chrome garnish,
+    // mirrors and decals. Verified against the GLB's material table. Decals is the deliberate
+    // approximation (dark lettering, see the Vehicle3DConfig comment). Stitches, door lights
+    // and interior fabric are left alone — white is plausible for those and cannot be derived
+    // from the name; see tests/materialColorFallbacks.test.ts.
+    materialColorFallbacks: {
+      Ext_Chorme: "#c9cbcd", Int_Chrome: "#c9cbcd", Dash_Chrome: "#c9cbcd",
+      Mirror: "#111417",
+      Decals: "#1a1a1a",
+    },
     cameraPresets: [
       { id: "hero", label: "Hero", position: [5.3, 2.0, -5.3], target: [0, 0.9, 0] },
       { id: "wheels", label: "Wheels", position: [4.4, 1.0, 3.8], target: [-0.8, 0.55, 1.2] },

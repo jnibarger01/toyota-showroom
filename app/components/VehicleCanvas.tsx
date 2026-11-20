@@ -66,6 +66,7 @@ import {
 import { RenderController } from "../../lib/three/renderController";
 import { FloorReflection } from "../../lib/three/floorReflection";
 import { FrontWheelSteer, steerAngleForPreset } from "../../lib/three/steering";
+import { applyMaterialColorFallbacks } from "../../lib/three/materialColorFallbacks";
 import type { LampMode } from "../../lib/three/vehicleLights";
 import { DoorRig } from "../../lib/three/doors";
 import { driverEyeFromSteeringWheel } from "../../lib/three/interiorView";
@@ -1763,6 +1764,10 @@ export function prepareVehicleRoot(root: THREE.Object3D, threeDConfig: Vehicle3D
     root.position.y += size.y / 2;
   }
   if (threeDConfig.texturePolicy === "factors-only") stripMaterialTextures(root);
+  // After stripping: a material whose color lived only in a texture is now flat white.
+  // The catalog's fallbacks repair exactly those materials (see materialColorFallbacks.ts);
+  // anything with a real factor or a surviving texture is left alone.
+  applyMaterialColorFallbacks(root, threeDConfig.materialColorFallbacks);
 }
 
 /**

@@ -7,6 +7,7 @@ import { FOUR_RUNNER_SCENE_MAP } from "../lib/data/sceneMap/4runner";
 function inspection(nodeNames: string[], materialsByNode: Record<string, string[]> = {}): GlbInspection {
   const byNode = new Map(Object.entries(materialsByNode).map(([node, names]) => [node, new Set(names)]));
   return {
+    materials: new Map(),
     nodeNames: new Set(nodeNames),
     materialsByNode: byNode,
     // These fixtures describe flat, leaf-level nodes, so a node's subtree is the node itself.
